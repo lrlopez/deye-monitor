@@ -2,9 +2,11 @@
 #include <WiFi.h>
 #include <lvgl.h>
 #include "config.h"
+#include "storage.h"
 #include "solarman.h"
 #include "dashboard.h"
 #include "stats_screen.h"
+#include "config_screen.h"
 
 /* Change to your screen resolution */
 static uint32_t screenWidth = 480;
@@ -32,7 +34,6 @@ Arduino_GFX *gfx = new Arduino_RGB_Display(screenWidth, screenHeight, panel);
 /*******************************************************************************
  * End of Arduino_GFX setting
  ******************************************************************************/
-
 
 #include "touch.h"
 
@@ -87,25 +88,28 @@ static SemaphoreHandle_t g_mutex;
 static volatile bool     g_energy_ready = false;
 static volatile bool     g_daily_ready  = false;
 
+// Config en RAM cargada desde NVS al arrancar
+static AppConfig g_cfg;
+
 // ── Tarea de red (Core 0) ─────────────────────────────────────────────────
 static void solarmanTask(void* /*pv*/) {
-    SolarmanClient client(LOGGER_IP, LOGGER_PORT, LOGGER_SERIAL, MODBUS_UNIT_ID);
+    // Usamos g_cfg que ya fue rellenado en setup() desde NVS
+    SolarmanClient client(g_cfg.logger_ip, LOGGER_PORT,
+                          g_cfg.logger_serial, MODBUS_UNIT_ID);
     EnergyData  local_e;
     DailyStats  local_d;
     uint32_t    last_daily = millis() - POLL_DAILY_MS + POLL_INTERVAL_MS;
 
     for (;;) {
-        // Reconexión WiFi
         if (WiFi.status() != WL_CONNECTED) {
             Serial0.println("[WiFi] Reconectando...");
-            WiFi.begin(WIFI_SSID, WIFI_PASS);
+            WiFi.begin(g_cfg.wifi_ssid, g_cfg.wifi_pass);
             uint32_t t = millis();
             while (WiFi.status() != WL_CONNECTED && millis() - t < 15000)
                 vTaskDelay(pdMS_TO_TICKS(500));
         }
 
         if (WiFi.status() == WL_CONNECTED) {
-            // Datos en tiempo real (cada POLL_INTERVAL_MS)
             if (client.fetchEnergyData(local_e)) {
                 Serial0.printf("[Live] PV:%dW Grid:%dW Bat:%dW(%d%%) Load:%dW\n",
                     (int)local_e.pv_power, (int)local_e.grid_power,
@@ -118,7 +122,6 @@ static void solarmanTask(void* /*pv*/) {
                 }
             }
 
-            // Estadísticas diarias (cada POLL_DAILY_MS)
             if (millis() - last_daily >= POLL_DAILY_MS) {
                 if (client.fetchDailyStats(local_d)) {
                     if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -175,26 +178,37 @@ void setup() {
 
     // ─────────────────────────────────────────────────────────────────────
 
-    // WiFi
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    Serial0.print("[WiFi] Conectando");
-    while (WiFi.status() != WL_CONNECTED) { delay(500); Serial0.print('.'); }
-    Serial0.printf("\n[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
+    // NVS → config en RAM
+    Storage.loadConfig(g_cfg);
 
-    // ── Tileview: dos pantallas horizontales ──────────────────────────────
+    // WiFi con valores de NVS
+    WiFi.begin(g_cfg.wifi_ssid, g_cfg.wifi_pass);
+    Serial0.print("[WiFi] Conectando");
+    uint32_t t0 = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) {
+        delay(500); Serial0.print('.');
+    }
+    if (WiFi.status() == WL_CONNECTED)
+        Serial0.printf("\n[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
+    else
+        Serial0.println("\n[WiFi] Sin conexion – se reintentará en la tarea");
+
+    // ── Tileview: 3 pantallas horizontales ───────────────────────────────
     lv_obj_t* tv = lv_tileview_create(lv_scr_act());
     lv_obj_set_size(tv, 480, 272);
     lv_obj_set_pos(tv, 0, 0);
     lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_style_bg_color(tv, lv_color_hex(0x0D1117), 0);
 
-    lv_obj_t* tile_dash  = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);
-    lv_obj_t* tile_stats = lv_tileview_add_tile(tv, 1, 0, LV_DIR_LEFT);
+    lv_obj_t* tile_dash   = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);
+    lv_obj_t* tile_stats  = lv_tileview_add_tile(tv, 1, 0, LV_DIR_HOR);
+    lv_obj_t* tile_config = lv_tileview_add_tile(tv, 2, 0, LV_DIR_LEFT);
 
     dashboard_init(tile_dash);
     stats_screen_init(tile_stats);
+    config_screen_init(tile_config);
 
-    // Mutex + tarea
+    // Mutex + tarea de red en Core 0
     g_mutex = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(solarmanTask, "solarman",
                              8192, nullptr, 1, nullptr, 0);
@@ -205,16 +219,12 @@ void loop() {
     lv_timer_handler();
 
     if (xSemaphoreTake(g_mutex, 0) == pdTRUE) {
-        if (g_energy_ready) {
-            dashboard_update(g_energy);
-            g_energy_ready = false;
-        }
-        if (g_daily_ready) {
-            stats_screen_update(g_daily);
-            g_daily_ready = false;
-        }
+        if (g_energy_ready) { dashboard_update(g_energy);    g_energy_ready = false; }
+        if (g_daily_ready)  { stats_screen_update(g_daily);  g_daily_ready  = false; }
         xSemaphoreGive(g_mutex);
     }
+
+    config_screen_tick();   // refresca IP/RSSI cada 5 s, coste mínimo
 
     delay(5);
 }
