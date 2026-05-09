@@ -52,6 +52,7 @@ static bool        s_scanning  = false;
 // ── Config gráfica (estáticos para save_btn_cb) ───────────────────────────
 static lv_obj_t* cb_autoscale;
 static lv_obj_t* ta_kw;
+static lv_obj_t* slider_kw_global = nullptr;
 
 // ── Timestamp último refresco red ─────────────────────────────────────────
 static uint32_t s_last_net_refresh = 0;
@@ -71,6 +72,7 @@ static lv_obj_t* make_section(lv_obj_t* parent, const char* title, int y, int h)
     lv_obj_set_style_radius(card, 8, 0);
     lv_obj_set_style_pad_all(card, SEC_PAD, 0);
     lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* lbl = lv_label_create(card);
     lv_obj_set_pos(lbl, 0, 0);
@@ -314,8 +316,7 @@ static void save_btn_cb(lv_event_t* /*e*/) {
 
     ChartConfig ccfg;
     ccfg.autoscale = lv_obj_has_state(cb_autoscale, LV_STATE_CHECKED);
-    ccfg.max_kw    = (uint8_t)atoi(lv_textarea_get_text(ta_kw));
-    if (ccfg.max_kw < 1 || ccfg.max_kw > 20) ccfg.max_kw = 6;
+    ccfg.max_kw = (uint8_t)lv_slider_get_value(slider_kw_global);
 
     Storage.saveConfig(cfg);
     Storage.saveChartConfig(ccfg);
@@ -332,14 +333,28 @@ static void save_btn_cb(lv_event_t* /*e*/) {
 // Inicialización
 // ═════════════════════════════════════════════════════════════════════════
 void config_screen_init(lv_obj_t* parent) {
-    s_parent_screen = parent;   // guardar para el dropdown
+    s_parent_screen = parent;
 
     lv_obj_set_style_bg_color(parent, C_BG, 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
-    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_OFF);
 
-    AppConfig    cfg  = {}; Storage.loadConfig(cfg);
-    ChartConfig  ccfg = Storage.loadChartConfig();
+    // ── Scroll vertical habilitado ────────────────────────────────────────
+    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_ACTIVE);
+    lv_obj_set_scroll_dir(parent, LV_DIR_VER);
+    lv_obj_set_style_pad_bottom(parent, 12, 0);
+
+    AppConfig   cfg  = {}; Storage.loadConfig(cfg);
+    ChartConfig ccfg = Storage.loadChartConfig();
+
+    // ── Posiciones Y apiladas sin solapamiento ────────────────────────────
+    // Título         y=6    h=20  → bottom=26
+    // sec_wifi       y=30   h=108 → bottom=138
+    // sec_inv        y=142  h=108 → bottom=250
+    // sec_chart      y=254  h=70  → bottom=324
+    // sec_net        y=328  h=58  → bottom=386
+    // lbl_status     y=392
+    // btn Guardar    y=390
+    // (contenido total ~434px, scrolleable)
 
     // ── Título ────────────────────────────────────────────────────────────
     lv_obj_t* title = lv_label_create(parent);
@@ -349,17 +364,15 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_color(title, C_MUTED, 0);
     lv_label_set_text(title, LV_SYMBOL_SETTINGS "  Configuracion");
 
-    // ── Sección WiFi (y=28, h=108) ────────────────────────────────────────
-    lv_obj_t* sec_wifi = make_section(parent, "RED WiFi", 28, 108);
+    // ── Sección WiFi ──────────────────────────────────────────────────────
+    lv_obj_t* sec_wifi = make_section(parent, LV_SYMBOL_WIFI "RED WiFi", 30, 108);
 
-    // Fila SSID: label + textarea reducido + botón scan
     make_row_label(sec_wifi, 18, "SSID");
     ta_ssid = make_field(sec_wifi, LBL_W, 18, FIELD_W, false, "Nombre red WiFi");
     lv_textarea_set_text(ta_ssid, cfg.wifi_ssid);
     lv_obj_add_event_cb(ta_ssid, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_ssid, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
 
-    // Botón scan pegado a la derecha del textarea
     scan_btn = lv_btn_create(sec_wifi);
     lv_obj_set_pos(scan_btn, LBL_W + FIELD_W + 4, 18);
     lv_obj_set_size(scan_btn, SCAN_BTN_W, FIELD_H);
@@ -376,16 +389,15 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_font(scan_btn_lbl, &lv_font_montserrat_14, 0);
     lv_obj_center(scan_btn_lbl);
 
-    // Fila contraseña
     make_row_label(sec_wifi, 62, "Contrasena");
-    ta_pass = make_field(sec_wifi, LBL_W, 62, FIELD_W + SCAN_BTN_W + 4,
-                         true, "Contrasena WiFi");
+    ta_pass = make_field(sec_wifi, LBL_W, 62,
+                         FIELD_W + SCAN_BTN_W + 4, true, "Contrasena WiFi");
     lv_textarea_set_text(ta_pass, cfg.wifi_pass);
     lv_obj_add_event_cb(ta_pass, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_pass, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
 
-    // ── Sección Inversor (y=144, h=108) ───────────────────────────────────
-    lv_obj_t* sec_inv = make_section(parent, "INVERSOR / DATALOGGER", 144, 108);
+    // ── Sección Inversor ──────────────────────────────────────────────────
+    lv_obj_t* sec_inv = make_section(parent, LV_SYMBOL_EDIT " INVERSOR / DATALOGGER", 142, 108);
 
     make_row_label(sec_inv, 18, "IP Logger");
     ta_logger_ip = make_field(sec_inv, LBL_W, 18,
@@ -397,15 +409,17 @@ void config_screen_init(lv_obj_t* parent) {
     make_row_label(sec_inv, 62, "Num. Serie");
     ta_logger_serial = make_field(sec_inv, LBL_W, 62,
                                   FIELD_W + SCAN_BTN_W + 4, false, "Decimal (etiqueta)");
-    char sbuf[16]; snprintf(sbuf, sizeof(sbuf), "%lu", (unsigned long)cfg.logger_serial);
+    char sbuf[16];
+    snprintf(sbuf, sizeof(sbuf), "%lu", (unsigned long)cfg.logger_serial);
     lv_textarea_set_text(ta_logger_serial, sbuf);
     lv_obj_add_event_cb(ta_logger_serial, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_logger_serial, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
 
-    // ── Sección Gráfica (y=260, h=56) ─────────────────────────────────────
-    // Pequeña, queda en el margen inferior
-    lv_obj_t* sec_chart = make_section(parent, LV_SYMBOL_CHARGE " GRAFICA", 260, 56);
+    // ── Sección Gráfica ───────────────────────────────────────────────────────
+    // h=100: fila checkbox(16+10) + fila label/valor(20) + fila slider(24) + padding
+    lv_obj_t* sec_chart = make_section(parent, LV_SYMBOL_CHARGE " GRAFICA", 254, 100);
 
+    // Fila 1: checkbox autoescalado  (y=16)
     cb_autoscale = lv_checkbox_create(sec_chart);
     lv_obj_set_pos(cb_autoscale, 0, 16);
     lv_checkbox_set_text(cb_autoscale, "Autoescalado");
@@ -413,30 +427,59 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_color(cb_autoscale, C_WHITE, 0);
     if (ccfg.autoscale) lv_obj_add_state(cb_autoscale, LV_STATE_CHECKED);
 
-    make_row_label(sec_chart, 16, "");   // spacer
+    // Fila 2: "Max kW:" a la izquierda, valor numérico a la derecha  (y=44)
     lv_obj_t* lkw = lv_label_create(sec_chart);
-    lv_obj_set_pos(lkw, 160, 26);
+    lv_obj_set_pos(lkw, 0, 46);
     lv_obj_set_style_text_font(lkw, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(lkw, C_MUTED, 0);
     lv_label_set_text(lkw, "Max kW:");
 
-    ta_kw = make_field(sec_chart, 240, 18, 60, false, "6");
-    lv_textarea_set_max_length(ta_kw, 2);
-    char kwbuf[4]; snprintf(kwbuf, sizeof(kwbuf), "%d", ccfg.max_kw);
-    lv_textarea_set_text(ta_kw, kwbuf);
-    lv_obj_add_event_cb(ta_kw, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
-    lv_obj_add_event_cb(ta_kw, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    lv_obj_t* lbl_kw_val = lv_label_create(sec_chart);
+    lv_obj_set_pos(lbl_kw_val, 70, 46);
+    lv_obj_set_style_text_font(lbl_kw_val, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(lbl_kw_val, C_WHITE, 0);
+    char kwbuf[8];
+    snprintf(kwbuf, sizeof(kwbuf), "%d kW", ccfg.max_kw);
+    lv_label_set_text(lbl_kw_val, kwbuf);
 
-    // ── Estado + Guardar (fijos, fuera de secciones) ───────────────────────
+    // Fila 3: slider ocupando todo el ancho menos márgenes  (y=66)
+    // Margen derecho de 16px para que el knob no sobresalga nunca
+    lv_obj_t* slider_kw = lv_slider_create(sec_chart);
+    lv_obj_set_pos(slider_kw, 0, 68);
+    lv_obj_set_size(slider_kw, SECTION_W - SEC_PAD * 2 - 16, 16);
+    lv_slider_set_range(slider_kw, 1, 20);
+    lv_slider_set_value(slider_kw, ccfg.max_kw, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(slider_kw, C_BTN,                   LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(slider_kw, lv_color_hex(0x21262D),  LV_PART_MAIN);
+    lv_obj_set_style_bg_color(slider_kw, C_WHITE,                 LV_PART_KNOB);
+    lv_obj_set_style_pad_all(slider_kw,  4,                       LV_PART_KNOB);
+
+    slider_kw_global = slider_kw;
+
+    lv_obj_add_event_cb(slider_kw, [](lv_event_t* e) {
+        lv_obj_t* sl  = (lv_obj_t*)lv_event_get_target(e);
+        lv_obj_t* lbl = (lv_obj_t*)lv_event_get_user_data(e);
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%d kW", (int)lv_slider_get_value(sl));
+        lv_label_set_text(lbl, buf);
+    }, LV_EVENT_VALUE_CHANGED, lbl_kw_val);
+
+    // ── Sección Estado red  (baja a 358 = 254+100+4) ──────────────────────────
+    lv_obj_t* sec_net = make_section(parent, LV_SYMBOL_GPS " ESTADO RED", 358, 70);
+    lbl_ip   = make_info_row(sec_net, 18, "IP ESP32");
+    lbl_rssi = make_info_row(sec_net, 38, "Senal WiFi");
+
+    // ── Botón Guardar + status  (bajan acordes) ───────────────────────────────
     lbl_status = lv_label_create(parent);
-    lv_obj_set_pos(lbl_status, 10, 322);  // fuera de vista salvo scroll
+    lv_obj_set_pos(lbl_status, 10, 438);
     lv_obj_set_width(lbl_status, 310);
     lv_obj_set_style_text_font(lbl_status, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(lbl_status, C_MUTED, 0);
     lv_label_set_text(lbl_status, "");
 
     lv_obj_t* btn = lv_btn_create(parent);
-    lv_obj_set_pos(btn, 340, 232); lv_obj_set_size(btn, 130, 36);
+    lv_obj_set_pos(btn, 340, 432);
+    lv_obj_set_size(btn, 130, 36);
     lv_obj_set_style_bg_color(btn, C_BTN, 0);
     lv_obj_set_style_radius(btn, 6, 0);
     lv_obj_add_event_cb(btn, save_btn_cb, LV_EVENT_CLICKED, nullptr);
@@ -446,13 +489,9 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_font(blbl, &lv_font_montserrat_14, 0);
     lv_obj_center(blbl);
 
-    // Estado de red (info de solo lectura, debajo del botón guardar)
-    lv_obj_t* sec_net = make_section(parent, "ESTADO RED", 274, 58);
-    lbl_ip   = make_info_row(sec_net, 18, "IP ESP32");
-    lbl_rssi = make_info_row(sec_net, 36, "Señal WiFi");
-
     // ── Teclado ────────────────────────────────────────────────────────────
-    kb = lv_keyboard_create(parent);
+    // El teclado se ancla a la pantalla raíz para no desplazarse con el scroll
+    kb = lv_keyboard_create(lv_scr_act());
     lv_obj_set_size(kb, 480, 140);
     lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
