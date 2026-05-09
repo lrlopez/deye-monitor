@@ -71,7 +71,8 @@ public:
     bool        getDayData(uint32_t day_epoch, DayData& out);
     void        saveChartConfig(const ChartConfig& cfg);
     ChartConfig loadChartConfig();
-
+    bool getDayRecord(uint32_t day_epoch, DailyRecord& out);
+    
 private:
     StorageManager() = default;
 

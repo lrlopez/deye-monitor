@@ -165,12 +165,12 @@ bool SolarmanClient::fetchDailyStats(DailyStats& out) {
                   + out.batt_charge_kwh - out.batt_discharge_kwh;
     float delta = out.pv_kwh - pv_calc;
     if (fabsf(delta) > 0.5f)
-        Serial.printf("[Daily] AVISO balance: reg108=%.2f calc=%.2f diff=%.2f kWh\n",
+        Serial0.printf("[Daily] AVISO balance: reg108=%.2f calc=%.2f diff=%.2f kWh\n",
                       out.pv_kwh, pv_calc, delta);
 
     out.valid = true;
 
-    Serial.printf("[Daily] PV:%.2f Exp:%.2f Imp:%.2f "
+    Serial0.printf("[Daily] PV:%.2f Exp:%.2f Imp:%.2f "
                   "BatC:%.2f BatD:%.2f Load:%.2f kWh\n",
                   out.pv_kwh, out.export_kwh, out.import_kwh,
                   out.batt_charge_kwh, out.batt_discharge_kwh, out.load_kwh);

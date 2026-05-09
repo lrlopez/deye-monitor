@@ -92,6 +92,7 @@ static SemaphoreHandle_t g_mutex;
 static volatile bool     g_energy_ready = false;
 static volatile bool     g_daily_ready  = false;
 static lv_obj_t*         g_tile_chart = nullptr;
+static lv_obj_t*         g_tile_stats = nullptr;
 
 // Config en RAM cargada desde NVS al arrancar
 static AppConfig g_cfg;
@@ -115,6 +116,8 @@ static void solarmanTask(void* /*pv*/) {
 
     static DailyStats s_hour_snap;
     static int        s_last_hour = -1;
+    static DailyStats s_prev_daily;   // snapshot del poll anterior
+    static int        s_last_day = -1;
 
     for (;;) {
         if (WiFi.status() != WL_CONNECTED) {
@@ -148,6 +151,40 @@ static void solarmanTask(void* /*pv*/) {
                 }
                 // Muestreo horario
                 struct tm tt;
+                if (local_d.valid && getLocalTime(&tt, 500)) {
+                    int cur_day = tt.tm_mday;
+
+                    if (s_last_day == -1) {
+                        // Primera lectura del dispositivo
+                        s_last_day   = cur_day;
+                        s_prev_daily = local_d;
+                    } else if (cur_day != s_last_day) {
+                        // El día cambió: s_prev_daily tiene los últimos valores de ayer
+                        if (s_prev_daily.valid) {
+                            // Calcular medianoche de ayer
+                            struct tm yday = tt;
+                            yday.tm_mday -= 1;
+                            yday.tm_hour = 0; yday.tm_min = 0; yday.tm_sec = 0; yday.tm_isdst = -1;
+
+                            DailyRecord rec{};
+                            rec.timestamp          = (uint32_t)mktime(&yday);
+                            rec.pv_kwh             = s_prev_daily.pv_kwh;
+                            rec.export_kwh         = s_prev_daily.export_kwh;
+                            rec.import_kwh         = s_prev_daily.import_kwh;
+                            rec.load_kwh           = s_prev_daily.load_kwh;
+                            rec.batt_charge_kwh    = s_prev_daily.batt_charge_kwh;
+                            rec.batt_discharge_kwh = s_prev_daily.batt_discharge_kwh;
+
+                            Storage.pushDailyRecord(rec);
+                            Serial0.printf("[Daily] Dia guardado: PV:%.2f Exp:%.2f Imp:%.2f "
+                                        "Load:%.2f BatC:%.2f BatD:%.2f kWh\n",
+                                        rec.pv_kwh, rec.export_kwh, rec.import_kwh,
+                                        rec.load_kwh, rec.batt_charge_kwh, rec.batt_discharge_kwh);
+                        }
+                        s_last_day = cur_day;
+                    }
+                    s_prev_daily = local_d;   // actualizar siempre
+                }
                 if (getLocalTime(&tt, 500)) {
                     int cur = tt.tm_hour;
                     if (s_last_hour == -1) {
@@ -176,7 +213,7 @@ static void solarmanTask(void* /*pv*/) {
                             day_ep -= 86400;   // la hora 23 pertenece al día anterior
 
                         Storage.saveHourlyRecord(day_ep, (uint8_t)s_last_hour, rec);
-                        Serial.printf("[Hourly] %02d:00 PV:%dWh Grid:%+dWh Bat:%+dWh Load:%dWh SOC:%d%%\n",
+                        Serial0.printf("[Hourly] %02d:00 PV:%dWh Grid:%+dWh Bat:%+dWh Load:%dWh SOC:%d%%\n",
                             s_last_hour,
                             rec.pv_wh, (int)rec.import_wh - rec.export_wh,
                             (int)rec.batt_charge_wh - rec.batt_discharge_wh,
@@ -253,10 +290,10 @@ void setup() {
     configTime(0, 0, "es.pool.ntp.org", "time.cloudflare.com");
     setenv("TZ", TIMEZONE, 1);
     tzset();
-    Serial.print("[NTP] Sincronizando");
+    Serial0.print("[NTP] Sincronizando");
     struct tm ntp_t;
-    for (int i = 0; i < 20 && !getLocalTime(&ntp_t, 500); i++) Serial.print('.');
-    Serial.println(getLocalTime(&ntp_t, 0) ? " OK" : " TIMEOUT");
+    for (int i = 0; i < 20 && !getLocalTime(&ntp_t, 500); i++) Serial0.print('.');
+    Serial0.println(getLocalTime(&ntp_t, 0) ? " OK" : " TIMEOUT");
 
     // ── Tileview: 4 pantallas horizontales ───────────────────────────────
     lv_obj_t* tv = lv_tileview_create(lv_scr_act());
@@ -266,12 +303,12 @@ void setup() {
     lv_obj_set_style_bg_color(tv, lv_color_hex(0x0D1117), 0);
 
     lv_obj_t* tile_dash   = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);
-    lv_obj_t* tile_stats  = lv_tileview_add_tile(tv, 1, 0, LV_DIR_HOR);
+    g_tile_stats          = lv_tileview_add_tile(tv, 1, 0, LV_DIR_HOR);
     g_tile_chart          = lv_tileview_add_tile(tv, 2, 0, LV_DIR_HOR);
     lv_obj_t* tile_config = lv_tileview_add_tile(tv, 3, 0, LV_DIR_LEFT);
 
     dashboard_init(tile_dash);
-    stats_screen_init(tile_stats);
+    stats_screen_init(g_tile_stats);
     chart_screen_init(g_tile_chart);
     config_screen_init(tile_config);
 
@@ -279,6 +316,7 @@ void setup() {
     lv_obj_add_event_cb(tv, [](lv_event_t* e) {
         lv_obj_t* tile = lv_tileview_get_tile_active(lv_event_get_target_obj(e));
         chart_screen_set_active(tile == g_tile_chart);
+        stats_screen_set_active(tile == g_tile_stats);
     }, LV_EVENT_VALUE_CHANGED, nullptr);
 
     // Mutex + tarea de red en Core 0

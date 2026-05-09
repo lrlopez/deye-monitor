@@ -79,24 +79,24 @@ void touch(TPoint p, TEvent e)
   switch (e)
   {
   case TEvent::Tap:
-    Serial.println("Tap");
+    Serial0.println("Tap");
     touch_touched_flag = true;
     touch_released_flag = true;
     break;
   case TEvent::DragStart:
-    Serial.println("DragStart");
+    Serial0.println("DragStart");
     touch_touched_flag = true;
     break;
   case TEvent::DragMove:
-    Serial.println("DragMove");
+    Serial0.println("DragMove");
     touch_touched_flag = true;
     break;
   case TEvent::DragEnd:
-    Serial.println("DragEnd");
+    Serial0.println("DragEnd");
     touch_released_flag = true;
     break;
   default:
-    Serial.println("UNKNOWN");
+    Serial0.println("UNKNOWN");
     break;
   }
 }

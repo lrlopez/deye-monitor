@@ -192,3 +192,12 @@ ChartConfig StorageManager::loadChartConfig() {
     p.end();
     return cfg;
 }
+
+bool StorageManager::getDayRecord(uint32_t day_epoch, DailyRecord& out) {
+    DailyRecord buf[DAILY_HISTORY_SIZE];
+    uint8_t n = getDailyHistory(buf, DAILY_HISTORY_SIZE);
+    for (uint8_t i = 0; i < n; i++) {
+        if (buf[i].timestamp == day_epoch) { out = buf[i]; return true; }
+    }
+    return false;
+}

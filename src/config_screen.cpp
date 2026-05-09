@@ -197,8 +197,8 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_add_event_cb(ta_logger_serial, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_logger_serial, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
     
-    // ── Sección Gráfica (y=256, h=114) ─────────────────────────────────────────
-    lv_obj_t* sec_chart = make_section(parent, LV_SYMBOL_CHARGE " GRAFICA", 256, 114);
+    // ── Sección Gráfica (y=256, h=106) ─────────────────────────────────────────
+    lv_obj_t* sec_chart = make_section(parent, LV_SYMBOL_CHARGE " GRAFICA", 256, 106);
 
     ChartConfig ccfg = Storage.loadChartConfig();
 
@@ -211,11 +211,11 @@ void config_screen_init(lv_obj_t* parent) {
     if (ccfg.autoscale) lv_obj_add_state(cb, LV_STATE_CHECKED);
 
     // Spinbox max kW (visible solo si !autoscale)
-    lv_obj_t* lbl_kw = lv_label_create(sec_chart);
+    /*lv_obj_t* lbl_kw = lv_label_create(sec_chart);
     lv_obj_set_pos(lbl_kw, 0, 44);
     lv_obj_set_style_text_font(lbl_kw, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(lbl_kw, C_MUTED, 0);
-    lv_label_set_text(lbl_kw, "Maximo kW:");
+    lv_label_set_text(lbl_kw, "Maximo kW:");*/
 
     ta_kw = make_field_row(sec_chart, 40, "Max kW", false, "6");
     lv_textarea_set_max_length(ta_kw, 2);
