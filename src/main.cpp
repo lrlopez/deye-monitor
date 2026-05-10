@@ -339,8 +339,9 @@ void loop() {
         xSemaphoreGive(g_mutex);
     }
 
-    config_screen_tick();   // refresca IP/RSSI cada 5 s, coste mínimo
+    dashboard_tick();
     chart_screen_tick();
+    config_screen_tick();   // refresca IP/RSSI cada 5 s, coste mínimo
 
     delay(5);
 }

@@ -79,7 +79,7 @@ static void handle_root() {
          font-size:.7rem;margin:20px 0 28px}
   a{color:var(--accent);text-decoration:none}
 </style></head><body>
-<h1>&#9889; Deye Monitor – ) ";
+<h1>&#9889; Deye Monitor – )";
     html += WiFi.localIP().toString();
     html += R"(</h1>
 
@@ -246,8 +246,8 @@ async function refresh() {
     document.getElementById('grid-sub').textContent = gridTxt;
 
     const battCol = l.batt_w >= 0 ? '#2ecc71' : '#e74c3c';
-    const battTxt = l.batt_w > 0  ? 'Cargando'
-                  : l.batt_w < 0  ? 'Descargando' : 'En reposo';
+    const battTxt = l.batt_w > 0  ? 'Descargando'
+                  : l.batt_w < 0  ? 'Cargando' : 'En reposo';
     document.getElementById('batt-soc').textContent = l.batt_soc + '%';
     const bar = document.getElementById('batt-bar');
     bar.style.width      = l.batt_soc + '%';
