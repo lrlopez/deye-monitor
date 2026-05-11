@@ -120,6 +120,8 @@ static void solarmanTask(void* /*pv*/) {
     static int        s_last_hour = -1;
     static DailyStats s_prev_daily;   // snapshot del poll anterior
     static int        s_last_day = -1;
+    static bool          s_startup_done   = false;
+    static SessionState  s_session{};
 
     for (;;) {
         if (WiFi.status() != WL_CONNECTED) {
@@ -149,6 +151,98 @@ static void solarmanTask(void* /*pv*/) {
                         g_daily       = local_d;
                         g_daily_ready = true;
                         xSemaphoreGive(g_mutex);
+                    }
+
+                    // ── Startup: recuperar día/hora que no se registraron ─────────────────────
+                    if (!s_startup_done && local_d.valid) {
+                        s_startup_done = true;
+
+                        struct tm now_tm; getLocalTime(&now_tm, 500);
+                        struct tm mid_tm = now_tm;
+                        mid_tm.tm_hour = 0; mid_tm.tm_min = 0;
+                        mid_tm.tm_sec  = 0; mid_tm.tm_isdst = -1;
+                        uint32_t today_ep = (uint32_t)mktime(&mid_tm);
+
+                        SessionState saved{};
+                        if (Storage.loadSessionState(saved)) {
+                            // ── Recuperar día anterior no registrado ──────────────────────────
+                            if (saved.day_epoch < today_ep) {
+                                DailyRecord test{};
+                                if (!Storage.getDayRecord(saved.day_epoch, test)) {
+                                    // No había registro → guardar el último snapshot conocido
+                                    DailyRecord rec{};
+                                    rec.timestamp          = saved.day_epoch;
+                                    rec.pv_kwh             = saved.daily_snap.pv_kwh;
+                                    rec.export_kwh         = saved.daily_snap.export_kwh;
+                                    rec.import_kwh         = saved.daily_snap.import_kwh;
+                                    rec.load_kwh           = saved.daily_snap.load_kwh;
+                                    rec.batt_charge_kwh    = saved.daily_snap.batt_charge_kwh;
+                                    rec.batt_discharge_kwh = saved.daily_snap.batt_discharge_kwh;
+                                    Storage.pushDailyRecord(rec);
+                                    Serial.printf("[Startup] Dia %lu recuperado desde sesión\n",
+                                                (unsigned long)saved.day_epoch);
+                                }
+                            }
+
+                            // ── Recuperar hora perdida (mismo día) ────────────────────────────
+                            if (saved.day_epoch == today_ep &&
+                                saved.hour < (uint8_t)now_tm.tm_hour) {
+
+                                // Guardar la hora interrumpida con los datos que teníamos
+                                HourlyRecord hrec{};
+                                hrec.pv_wh             = delta_wh(saved.daily_snap.pv_kwh,
+                                                                saved.hour_snap.pv_kwh);
+                                hrec.export_wh         = delta_wh(saved.daily_snap.export_kwh,
+                                                                saved.hour_snap.export_kwh);
+                                hrec.import_wh         = delta_wh(saved.daily_snap.import_kwh,
+                                                                saved.hour_snap.import_kwh);
+                                hrec.batt_charge_wh    = delta_wh(saved.daily_snap.batt_charge_kwh,
+                                                                saved.hour_snap.batt_charge_kwh);
+                                hrec.batt_discharge_wh = delta_wh(saved.daily_snap.batt_discharge_kwh,
+                                                                saved.hour_snap.batt_discharge_kwh);
+                                hrec.load_wh           = delta_wh(saved.daily_snap.load_kwh,
+                                                                saved.hour_snap.load_kwh);
+                                hrec.soc               = (uint8_t)local_e.batt_soc;
+                                hrec.valid             = 1;
+                                Storage.saveHourlyRecord(today_ep, saved.hour, hrec);
+                                Serial.printf("[Startup] Hora %02d recuperada desde sesión\n",
+                                            saved.hour);
+
+                                // El snapshot de la hora en curso empieza desde el último dato
+                                s_hour_snap = saved.daily_snap;
+                                s_last_hour = now_tm.tm_hour;
+                            } else {
+                                // Día diferente o hora ya pasada: empezar hora desde cero
+                                s_hour_snap = local_d;
+                                s_last_hour = now_tm.tm_hour;
+                            }
+
+                            // Restaurar estado del día
+                            s_prev_daily = saved.daily_snap;
+                            s_last_day   = now_tm.tm_mday;
+
+                        } else {
+                            // Primera vez o NVS vacío: inicializar normalmente
+                            s_hour_snap  = local_d;
+                            s_last_hour  = now_tm.tm_hour;
+                            s_prev_daily = local_d;
+                            s_last_day   = now_tm.tm_mday;
+                        }
+                    }
+
+                    // ── Guardar sesión tras cada poll exitoso ─────────────────────────────────
+                    if (local_d.valid && s_startup_done) {
+                        struct tm ct; getLocalTime(&ct, 500);
+                        struct tm mt = ct;
+                        mt.tm_hour = 0; mt.tm_min = 0; mt.tm_sec = 0; mt.tm_isdst = -1;
+
+                        SessionState ss{};
+                        ss.day_epoch  = (uint32_t)mktime(&mt);
+                        ss.daily_snap = local_d;
+                        ss.hour       = (uint8_t)s_last_hour;
+                        ss.hour_snap  = s_hour_snap;
+                        ss.valid      = true;
+                        Storage.saveSessionState(ss);
                     }
                 }
                 // Muestreo horario
@@ -339,8 +433,15 @@ void loop() {
     lv_timer_handler();
 
     if (xSemaphoreTake(g_mutex, 0) == pdTRUE) {
-        if (g_energy_ready) { dashboard_update(g_energy);    g_energy_ready = false; }
-        if (g_daily_ready)  { stats_screen_update(g_daily);  g_daily_ready  = false; }
+        if (g_energy_ready) { 
+            dashboard_update(g_energy);    
+            g_energy_ready = false; 
+        }
+        if (g_daily_ready)  { 
+            stats_screen_update(g_daily);  
+            summary_screen_set_live(g_daily);
+            g_daily_ready  = false; 
+        }
         xSemaphoreGive(g_mutex);
     }
 

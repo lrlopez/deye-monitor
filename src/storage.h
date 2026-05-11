@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <Preferences.h>
+#include "solarman.h"
 
 // ── Configuración de red e inversor ──────────────────────────────────────
 struct AppConfig {
@@ -41,6 +42,17 @@ struct DayData {
     HourlyRecord hours[24];
 };  // 4 + 24×14 = 340 bytes — 7 días = 2380 bytes en NVS
 
+// ── Estado de sesión persistido en NVS ───────────────────────────────────
+// Se guarda tras cada poll exitoso. Al arrancar, permite recuperar
+// el día y la hora que no se registraron si el ESP32 estaba apagado.
+struct SessionState {
+    uint32_t   day_epoch;    // medianoche del último día activo
+    DailyStats daily_snap;   // último snapshot de totales diarios
+    uint8_t    hour;         // última hora procesada
+    DailyStats hour_snap;    // snapshot al inicio de esa hora
+    bool       valid;
+};
+
 // ── Config de la gráfica ──────────────────────────────────────────────────
 struct ChartConfig {
     bool    autoscale;
@@ -71,8 +83,10 @@ public:
     bool        getDayData(uint32_t day_epoch, DayData& out);
     void        saveChartConfig(const ChartConfig& cfg);
     ChartConfig loadChartConfig();
-    bool getDayRecord(uint32_t day_epoch, DailyRecord& out);
-    
+    bool        getDayRecord(uint32_t day_epoch, DailyRecord& out);
+    void        saveSessionState(const SessionState& s);
+    bool        loadSessionState(SessionState& s);
+
 private:
     StorageManager() = default;
 

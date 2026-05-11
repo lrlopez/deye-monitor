@@ -16,6 +16,7 @@ static const char* K_LSERIAL = "lserial";
 static const char* K_META    = "meta";
 // Los registros se guardan como "rXX" donde XX es el índice (00-89)
 // Ejemplo: "r00", "r01", ..., "r89"
+static const char* K_SESSION = "session";
 
 // ═════════════════════════════════════════════════════════════════════════
 // Config
@@ -200,4 +201,20 @@ bool StorageManager::getDayRecord(uint32_t day_epoch, DailyRecord& out) {
         if (buf[i].timestamp == day_epoch) { out = buf[i]; return true; }
     }
     return false;
+}
+
+void StorageManager::saveSessionState(const SessionState& s) {
+    Preferences p;
+    p.begin(NS_CFG, false);
+    p.putBytes(K_SESSION, &s, sizeof(s));
+    p.end();
+}
+
+bool StorageManager::loadSessionState(SessionState& s) {
+    Preferences p;
+    p.begin(NS_CFG, true);
+    bool ok = (p.getBytesLength(K_SESSION) == sizeof(SessionState));
+    if (ok) p.getBytes(K_SESSION, &s, sizeof(s));
+    p.end();
+    return ok && s.valid;
 }

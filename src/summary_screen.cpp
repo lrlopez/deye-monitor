@@ -42,6 +42,8 @@ static RowDrawData  s_rdd[7];
 static DailyRecord  s_recs[7];
 static int          s_offset = 0;
 static bool         s_needs_reload = false;
+static DailyStats   s_live_daily{};
+static bool         s_live_valid = false;
 
 // ── Widgets ───────────────────────────────────────────────────────────────
 static lv_obj_t *s_btn_prev, *s_btn_next, *s_lbl_period;
@@ -80,24 +82,45 @@ static uint32_t monday_epoch(int week_offset) {
 // ═════════════════════════════════════════════════════════════════════════
 static void load_data() {
     uint32_t mon = monday_epoch(s_offset);
+
+    // Época de medianoche de hoy para comparar
+    time_t now_t; time(&now_t);
+    struct tm now_tm; localtime_r(&now_t, &now_tm);
+    now_tm.tm_hour = 0; now_tm.tm_min = 0;
+    now_tm.tm_sec  = 0; now_tm.tm_isdst = -1;
+    uint32_t today_ep = (uint32_t)mktime(&now_tm);
+
     float con_max = 0.01f, pro_max = 0.01f;
 
-    // Pasada 1: cargar registros y encontrar máximos
+    // Pasada 1: cargar registros
     for (int i = 0; i < 7; i++) {
-        DailyRecord rec{}; rec.timestamp = mon + (uint32_t)i * 86400;
-        Storage.getDayRecord(rec.timestamp, rec);
+        uint32_t dep = mon + (uint32_t)i * 86400;
+        DailyRecord rec{}; rec.timestamp = dep;
+
+        if (dep == today_ep && s_live_valid) {
+            // Día actual: convertir DailyStats live a DailyRecord
+            rec.pv_kwh             = s_live_daily.pv_kwh;
+            rec.export_kwh         = s_live_daily.export_kwh;
+            rec.import_kwh         = s_live_daily.import_kwh;
+            rec.load_kwh           = s_live_daily.load_kwh;
+            rec.batt_charge_kwh    = s_live_daily.batt_charge_kwh;
+            rec.batt_discharge_kwh = s_live_daily.batt_discharge_kwh;
+        } else {
+            Storage.getDayRecord(dep, rec);
+        }
+
         s_recs[i] = rec;
         if (rec.load_kwh > con_max) con_max = rec.load_kwh;
         if (rec.pv_kwh   > pro_max) pro_max = rec.pv_kwh;
     }
 
-    // Pasada 2: calcular segmentos
+    // Pasada 2: calcular segmentos 
     for (int i = 0; i < 7; i++) {
         const DailyRecord& r = s_recs[i];
         bool has = (r.pv_kwh > 0.01f || r.load_kwh > 0.01f);
 
-        float pv_direct = r.load_kwh - r.batt_discharge_kwh - r.import_kwh;
-        if (pv_direct < 0) pv_direct = 0;
+        float pv_direct  = r.load_kwh - r.batt_discharge_kwh - r.import_kwh;
+        if (pv_direct  < 0) pv_direct  = 0;
         float pv_to_load = r.pv_kwh - r.export_kwh - r.batt_charge_kwh;
         if (pv_to_load < 0) pv_to_load = 0;
 
@@ -398,9 +421,9 @@ void summary_screen_init(lv_obj_t* parent) {
         {"PV",         C_CON_PV,   4,   0},
         {"Descarga",   C_CON_DIS,  50,  0},
         {"Import.",    C_CON_IMP,  130, 0},
-        {"Autocon.",   C_PRO_LOD,  4,   12},
-        {"Carga bat.", C_PRO_CHG,  80,  12},
-        {"Export.",    C_PRO_EXP,  178, 12},
+        {"Autocon.",   C_PRO_LOD,  210, 0},
+        {"Carga bat.", C_PRO_CHG,  286, 0},
+        {"Export.",    C_PRO_EXP,  384, 0},
     };
     int leg_y0 = NAV_H + CONT_H + 1;
     for (auto& lg : legs) {
@@ -487,4 +510,11 @@ void summary_screen_tick() {
     if (!s_needs_reload) return;
     s_needs_reload = false;
     load_and_render();
+}
+
+void summary_screen_set_live(const DailyStats& d) {
+    s_live_daily  = d;
+    s_live_valid  = d.valid;
+    // Si estamos en la semana actual, refrescar la fila de hoy
+    if (s_offset == 0) s_needs_reload = true;
 }
