@@ -110,6 +110,7 @@ void touch_init()
   ts.registerTouchHandler(touch);
 
 #elif defined(TOUCH_GT911)
+    Wire.setBufferSize(GT911_CONFIG_SIZE);
     Wire.begin(TOUCH_GT911_SDA, TOUCH_GT911_SCL);
     ts.begin();
     ts.setRotation(TOUCH_GT911_ROTATION);
