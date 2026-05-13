@@ -4,6 +4,7 @@
 #include <time.h>
 #include "web_server.h"
 #include "data_store.h"
+#include "psram_cache.h"
 
 static WebServer          server(80);
 static SemaphoreHandle_t  s_mutex   = nullptr;
@@ -190,7 +191,11 @@ static void handle_root() {
   </div>
 </div>
 
-<footer><a href="/update">&#8593; Actualizar firmware</a></footer>
+<footer>
+  <a href="/chart">&#128200; Gr&aacute;fica diaria</a>
+  &nbsp;|&nbsp;
+  <a href="/update">&#8593; Actualizar firmware</a>
+</footer>
 
 <!-- Status bar fija -->
 <div id="status-bar">
@@ -386,6 +391,490 @@ function upload(){
     server.send(200, "text/html; charset=utf-8", html);
 }
 
+static void handle_chart() {
+    // Página servida en chunks para no agotar el heap del ESP32
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.sendHeader("Content-Type", "text/html; charset=utf-8");
+    server.send(200);
+
+    // ── HEAD + estilos ────────────────────────────────────────────────────
+    server.sendContent(R"=EOF=(<!DOCTYPE html><html lang="es"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deye – Gráfica diaria</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<style>
+:root{
+  --bg:#0d1117;--card:#161b22;--muted:#6e7681;--white:#eaeaea;
+  --pv:#f5c518;--grid:#4a9eff;--batt:#2ecc71;--load:#bb6bd9;
+  --soc:#1a56db;--exp:#e88080;--ok:#2ecc71;--err:#e74c3c;
+  --border:#21262d;--accent:#4a9eff
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--white);font-family:system-ui,sans-serif;
+     min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--card);border-bottom:1px solid var(--border);
+       padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{font-size:1rem;color:var(--white);flex:1}
+.nav-bar{display:flex;align-items:center;gap:8px}
+.nav-btn{background:var(--border);border:none;color:var(--accent);
+         padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.9rem;
+         transition:background .2s}
+.nav-btn:hover{background:#2d333b}
+.nav-btn:disabled{opacity:.4;cursor:default}
+#date-lbl{font-size:.95rem;color:var(--white);min-width:140px;text-align:center}
+.today-badge{background:var(--accent);color:#fff;border-radius:4px;
+             font-size:.7rem;padding:2px 6px;margin-left:4px}
+main{flex:1;padding:12px 16px;display:flex;flex-direction:column;gap:12px}
+.chart-card{background:var(--card);border:1px solid var(--border);
+            border-radius:10px;padding:12px}
+.chart-card h2{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;
+               color:var(--muted);margin-bottom:10px}
+.chart-wrap{position:relative;height:260px}
+.donut-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.donut-box{display:flex;flex-direction:column;align-items:center;gap:6px;
+           background:var(--card);border:1px solid var(--border);
+           border-radius:10px;padding:12px;flex:1;min-width:180px;max-width:260px}
+.donut-box h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;
+              color:var(--muted)}
+.leg{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;
+     margin-top:4px;font-size:.7rem;width:100%}
+.leg-item{display:flex;align-items:center;gap:4px}
+.leg-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+footer{text-align:center;color:var(--muted);font-size:.7rem;
+       padding:10px;border-top:1px solid var(--border)}
+footer a{color:var(--accent);text-decoration:none}
+#status{position:fixed;bottom:28px;right:12px;
+        background:var(--card);border:1px solid var(--border);
+        border-radius:6px;padding:4px 10px;font-size:.7rem;color:var(--muted)}
+#status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;
+            background:var(--muted);margin-right:5px;transition:background .3s}
+</style></head><body>)=EOF=");
+
+    // ── HEADER ────────────────────────────────────────────────────────────
+    server.sendContent(R"=EOF=(
+<header>
+  <h1>&#128200; Gr&aacute;fica diaria</h1>
+  <div class="nav-bar">
+    <button class="nav-btn" id="btn-prev" onclick="changeDay(-1)">&#8592;</button>
+    <span id="date-lbl">--</span>
+    <button class="nav-btn" id="btn-next" onclick="changeDay(1)" disabled>&#8594;</button>
+  </div>
+  <a href="/" class="nav-btn">&#8592; Dashboard</a>
+</header>
+<main>
+
+<!-- Gráfica de potencias -->
+<div class="chart-card">
+  <h2>&#9889; Potencias (W)</h2>
+  <div class="chart-wrap"><canvas id="chart-pwr"></canvas></div>
+</div>
+
+<!-- Gráfica de SOC -->
+<div class="chart-card">
+  <h2>&#128267; Estado batería (%)</h2>
+  <div class="chart-wrap" style="height:120px"><canvas id="chart-soc"></canvas></div>
+</div>
+
+<!-- Donuts -->
+<div class="donut-row">
+  <div class="donut-box">
+    <h3>Consumo</h3>
+    <svg width="110" height="110" viewBox="0 0 110 110">
+      <circle cx="55" cy="55" r="42" fill="none" stroke="#21262d" stroke-width="16"/>
+      <circle id="dc-pv"  cx="55" cy="55" r="42" fill="none" stroke="#2ecc71"
+              stroke-width="16" stroke-dasharray="0 264" transform="rotate(-90 55 55)"
+              style="transition:stroke-dasharray .6s"/>
+      <circle id="dc-dis" cx="55" cy="55" r="42" fill="none" stroke="#4a9eff"
+              stroke-width="16" stroke-dasharray="0 264" transform="rotate(-90 55 55)"
+              style="transition:stroke-dasharray .6s"/>
+      <circle id="dc-imp" cx="55" cy="55" r="42" fill="none" stroke="#bb6bd9"
+              stroke-width="16" stroke-dasharray="0 264" transform="rotate(-90 55 55)"
+              style="transition:stroke-dasharray .6s"/>
+      <text x="55" y="51" text-anchor="middle" fill="#eaeaea"
+            font-size="12" font-weight="700" font-family="system-ui">
+        <tspan id="dc-total">--</tspan></text>
+      <text x="55" y="64" text-anchor="middle" fill="#6e7681"
+            font-size="9" font-family="system-ui">kWh</text>
+    </svg>
+    <div class="leg">
+      <div class="leg-item"><div class="leg-dot" style="background:#2ecc71"></div>
+        <span style="color:#6e7681">Solar dir.</span></div>
+      <div class="leg-item" style="justify-content:flex-end">
+        <span id="dl-pv" style="color:#2ecc71">--</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:#4a9eff"></div>
+        <span style="color:#6e7681">Descarga</span></div>
+      <div class="leg-item" style="justify-content:flex-end">
+        <span id="dl-dis" style="color:#4a9eff">--</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:#bb6bd9"></div>
+        <span style="color:#6e7681">Import.</span></div>
+      <div class="leg-item" style="justify-content:flex-end">
+        <span id="dl-imp" style="color:#bb6bd9">--</span></div>
+    </div>
+  </div>
+  <div class="donut-box">
+    <h3>Producci&oacute;n</h3>
+    <svg width="110" height="110" viewBox="0 0 110 110">
+      <circle cx="55" cy="55" r="42" fill="none" stroke="#21262d" stroke-width="16"/>
+      <circle id="dp-lod" cx="55" cy="55" r="42" fill="none" stroke="#f5c518"
+              stroke-width="16" stroke-dasharray="0 264" transform="rotate(-90 55 55)"
+              style="transition:stroke-dasharray .6s"/>
+      <circle id="dp-chg" cx="55" cy="55" r="42" fill="none" stroke="#1a56db"
+              stroke-width="16" stroke-dasharray="0 264" transform="rotate(-90 55 55)"
+              style="transition:stroke-dasharray .6s"/>
+      <circle id="dp-exp" cx="55" cy="55" r="42" fill="none" stroke="#e88080"
+              stroke-width="16" stroke-dasharray="0 264" transform="rotate(-90 55 55)"
+              style="transition:stroke-dasharray .6s"/>
+      <text x="55" y="51" text-anchor="middle" fill="#eaeaea"
+            font-size="12" font-weight="700" font-family="system-ui">
+        <tspan id="dp-total">--</tspan></text>
+      <text x="55" y="64" text-anchor="middle" fill="#6e7681"
+            font-size="9" font-family="system-ui">kWh</text>
+    </svg>
+    <div class="leg">
+      <div class="leg-item"><div class="leg-dot" style="background:#f5c518"></div>
+        <span style="color:#6e7681">Autocon.</span></div>
+      <div class="leg-item" style="justify-content:flex-end">
+        <span id="dl-lod" style="color:#f5c518">--</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:#1a56db"></div>
+        <span style="color:#6e7681">Carga bat.</span></div>
+      <div class="leg-item" style="justify-content:flex-end">
+        <span id="dl-chg" style="color:#1a56db">--</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:#e88080"></div>
+        <span style="color:#6e7681">Export.</span></div>
+      <div class="leg-item" style="justify-content:flex-end">
+        <span id="dl-exp" style="color:#e88080">--</span></div>
+    </div>
+  </div>
+</div>
+</main>
+
+<footer>
+  <a href="/">&#8592; Dashboard</a> &nbsp;|&nbsp;
+  <a href="/update">&#8593; Firmware</a>
+</footer>
+<div id="status"><span id="status-dot"></span><span id="status-txt">Cargando...</span></div>)=EOF=");
+
+    // ── SCRIPT ────────────────────────────────────────────────────────────
+    server.sendContent(R"=EOF=(<script>
+// ── Constantes ────────────────────────────────────────────────────────────
+const CIRC     = 2 * Math.PI * 42;   // r=42
+const REFRESH  = 30000;              // ms entre refrescos cuando es hoy
+const COLORS   = {
+  pv:'#f5c518', grid:'#4a9eff', batt:'#2ecc71', load:'#bb6bd9', soc:'#1a56db'
+};
+
+// ── Estado ────────────────────────────────────────────────────────────────
+let currentDate = todayStr();   // YYYYMMDD
+let lastTs      = 0;            // último timestamp recibido (para incrementales)
+let refreshTimer = null;
+let midnightTimer = null;
+
+// ── Helpers de fecha ──────────────────────────────────────────────────────
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear().toString()
+    + String(d.getMonth()+1).padStart(2,'0')
+    + String(d.getDate()).padStart(2,'0');
+}
+
+function addDays(dateStr, n) {
+  const d = new Date(
+    parseInt(dateStr.slice(0,4)),
+    parseInt(dateStr.slice(4,6))-1,
+    parseInt(dateStr.slice(6,8))
+  );
+  d.setDate(d.getDate() + n);
+  return d.getFullYear().toString()
+    + String(d.getMonth()+1).padStart(2,'0')
+    + String(d.getDate()).padStart(2,'0');
+}
+
+function isToday(dateStr) { return dateStr === todayStr(); }
+
+function fmtDate(dateStr) {
+  const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                 'Julio','Agosto','Sept.','Octubre','Nov.','Dic.'];
+  const d = new Date(
+    parseInt(dateStr.slice(0,4)),
+    parseInt(dateStr.slice(4,6))-1,
+    parseInt(dateStr.slice(6,8))
+  );
+  const dias = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  return `${dias[d.getDay()]} ${d.getDate()} ${MESES[d.getMonth()]}`;
+}
+
+function tsToTime(ts) {
+  const d = new Date(ts * 1000);
+  return String(d.getHours()).padStart(2,'0') + ':' +
+         String(d.getMinutes()).padStart(2,'0');
+}
+
+// ── Donut SVG ─────────────────────────────────────────────────────────────
+function setDonut(ids, vals, total) {
+  let offset = 0;
+  ids.forEach((id, i) => {
+    const el = document.getElementById(id);
+    const frac = total > 0 ? Math.max(0, vals[i]) / total : 0;
+    const len  = frac * CIRC;
+    el.style.strokeDasharray = `${len.toFixed(2)} ${(CIRC-len).toFixed(2)}`;
+    el.setAttribute('transform', `rotate(${(-90 + offset*360).toFixed(1)} 55 55)`);
+    offset += frac;
+  });
+}
+
+function updateDonuts(daily) {
+  const pvDirect  = Math.max(0, daily.load - daily.bdis - daily.imp);
+  const pvToLoad  = Math.max(0, daily.pv   - daily.exp  - daily.bchg);
+  const conVals   = [pvDirect,  daily.bdis, daily.imp];
+  const proVals   = [pvToLoad,  daily.bchg, daily.exp];
+
+  setDonut(['dc-pv','dc-dis','dc-imp'], conVals, daily.load);
+  setDonut(['dp-lod','dp-chg','dp-exp'], proVals, daily.pv);
+
+  document.getElementById('dc-total').textContent = daily.load.toFixed(1);
+  document.getElementById('dp-total').textContent = daily.pv.toFixed(1);
+
+  const fmt = v => v.toFixed(2) + ' kWh';
+  document.getElementById('dl-pv').textContent  = fmt(pvDirect);
+  document.getElementById('dl-dis').textContent = fmt(daily.bdis);
+  document.getElementById('dl-imp').textContent = fmt(daily.imp);
+  document.getElementById('dl-lod').textContent = fmt(pvToLoad);
+  document.getElementById('dl-chg').textContent = fmt(daily.bchg);
+  document.getElementById('dl-exp').textContent = fmt(daily.exp);
+}
+
+// ── Charts.js ─────────────────────────────────────────────────────────────
+const commonOpts = {
+  responsive: true, maintainAspectRatio: false, animation: false,
+  interaction: { mode:'index', intersect:false },
+  plugins: { legend:{ labels:{ color:'#6e7681', boxWidth:12, font:{size:11} } },
+             tooltip:{ backgroundColor:'#1c2128', titleColor:'#eaeaea',
+                       bodyColor:'#eaeaea', borderColor:'#30363d', borderWidth:1 } },
+  scales: {
+    x: { ticks:{ color:'#6e7681', maxRotation:0, font:{size:10},
+                 maxTicksLimit:13 },
+         grid:{ color:'#21262d' } }
+  }
+};
+
+// Gráfica de potencias
+const pwrChart = new Chart(document.getElementById('chart-pwr'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label:'PV',    data:[], borderColor:COLORS.pv,
+        backgroundColor:COLORS.pv+'22', fill:true,
+        borderWidth:1.5, pointRadius:0, tension:0.3 },
+      { label:'Red',   data:[], borderColor:COLORS.grid,
+        backgroundColor:COLORS.grid+'22', fill:true,
+        borderWidth:1.5, pointRadius:0, tension:0.3 },
+      { label:'Bat',   data:[], borderColor:COLORS.batt,
+        backgroundColor:COLORS.batt+'22', fill:true,
+        borderWidth:1.5, pointRadius:0, tension:0.3 },
+      { label:'Carga', data:[], borderColor:COLORS.load,
+        backgroundColor:COLORS.load+'22', fill:true,
+        borderWidth:1.5, pointRadius:0, tension:0.3 },
+    ]
+  },
+  options: {
+    ...commonOpts,
+    scales: {
+      ...commonOpts.scales,
+      y: { ticks:{ color:'#6e7681', font:{size:10},
+                   callback: v => v >= 1000 ? (v/1000).toFixed(1)+'k' : v },
+           grid:{ color:'#21262d' },
+           // Línea de cero destacada
+           afterDataLimits(scale) {
+             const max = Math.max(scale.max, 100);
+             const min = Math.min(scale.min, -100);
+             scale.max = max; scale.min = min;
+           }
+      }
+    },
+    plugins: {
+      ...commonOpts.plugins,
+      annotation: {
+        annotations: {
+          zeroLine: {
+            type:'line', yMin:0, yMax:0,
+            borderColor:'#4a9eff44', borderWidth:1, borderDash:[4,4]
+          }
+        }
+      }
+    }
+  }
+});
+
+// Gráfica de SOC
+const socChart = new Chart(document.getElementById('chart-soc'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label:'SOC %', data:[], borderColor:COLORS.soc,
+      backgroundColor:COLORS.soc+'33', fill:true,
+      borderWidth:2, pointRadius:0, tension:0.3
+    }]
+  },
+  options: {
+    ...commonOpts,
+    scales: {
+      ...commonOpts.scales,
+      y: { min:0, max:100,
+           ticks:{ color:'#6e7681', font:{size:10},
+                   callback: v => v + '%' },
+           grid:{ color:'#21262d' } }
+    }
+  }
+});
+
+// ── Carga de datos ────────────────────────────────────────────────────────
+function appendData(records) {
+  if (!records || records.length === 0) return;
+
+  records.forEach(r => {
+    const label = tsToTime(r.t);
+    pwrChart.data.labels.push(label);
+    pwrChart.data.datasets[0].data.push(r.pv);
+    pwrChart.data.datasets[1].data.push(r.grid);
+    // batería: positivo = descargando, negativo = cargando (RAW del inversor)
+    pwrChart.data.datasets[2].data.push(r.batt);
+    pwrChart.data.datasets[3].data.push(r.load);
+
+    socChart.data.labels.push(label);
+    socChart.data.datasets[0].data.push(r.soc);
+
+    lastTs = r.t;
+  });
+
+  pwrChart.update('none');   // sin animación para incrementales
+  socChart.update('none');
+}
+
+async function loadDay(dateStr, incremental = false) {
+  try {
+    let url = `/api/history?date=${dateStr}&granularity=5min`;
+    if (incremental && lastTs > 0) url += `&from_ts=${lastTs}`;
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    if (!incremental) {
+      // Carga completa: limpiar y rellenar desde cero
+      pwrChart.data.labels   = [];
+      socChart.data.labels   = [];
+      pwrChart.data.datasets.forEach(ds => ds.data = []);
+      socChart.data.datasets[0].data = [];
+      lastTs = 0;
+    }
+
+    appendData(data.records);
+
+    // Actualizar donuts siempre (también en incrementales)
+    if (data.daily) {
+      updateDonuts({
+        pv:   data.daily.pv,
+        exp:  data.daily.exp,
+        imp:  data.daily.imp,
+        load: data.daily.load,
+        bchg: data.daily.bchg,
+        bdis: data.daily.bdis,
+      });
+    }
+
+    // Status
+    const isInc = incremental && data.new_records > 0;
+    document.getElementById('status-dot').style.background = '#2ecc71';
+    document.getElementById('status-txt').textContent =
+      isInc
+        ? `+${data.new_records} nuevos · ${new Date().toLocaleTimeString('es-ES')}`
+        : `Actualizado ${new Date().toLocaleTimeString('es-ES')}`;
+
+  } catch(err) {
+    document.getElementById('status-dot').style.background = '#e74c3c';
+    document.getElementById('status-txt').textContent = 'Error: ' + err.message;
+  }
+}
+
+// ── Navegación ────────────────────────────────────────────────────────────
+function updateNav() {
+  const today  = todayStr();
+  const isHoy  = isToday(currentDate);
+  const prev   = addDays(currentDate, -1);
+  // Limitar a 90 días atrás (capacidad del histórico)
+  const minDate = addDays(today, -90);
+
+  document.getElementById('date-lbl').innerHTML =
+    fmtDate(currentDate) + (isHoy ? '<span class="today-badge">hoy</span>' : '');
+  document.getElementById('btn-prev').disabled = currentDate <= minDate;
+  document.getElementById('btn-next').disabled = isHoy;
+}
+
+function changeDay(delta) {
+  clearInterval(refreshTimer);
+  clearTimeout(midnightTimer);
+
+  currentDate = addDays(currentDate, delta);
+  lastTs = 0;
+  updateNav();
+  loadDay(currentDate, false).then(() => {
+    if (isToday(currentDate)) scheduleRefresh();
+  });
+}
+
+// ── Refresco incremental (solo cuando es hoy) ─────────────────────────────
+function scheduleRefresh() {
+  refreshTimer = setInterval(async () => {
+    // Detectar cambio de día (00:00)
+    const today = todayStr();
+    if (currentDate !== today) {
+      // Era ayer y ahora es hoy → cambiar automáticamente
+      clearInterval(refreshTimer);
+      currentDate = today;
+      lastTs = 0;
+      updateNav();
+      await loadDay(currentDate, false);
+      scheduleRefresh();
+      return;
+    }
+    // Actualización incremental normal
+    await loadDay(currentDate, true);
+  }, REFRESH);
+
+  // Timer adicional exacto a medianoche para no depender del intervalo
+  scheduleMidnight();
+}
+
+function scheduleMidnight() {
+  const now  = new Date();
+  const mdn  = new Date(now);
+  mdn.setHours(24, 0, 5, 0);   // 00:00:05 del día siguiente
+  const msUntil = mdn - now;
+  midnightTimer = setTimeout(() => {
+    // Mostrar el nuevo día automáticamente
+    const newDay = todayStr();
+    if (currentDate !== newDay) {
+      clearInterval(refreshTimer);
+      currentDate = newDay;
+      lastTs = 0;
+      updateNav();
+      loadDay(currentDate, false).then(() => scheduleRefresh());
+    }
+  }, msUntil);
+}
+
+// ── Inicio ────────────────────────────────────────────────────────────────
+updateNav();
+loadDay(currentDate, false).then(() => {
+  if (isToday(currentDate)) scheduleRefresh();
+});
+</script></body></html>)=EOF=");
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 // Ruta POST /update  →  Recepción del .bin y flasheo
 // ═════════════════════════════════════════════════════════════════════════
@@ -568,31 +1057,60 @@ static void handle_history() {
     server.send(200);
 
     if (gran == "5min") {
-        // ── 5 min: streaming para no agotar RAM ───────────────────────────
-        static Record5Min day_buf[300];
-        uint32_t n = Store.readDay(dep, day_buf, 300);
+        // from_ts: solo devolver registros con timestamp > from_ts
+        // Si no se especifica, devolver todos
+        uint32_t from_ts = 0;
+        if (server.hasArg("from_ts"))
+            from_ts = (uint32_t)server.arg("from_ts").toInt();
 
-        server.sendContent("{\"date\":\"" + epoch_to_date(dep) +
-                            "\",\"granularity\":\"5min\",\"records\":[");
-        for (uint32_t i = 0; i < n; i++) {
-            const Record5Min& r = day_buf[i];
-            char buf[160];
+        uint32_t  count_out = 0;
+        // Leer desde cache PSRAM si disponible, evita leer LittleFS
+        const Record5Min* recs = Cache.getDayRecs(dep, count_out);
+
+        // Filtrar por from_ts y contar cuántos enviaremos
+        uint32_t first_idx = 0;
+        if (from_ts > 0 && recs) {
+            while (first_idx < count_out && recs[first_idx].timestamp <= from_ts)
+                first_idx++;
+        }
+        uint32_t send_count = count_out - first_idx;
+
+        // Último registro del día para los totales diarios
+        Record5Min last_rec{};
+        DailyStats daily{};
+        if (count_out > 0 && recs) {
+            last_rec = recs[count_out - 1];
+            daily    = record_to_stats(last_rec);
+        }
+
+        char hdr[256];
+        snprintf(hdr, sizeof(hdr),
+            "{\"date\":\"%s\",\"granularity\":\"5min\","
+            "\"from_ts\":%lu,\"new_records\":%lu,"
+            "\"daily\":{\"pv\":%.2f,\"exp\":%.2f,\"imp\":%.2f,"
+            "\"load\":%.2f,\"bchg\":%.2f,\"bdis\":%.2f},"
+            "\"records\":[",
+            epoch_to_date(dep).c_str(),
+            (unsigned long)from_ts,
+            (unsigned long)send_count,
+            daily.pv_kwh, daily.export_kwh, daily.import_kwh,
+            daily.load_kwh, daily.batt_charge_kwh, daily.batt_discharge_kwh);
+        server.sendContent(hdr);
+
+        Cache.lock();
+        for (uint32_t i = first_idx; i < count_out; i++) {
+            const Record5Min& r = recs[i];
+            char buf[128];
             snprintf(buf, sizeof(buf),
-                "%s{\"t\":%lu,\"pv_w\":%d,\"grid_w\":%d,"
-                "\"batt_w\":%d,\"load_w\":%d,\"soc\":%d,"
-                "\"day_pv\":%.1f,\"day_exp\":%.1f,\"day_imp\":%.1f,"
-                "\"day_load\":%.1f,\"day_bchg\":%.1f,\"day_bdis\":%.1f,"
-                "\"flags\":%d}",
-                i>0 ? "," : "",
+                "%s{\"t\":%lu,\"pv\":%d,\"grid\":%d,"
+                "\"batt\":%d,\"load\":%d,\"soc\":%d}",
+                i > first_idx ? "," : "",
                 (unsigned long)r.timestamp,
-                r.pv_w, r.grid_w, r.batt_w, r.load_w, r.soc,
-                r.day_pv/10.0f, r.day_export/10.0f, r.day_import/10.0f,
-                r.day_load/10.0f, r.day_bchg/10.0f, r.day_bdis/10.0f,
-                r.flags);
+                r.pv_w, r.grid_w, r.batt_w, r.load_w, r.soc);
             server.sendContent(buf);
         }
+        Cache.unlock();
         server.sendContent("]}");
-
     } else {
         // ── hourly (default) ──────────────────────────────────────────────
         static Record5Min day_buf[300];
@@ -650,6 +1168,7 @@ void webserver_begin() {
     server.on("/update",   HTTP_POST, handle_update_post, handle_upload);
     server.on("/api/history", HTTP_GET, handle_history);
     server.on("/api/status",  HTTP_GET, handle_status);
+    server.on("/chart", HTTP_GET, handle_chart);
     server.onNotFound([]() {
         server.send(404, "text/plain", "Not found");
     });
