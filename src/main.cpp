@@ -15,6 +15,8 @@
 #include "web_server.h"
 #include "telegram.h"
 #include "psram_cache.h"
+#include "backlight.h"
+
 
 /* Change to your screen resolution */
 static uint32_t screenWidth = 480;
@@ -299,10 +301,8 @@ void setup() {
     // Init Display
     gfx->begin();
 
-#ifdef TFT2_BL
-    pinMode(TFT2_BL, OUTPUT);
-    digitalWrite(TFT2_BL, HIGH);
-#endif
+    Backlight.begin(TFT2_BL);
+
     lv_init();
 
     screenWidth = gfx->width();
@@ -411,21 +411,31 @@ void setup() {
 void loop() {
     lv_timer_handler();
 
-    if (xSemaphoreTake(g_mutex, 0) == pdTRUE) {
-        if (g_energy_ready) { 
-            dashboard_update(g_energy);    
-            g_energy_ready = false; 
+    // ── Detectar toque para resetear inactividad ──────────────────────────
+    lv_indev_t* indev = lv_indev_get_next(nullptr);
+    while (indev) {
+        if (lv_indev_get_type(indev)  == LV_INDEV_TYPE_POINTER &&
+            lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
+            Backlight.onTouch();
+            break;
         }
-        if (g_daily_ready)  { 
-            stats_screen_update(g_daily);  
-            g_daily_ready  = false; 
+        indev = lv_indev_get_next(indev);
+    }
+    Backlight.tick();
+
+    // Resto del loop igual
+    if (xSemaphoreTake(g_mutex, 0) == pdTRUE) {
+        if (g_energy_ready) { dashboard_update(g_energy); g_energy_ready = false; }
+        if (g_daily_ready)  {
+            stats_screen_update(g_daily);
+            g_daily_ready = false;
         }
         xSemaphoreGive(g_mutex);
     }
 
     dashboard_tick();
     chart_screen_tick();
-    config_screen_tick();   // refresca IP/RSSI cada 5 s, coste mínimo
+    config_screen_tick();
 
     delay(5);
 }

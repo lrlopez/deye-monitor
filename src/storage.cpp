@@ -114,3 +114,29 @@ TelegramConfig StorageManager::loadTelegramConfig() {
     p.end();
     return cfg;
 }
+
+void StorageManager::saveBacklightConfig(const BacklightConfig& cfg) {
+    Preferences p; p.begin(NS_CFG, false);
+    p.putUChar("bl_norm",   cfg.normal_pct);
+    p.putUChar("bl_red",    cfg.reduced_pct);
+    p.putBool ("bl_inact",  cfg.inactivity_enabled);
+    p.putUChar("bl_isecs",  cfg.inactivity_div10);
+    p.putBool ("bl_night",  cfg.night_enabled);
+    p.putUChar("bl_nstart", cfg.night_start_h);
+    p.putUChar("bl_nend",   cfg.night_end_h);
+    p.end();
+}
+
+BacklightConfig StorageManager::loadBacklightConfig() {
+    BacklightConfig cfg{};
+    Preferences p; p.begin(NS_CFG, true);
+    cfg.normal_pct         = p.getUChar("bl_norm",   90);
+    cfg.reduced_pct        = p.getUChar("bl_red",    10);
+    cfg.inactivity_enabled = p.getBool ("bl_inact",  true);
+    cfg.inactivity_div10   = p.getUChar("bl_isecs",  6);
+    cfg.night_enabled      = p.getBool ("bl_night",  true);
+    cfg.night_start_h      = p.getUChar("bl_nstart", 0);
+    cfg.night_end_h        = p.getUChar("bl_nend",   8);
+    p.end();
+    return cfg;
+}

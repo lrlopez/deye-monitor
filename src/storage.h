@@ -25,6 +25,16 @@ struct ChartConfig {
     uint8_t max_kw;
 };
 
+struct BacklightConfig {
+    uint8_t  normal_pct;          // 10–100, default 90
+    uint8_t  reduced_pct;         // 0–100,  default 10
+    bool     inactivity_enabled;  // default true
+    uint8_t  inactivity_div10;    // 1–18 (×10 = 10–180 s), default 6
+    bool     night_enabled;       // default true
+    uint8_t  night_start_h;       // 0–23, default 0
+    uint8_t  night_end_h;         // 0–23, default 8
+};
+
 // Cuántos días guardamos 
 constexpr uint8_t DAILY_HISTORY_SIZE = 90;
 
@@ -61,6 +71,10 @@ public:
     // ── Estado de la sesión ───────────────────────────────────────────────
     void        saveSessionState(const SessionState& s);
     bool        loadSessionState(SessionState& s);
+    
+    // ── Brillo de la pantalla ─────────────────────────────────────────────
+    void            saveBacklightConfig(const BacklightConfig& cfg);
+    BacklightConfig loadBacklightConfig(); 
     
 private:
     StorageManager() = default;

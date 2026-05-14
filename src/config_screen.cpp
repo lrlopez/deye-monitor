@@ -4,6 +4,7 @@
 #include "telegram.h"
 #include "ui_constants.h"
 #include "config.h"
+#include "backlight.h"
 
 // ── Paleta ────────────────────────────────────────────────────────────────
 #define C_BG    lv_color_hex(0x0D1117)
@@ -40,6 +41,19 @@ static lv_obj_t* s_slider_tg_thr = nullptr;
 static lv_obj_t* s_cb_tg_solar   = nullptr;
 static lv_obj_t* s_cb_tg_grid    = nullptr;
 static lv_obj_t* s_cb_tg_logger  = nullptr;
+
+static lv_obj_t* s_slider_bl_norm    = nullptr;
+static lv_obj_t* s_lbl_bl_norm       = nullptr;
+static lv_obj_t* s_slider_bl_red     = nullptr;
+static lv_obj_t* s_lbl_bl_red        = nullptr;
+static lv_obj_t* s_cb_bl_inact       = nullptr;
+static lv_obj_t* s_slider_bl_inact   = nullptr;
+static lv_obj_t* s_lbl_bl_inact      = nullptr;
+static lv_obj_t* s_cb_bl_night       = nullptr;
+static lv_obj_t* s_slider_bl_nstart  = nullptr;
+static lv_obj_t* s_lbl_bl_nstart     = nullptr;
+static lv_obj_t* s_slider_bl_nend    = nullptr;
+static lv_obj_t* s_lbl_bl_nend       = nullptr;
 
 // ── Widgets scan WiFi ─────────────────────────────────────────────────────
 static lv_obj_t*  scan_btn;
@@ -122,6 +136,46 @@ static lv_obj_t* make_info_row(lv_obj_t* parent, int y, const char* key) {
     lv_obj_set_style_text_color(lv2, C_WHITE, 0);
     lv_label_set_text(lv2, "...");
     return lv2;
+}
+
+// Crea: [label izq]  [slider]  [value label]
+// Devuelve el slider. value_out recibe el label del valor.
+static lv_obj_t* make_slider_row(lv_obj_t* parent, int y,
+                                  const char* left_lbl,
+                                  int vmin, int vmax, int vdef,
+                                  lv_obj_t** value_lbl_out,
+                                  const char* unit,
+                                  lv_event_cb_t cb) {
+    lv_obj_t* ll = lv_label_create(parent);
+    lv_obj_set_pos(ll, 0, y + SY(4));
+    lv_obj_set_style_text_font(ll, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(ll, C_MUTED, 0);
+    lv_label_set_text(ll, left_lbl);
+
+    // Label de valor (a la derecha, ancho fijo)
+    const int VAL_W = SX(44);
+    *value_lbl_out = lv_label_create(parent);
+    lv_obj_set_pos(*value_lbl_out, CFG_LBL_W, y + SY(4));
+    lv_obj_set_size(*value_lbl_out, VAL_W, FONT_SMALL_SIZE + SY(4));
+    lv_obj_set_style_text_font(*value_lbl_out, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(*value_lbl_out, C_WHITE, 0);
+    char buf[12]; snprintf(buf, sizeof(buf), "%d%s", vdef, unit);
+    lv_label_set_text(*value_lbl_out, buf);
+
+    // Slider
+    int slider_x = CFG_LBL_W + VAL_W + SX(4);
+    int slider_w = CFG_SECTION_W - CFG_SEC_PAD*2 - slider_x - SX(8);
+    lv_obj_t* sl = lv_slider_create(parent);
+    lv_obj_set_pos(sl, slider_x, y + SY(2));
+    lv_obj_set_size(sl, slider_w, SS(16));
+    lv_slider_set_range(sl, vmin, vmax);
+    lv_slider_set_value(sl, vdef, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(sl, C_BTN,                   LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(sl, lv_color_hex(0x21262D),  LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sl, C_WHITE,                 LV_PART_KNOB);
+    lv_obj_set_style_pad_all(sl, SX(4),                    LV_PART_KNOB);
+    if (cb) lv_obj_add_event_cb(sl, cb, LV_EVENT_VALUE_CHANGED, *value_lbl_out);
+    return sl;
 }
 
 // ── Icono de señal WiFi según RSSI ─────────────────────────────────────────
@@ -301,6 +355,32 @@ static void ta_event_cb(lv_event_t* e) {
         lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
 }
 
+static void bl_norm_cb(lv_event_t* e) {
+    int v = lv_slider_get_value((lv_obj_t*)lv_event_get_target(e));
+    char buf[8]; snprintf(buf, sizeof(buf), "%d%%", v);
+    lv_label_set_text((lv_obj_t*)lv_event_get_user_data(e), buf);
+}
+static void bl_red_cb(lv_event_t* e) {
+    int v = lv_slider_get_value((lv_obj_t*)lv_event_get_target(e));
+    char buf[8]; snprintf(buf, sizeof(buf), "%d%%", v);
+    lv_label_set_text((lv_obj_t*)lv_event_get_user_data(e), buf);
+}
+static void bl_inact_cb(lv_event_t* e) {
+    int v = lv_slider_get_value((lv_obj_t*)lv_event_get_target(e));
+    char buf[8]; snprintf(buf, sizeof(buf), "%ds", v * 10);
+    lv_label_set_text((lv_obj_t*)lv_event_get_user_data(e), buf);
+}
+static void bl_nstart_cb(lv_event_t* e) {
+    int v = lv_slider_get_value((lv_obj_t*)lv_event_get_target(e));
+    char buf[8]; snprintf(buf, sizeof(buf), "%02dh", v);
+    lv_label_set_text((lv_obj_t*)lv_event_get_user_data(e), buf);
+}
+static void bl_nend_cb(lv_event_t* e) {
+    int v = lv_slider_get_value((lv_obj_t*)lv_event_get_target(e));
+    char buf[8]; snprintf(buf, sizeof(buf), "%02dh", v);
+    lv_label_set_text((lv_obj_t*)lv_event_get_user_data(e), buf);
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 // Botón Guardar
 // ═════════════════════════════════════════════════════════════════════════
@@ -336,8 +416,42 @@ static void save_btn_cb(lv_event_t* /*e*/) {
     lv_obj_set_style_text_color(lbl_status, C_OK, 0);
     lv_timer_handler();
 
-    delay(1200);
-    ESP.restart();
+    // Backlight config
+    BacklightConfig blcfg{};
+    blcfg.normal_pct         = (uint8_t)lv_slider_get_value(s_slider_bl_norm);
+    blcfg.reduced_pct        = (uint8_t)lv_slider_get_value(s_slider_bl_red);
+    blcfg.inactivity_enabled = lv_obj_has_state(s_cb_bl_inact, LV_STATE_CHECKED);
+    blcfg.inactivity_div10   = (uint8_t)lv_slider_get_value(s_slider_bl_inact);
+    blcfg.night_enabled      = lv_obj_has_state(s_cb_bl_night, LV_STATE_CHECKED);
+    blcfg.night_start_h      = (uint8_t)lv_slider_get_value(s_slider_bl_nstart);
+    blcfg.night_end_h        = (uint8_t)lv_slider_get_value(s_slider_bl_nend);
+    Backlight.setConfig(blcfg);  // guarda en NVS y aplica en caliente
+    // El brillo no necesita reinicio → si solo cambió backlight, no reiniciar
+    // Si cambiaron WiFi o logger IP, sí reiniciamos
+
+    AppConfig old_cfg{};
+    Storage.loadConfig(old_cfg);
+
+    bool needs_restart = (strcmp(cfg.wifi_ssid,  old_cfg.wifi_ssid)  != 0 ||
+                          strcmp(cfg.wifi_pass,  old_cfg.wifi_pass)  != 0 ||
+                          strcmp(cfg.logger_ip,  old_cfg.logger_ip)  != 0 ||
+                          cfg.logger_serial != old_cfg.logger_serial);
+
+    Storage.saveConfig(cfg);
+    Storage.saveChartConfig(ccfg);
+    Storage.saveTelegramConfig(tgcfg);
+    // Backlight ya guardado por setConfig()
+
+    if (needs_restart) {
+        lv_label_set_text(lbl_status, LV_SYMBOL_OK " Guardado. Reiniciando...");
+        lv_obj_set_style_text_color(lbl_status, C_OK, 0);
+        lv_timer_handler();
+        delay(1200);
+        ESP.restart();
+    } else {
+        lv_label_set_text(lbl_status, LV_SYMBOL_OK " Guardado");
+        lv_obj_set_style_text_color(lbl_status, C_OK, 0);
+    }
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -368,9 +482,7 @@ void config_screen_init(lv_obj_t* parent) {
     const int SEC_NET_H    = CFG_FIELD_H + SY(20) + SY(20);
     const int SEC_TG_Y     = SEC_NET_Y   + SEC_NET_H   + SY(4);
     const int SEC_TG_H     = CFG_FIELD_H*2 + SS(16) + CFG_SEC_PAD*2 + SY(50) + SY(20);
-    const int BTN_Y        = SEC_TG_Y   + SEC_TG_H    + SY(8);
 
-    
 
     // ── Título ────────────────────────────────────────────────────────────
     lv_obj_t* title = lv_label_create(parent);
@@ -582,6 +694,115 @@ void config_screen_init(lv_obj_t* parent) {
     s_cb_tg_solar   = cb_solar;
     s_cb_tg_grid    = cb_grid;
     s_cb_tg_logger  = cb_logger;
+
+    // ── Sección PANTALLA ──────────────────────────────────────────────────
+    BacklightConfig blcfg = Storage.loadBacklightConfig();
+
+    // Altura: pad×2(20) + título(14) + 5 filas×(SS16+6) + 4 checkboxes(22×2)
+    // = 20 + 14 + 5×22 + 2×22 = 20+14+110+44 = 188 → redondeamos a 190
+    const int SEC_BL_Y = SEC_TG_Y + SEC_TG_H + SY(4);
+    const int SEC_BL_H = SY(190);
+    const int BTN_Y        = SEC_BL_Y + SEC_BL_H + SY(8);
+
+    lv_obj_t* sec_bl = make_section(parent,
+                        LV_SYMBOL_EYE_OPEN " PANTALLA", SEC_BL_Y, SEC_BL_H);
+
+    // Fila 1: Brillo normal
+    const int R1 = SY(18);
+    s_slider_bl_norm = make_slider_row(sec_bl, R1,
+        "Brillo normal:", 10, 100, blcfg.normal_pct,
+        &s_lbl_bl_norm, "%", bl_norm_cb);
+
+    // Fila 2: Brillo reducido
+    const int R2 = R1 + SS(16) + SY(10);
+    s_slider_bl_red = make_slider_row(sec_bl, R2,
+        "Brillo reducido:", 0, 100, blcfg.reduced_pct,
+        &s_lbl_bl_red, "%", bl_red_cb);
+
+    // Fila 3: Checkbox inactividad + slider segundos
+    const int R3 = R2 + SS(16) + SY(10);
+    s_cb_bl_inact = lv_checkbox_create(sec_bl);
+    lv_obj_set_pos(s_cb_bl_inact, 0, R3);
+    lv_checkbox_set_text(s_cb_bl_inact, "Reducir con inactividad");
+    lv_obj_set_style_text_font(s_cb_bl_inact, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(s_cb_bl_inact, C_WHITE, 0);
+    if (blcfg.inactivity_enabled) lv_obj_add_state(s_cb_bl_inact, LV_STATE_CHECKED);
+
+    const int R3B = R3 + SY(22);
+    s_slider_bl_inact = make_slider_row(sec_bl, R3B,
+        "Espera:", 1, 18, blcfg.inactivity_div10,
+        &s_lbl_bl_inact, "s", bl_inact_cb);
+    // Corregir el label inicial (muestra div10 * 10)
+    char ibuf[8];
+    snprintf(ibuf, sizeof(ibuf), "%ds", blcfg.inactivity_div10 * 10);
+    lv_label_set_text(s_lbl_bl_inact, ibuf);
+
+    // Fila 4: Checkbox horario nocturno
+    const int R4 = R3B + SS(16) + SY(10);
+    s_cb_bl_night = lv_checkbox_create(sec_bl);
+    lv_obj_set_pos(s_cb_bl_night, 0, R4);
+    lv_checkbox_set_text(s_cb_bl_night, "Horario nocturno");
+    lv_obj_set_style_text_font(s_cb_bl_night, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(s_cb_bl_night, C_WHITE, 0);
+    if (blcfg.night_enabled) lv_obj_add_state(s_cb_bl_night, LV_STATE_CHECKED);
+
+    // Fila 5: Inicio y fin del horario
+    const int R5 = R4 + SY(22);
+
+    // Inicio
+    lv_obj_t* lbl_ns = lv_label_create(sec_bl);
+    lv_obj_set_pos(lbl_ns, 0, R5 + SY(4));
+    lv_obj_set_style_text_font(lbl_ns, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(lbl_ns, C_MUTED, 0);
+    lv_label_set_text(lbl_ns, "Inicio:");
+
+    s_lbl_bl_nstart = lv_label_create(sec_bl);
+    lv_obj_set_pos(s_lbl_bl_nstart, CFG_LBL_W, R5 + SY(4));
+    lv_obj_set_style_text_font(s_lbl_bl_nstart, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(s_lbl_bl_nstart, C_WHITE, 0);
+    char nsbuf[8]; snprintf(nsbuf, sizeof(nsbuf), "%02dh", blcfg.night_start_h);
+    lv_label_set_text(s_lbl_bl_nstart, nsbuf);
+
+    const int HALF_W = (CFG_SECTION_W - CFG_SEC_PAD*2 - CFG_LBL_W - SX(8)) / 2;
+    s_slider_bl_nstart = lv_slider_create(sec_bl);
+    lv_obj_set_pos(s_slider_bl_nstart, CFG_LBL_W + SX(44), R5 + SY(2));
+    lv_obj_set_size(s_slider_bl_nstart, HALF_W - SX(4), SS(16));
+    lv_slider_set_range(s_slider_bl_nstart, 0, 23);
+    lv_slider_set_value(s_slider_bl_nstart, blcfg.night_start_h, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_slider_bl_nstart, C_BTN,                  LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_slider_bl_nstart, lv_color_hex(0x21262D), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_slider_bl_nstart, C_WHITE,                LV_PART_KNOB);
+    lv_obj_set_style_pad_all(s_slider_bl_nstart, SX(4),                   LV_PART_KNOB);
+    lv_obj_add_event_cb(s_slider_bl_nstart, bl_nstart_cb,
+                         LV_EVENT_VALUE_CHANGED, s_lbl_bl_nstart);
+
+    // Fin
+    int x_fin = CFG_LBL_W + SX(44) + HALF_W + SX(4);
+
+    lv_obj_t* lbl_ne = lv_label_create(sec_bl);
+    lv_obj_set_pos(lbl_ne, x_fin, R5 + SY(4));
+    lv_obj_set_style_text_font(lbl_ne, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(lbl_ne, C_MUTED, 0);
+    lv_label_set_text(lbl_ne, "Fin:");
+
+    s_lbl_bl_nend = lv_label_create(sec_bl);
+    lv_obj_set_pos(s_lbl_bl_nend, x_fin + SX(28), R5 + SY(4));
+    lv_obj_set_style_text_font(s_lbl_bl_nend, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(s_lbl_bl_nend, C_WHITE, 0);
+    char nebuf[8]; snprintf(nebuf, sizeof(nebuf), "%02dh", blcfg.night_end_h);
+    lv_label_set_text(s_lbl_bl_nend, nebuf);
+
+    s_slider_bl_nend = lv_slider_create(sec_bl);
+    lv_obj_set_pos(s_slider_bl_nend, x_fin + SX(44), R5 + SY(2));
+    lv_obj_set_size(s_slider_bl_nend, HALF_W - SX(44), SS(16));
+    lv_slider_set_range(s_slider_bl_nend, 0, 23);
+    lv_slider_set_value(s_slider_bl_nend, blcfg.night_end_h, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_slider_bl_nend, C_BTN,                  LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_slider_bl_nend, lv_color_hex(0x21262D), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_slider_bl_nend, C_WHITE,                LV_PART_KNOB);
+    lv_obj_set_style_pad_all(s_slider_bl_nend, SX(4),                   LV_PART_KNOB);
+    lv_obj_add_event_cb(s_slider_bl_nend, bl_nend_cb,
+                         LV_EVENT_VALUE_CHANGED, s_lbl_bl_nend);
 
     // ── Botón Guardar + status  (bajan acordes) ───────────────────────────────
     lbl_status = lv_label_create(parent);
