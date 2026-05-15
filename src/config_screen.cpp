@@ -495,8 +495,8 @@ void config_screen_init(lv_obj_t* parent) {
     // ── Sección WiFi ──────────────────────────────────────────────────────
     lv_obj_t* sec_wifi = make_section(parent, LV_SYMBOL_WIFI "RED WiFi", SEC_WIFI_Y, SEC_WIFI_H);
 
-    make_row_label(sec_wifi, 18, "SSID");
-    ta_ssid = make_field(sec_wifi, CFG_LBL_W, 18, CFG_FIELD_W, false, "Nombre red WiFi");
+    make_row_label(sec_wifi, SY(18), "SSID");
+    ta_ssid = make_field(sec_wifi, CFG_LBL_W, SY(18), CFG_FIELD_W, false, "Nombre red WiFi");
     lv_textarea_set_text(ta_ssid, cfg.wifi_ssid);
     lv_obj_add_event_cb(ta_ssid, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_ssid, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
@@ -517,9 +517,9 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_font(scan_btn_lbl, &FONT_NORMAL, 0);
     lv_obj_center(scan_btn_lbl);
 
-    make_row_label(sec_wifi, 62, "Contrasena");
-    ta_pass = make_field(sec_wifi, CFG_LBL_W, 62,
-                         CFG_FIELD_W + CFG_SCAN_BTN_W + 4, true, "Contrasena WiFi");
+    make_row_label(sec_wifi, SY(62), "Contrasena");
+    ta_pass = make_field(sec_wifi, CFG_LBL_W, SY(62),
+                         CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), true, "Contrasena WiFi");
     lv_textarea_set_text(ta_pass, cfg.wifi_pass);
     lv_obj_add_event_cb(ta_pass, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_pass, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
@@ -527,16 +527,16 @@ void config_screen_init(lv_obj_t* parent) {
     // ── Sección Inversor ──────────────────────────────────────────────────
     lv_obj_t* sec_inv = make_section(parent, LV_SYMBOL_EDIT " INVERSOR / DATALOGGER", SEC_INV_Y, SEC_INV_H);
 
-    make_row_label(sec_inv, 18, "IP Logger");
-    ta_logger_ip = make_field(sec_inv, CFG_LBL_W, 18,
-                              CFG_FIELD_W + CFG_SCAN_BTN_W + 4, false, "192.168.1.xxx");
+    make_row_label(sec_inv, SY(18), "IP Logger");
+    ta_logger_ip = make_field(sec_inv, CFG_LBL_W, SY(18),
+                              CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), false, "192.168.1.xxx");
     lv_textarea_set_text(ta_logger_ip, cfg.logger_ip);
     lv_obj_add_event_cb(ta_logger_ip, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_logger_ip, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
 
-    make_row_label(sec_inv, 62, "Num. Serie");
-    ta_logger_serial = make_field(sec_inv, CFG_LBL_W, 62,
-                                  CFG_FIELD_W + CFG_SCAN_BTN_W + 4, false, "Decimal (etiqueta)");
+    make_row_label(sec_inv, SY(62), "Num. Serie");
+    ta_logger_serial = make_field(sec_inv, CFG_LBL_W, SY(62),
+                                  CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), false, "Decimal (etiqueta)");
     char sbuf[16];
     snprintf(sbuf, sizeof(sbuf), "%lu", (unsigned long)cfg.logger_serial);
     lv_textarea_set_text(ta_logger_serial, sbuf);
@@ -549,7 +549,7 @@ void config_screen_init(lv_obj_t* parent) {
 
     // Fila 1: checkbox autoescalado  (y=16)
     cb_autoscale = lv_checkbox_create(sec_chart);
-    lv_obj_set_pos(cb_autoscale, 0, 16);
+    lv_obj_set_pos(cb_autoscale, 0, SY(16));
     lv_checkbox_set_text(cb_autoscale, "Autoescalado");
     lv_obj_set_style_text_font(cb_autoscale, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(cb_autoscale, C_WHITE, 0);
@@ -557,13 +557,13 @@ void config_screen_init(lv_obj_t* parent) {
 
     // Fila 2: "Max kW:" a la izquierda, valor numérico a la derecha  (y=44)
     lv_obj_t* lkw = lv_label_create(sec_chart);
-    lv_obj_set_pos(lkw, 0, 46);
+    lv_obj_set_pos(lkw, 0, SY(46));
     lv_obj_set_style_text_font(lkw, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(lkw, C_MUTED, 0);
     lv_label_set_text(lkw, "Max kW:");
 
     lv_obj_t* CFG_LBL_kw_val = lv_label_create(sec_chart);
-    lv_obj_set_pos(CFG_LBL_kw_val, 70, 46);
+    lv_obj_set_pos(CFG_LBL_kw_val, SX(70), SY(46));
     lv_obj_set_style_text_font(CFG_LBL_kw_val, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(CFG_LBL_kw_val, C_WHITE, 0);
     char kwbuf[8];
@@ -573,8 +573,8 @@ void config_screen_init(lv_obj_t* parent) {
     // Fila 3: slider ocupando todo el ancho menos márgenes  (y=66)
     // Margen derecho de 16px para que el knob no sobresalga nunca
     lv_obj_t* slider_kw = lv_slider_create(sec_chart);
-    lv_obj_set_pos(slider_kw, 0, 68);
-    lv_obj_set_size(slider_kw, CFG_SECTION_W - CFG_SEC_PAD * 2 - 16, 16);
+    lv_obj_set_pos(slider_kw, 0, SY(68));
+    lv_obj_set_size(slider_kw, CFG_SECTION_W - CFG_SEC_PAD * 2 - SX(16), SY(16));
     lv_slider_set_range(slider_kw, 1, 20);
     lv_slider_set_value(slider_kw, ccfg.max_kw, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(slider_kw, C_BTN,                   LV_PART_INDICATOR);
@@ -594,8 +594,8 @@ void config_screen_init(lv_obj_t* parent) {
 
     // ── Sección Estado red  (baja a 358 = 254+100+4) ──────────────────────────
     lv_obj_t* sec_net = make_section(parent, LV_SYMBOL_GPS " ESTADO RED", SEC_NET_Y, SEC_NET_H);
-    lbl_ip   = make_info_row(sec_net, 18, "IP ESP32");
-    lbl_rssi = make_info_row(sec_net, 38, "Senal WiFi");
+    lbl_ip   = make_info_row(sec_net, SY(18), "IP ESP32");
+    lbl_rssi = make_info_row(sec_net, SY(38), "Senal WiFi");
 
     // ── Sección Telegram (y=432, h=178) ───────────────────────────────────
     TelegramConfig tgcfg = Storage.loadTelegramConfig();
@@ -603,8 +603,8 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_t* sec_tg = make_section(parent, LV_SYMBOL_BELL " TELEGRAM", SEC_TG_Y, SEC_TG_H);
 
     // Token
-    make_row_label(sec_tg, 18, "Bot Token");
-    lv_obj_t* ta_token = make_field(sec_tg, CFG_LBL_W, 18,
+    make_row_label(sec_tg, SY(18), "Bot Token");
+    lv_obj_t* ta_token = make_field(sec_tg, CFG_LBL_W, SY(18),
                                      CFG_SECTION_W - CFG_LBL_W - CFG_SEC_PAD, false, "123456:ABC...");
     lv_textarea_set_text(ta_token, tgcfg.token);
     lv_obj_add_event_cb(ta_token, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
@@ -612,21 +612,21 @@ void config_screen_init(lv_obj_t* parent) {
 
     // Chat ID
     make_row_label(sec_tg, 62, "Chat ID");
-    lv_obj_t* ta_chatid = make_field(sec_tg, CFG_LBL_W, 62,
-                                      CFG_FIELD_W + CFG_SCAN_BTN_W + 4, false, "-100123456789");
+    lv_obj_t* ta_chatid = make_field(sec_tg, CFG_LBL_W, SY(62),
+                                      CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), false, "-100123456789");
     lv_textarea_set_text(ta_chatid, tgcfg.chat_id);
     lv_obj_add_event_cb(ta_chatid, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_chatid, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
 
     // Umbral batería
     lv_obj_t* CFG_LBL_thr = lv_label_create(sec_tg);
-    lv_obj_set_pos(CFG_LBL_thr, 0, 106);
+    lv_obj_set_pos(CFG_LBL_thr, 0, SY(106));
     lv_obj_set_style_text_font(CFG_LBL_thr, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(CFG_LBL_thr, C_MUTED, 0);
     lv_label_set_text(CFG_LBL_thr, "Alerta bat.:");
 
     lv_obj_t* CFG_LBL_thr_val = lv_label_create(sec_tg);
-    lv_obj_set_pos(CFG_LBL_thr_val, 90, 106);
+    lv_obj_set_pos(CFG_LBL_thr_val, SX(90), SY(106));
     lv_obj_set_style_text_font(CFG_LBL_thr_val, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(CFG_LBL_thr_val, C_WHITE, 0);
     char thrbuf[8];
@@ -634,8 +634,8 @@ void config_screen_init(lv_obj_t* parent) {
     lv_label_set_text(CFG_LBL_thr_val, thrbuf);
 
     lv_obj_t* slider_thr = lv_slider_create(sec_tg);
-    lv_obj_set_pos(slider_thr, 110 + 24, 110);
-    lv_obj_set_size(slider_thr, CFG_SECTION_W - 110 - 40, 16);
+    lv_obj_set_pos(slider_thr, SX(134), SY(110));
+    lv_obj_set_size(slider_thr, CFG_SECTION_W - SX(150), SY(16));
     lv_slider_set_range(slider_thr, 5, 50);
     lv_slider_set_value(slider_thr, tgcfg.batt_threshold, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(slider_thr, C_BTN,                  LV_PART_INDICATOR);
@@ -652,21 +652,21 @@ void config_screen_init(lv_obj_t* parent) {
 
     // Checkboxes de alertas
     lv_obj_t* cb_solar = lv_checkbox_create(sec_tg);
-    lv_obj_set_pos(cb_solar, 0, 132);
+    lv_obj_set_pos(cb_solar, 0, SY(132));
     lv_checkbox_set_text(cb_solar, "Solar");
     lv_obj_set_style_text_font(cb_solar, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(cb_solar, C_WHITE, 0);
     if (tgcfg.notify_solar) lv_obj_add_state(cb_solar, LV_STATE_CHECKED);
 
     lv_obj_t* cb_grid = lv_checkbox_create(sec_tg);
-    lv_obj_set_pos(cb_grid, 90, 132);
+    lv_obj_set_pos(cb_grid, SX(90), SY(132));
     lv_checkbox_set_text(cb_grid, "Red");
     lv_obj_set_style_text_font(cb_grid, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(cb_grid, C_WHITE, 0);
     if (tgcfg.notify_grid) lv_obj_add_state(cb_grid, LV_STATE_CHECKED);
 
     lv_obj_t* cb_logger = lv_checkbox_create(sec_tg);
-    lv_obj_set_pos(cb_logger, 165, 132);
+    lv_obj_set_pos(cb_logger, SX(165), SY(132));
     lv_checkbox_set_text(cb_logger, "Logger");
     lv_obj_set_style_text_font(cb_logger, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(cb_logger, C_WHITE, 0);
@@ -674,8 +674,8 @@ void config_screen_init(lv_obj_t* parent) {
 
     // Botón de prueba
     lv_obj_t* btn_test = lv_btn_create(sec_tg);
-    lv_obj_set_pos(btn_test, CFG_SECTION_W - CFG_SEC_PAD*2 - 110, 128);
-    lv_obj_set_size(btn_test, 110, 30);
+    lv_obj_set_pos(btn_test, CFG_SECTION_W - CFG_SEC_PAD*2 - SX(110), SY(128));
+    lv_obj_set_size(btn_test, SX(110), SY(30));
     lv_obj_set_style_bg_color(btn_test, lv_color_hex(0x2D7D46), 0);
     lv_obj_set_style_radius(btn_test, 6, 0);
     lv_obj_add_event_cb(btn_test, [](lv_event_t*) {
@@ -827,7 +827,7 @@ void config_screen_init(lv_obj_t* parent) {
     // ── Teclado ────────────────────────────────────────────────────────────
     // El teclado se ancla a la pantalla raíz para no desplazarse con el scroll
     kb = lv_keyboard_create(lv_scr_act());
-    lv_obj_set_size(kb, 480, 140);
+    lv_obj_set_size(kb, SX(480), SY(140));
     lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(kb, kb_event_cb, LV_EVENT_READY,  nullptr);

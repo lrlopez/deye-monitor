@@ -87,7 +87,7 @@
 #define CFG_SEC_PAD       SX(10)
 #define CFG_SCAN_BTN_W    SX(34)
 #define CFG_FIELD_W       (CFG_SECTION_W - CFG_LBL_W - CFG_SEC_PAD \
-                           - CFG_SCAN_BTN_W - SX(4))
+                           - CFG_SCAN_BTN_W - SX(16))
 #define CFG_ROW_H         (CFG_FIELD_H + SY(6))
 
 // ── Popups ────────────────────────────────────────────────────────────────
