@@ -517,7 +517,7 @@ void setup() {
 
     // ── NTP — configurar zona horaria ya (se sincronizará cuando haya WiFi) ─
     splash_update(SplashStep::NTP, SplashState::RUNNING);
-    configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");
+    configTime(0, 0, NTP_SERVER1, NTP_SERVER2);
     setenv("TZ", TIMEZONE, 1);
     tzset();
     splash_update(SplashStep::NTP, SplashState::OK, "Pendiente de WiFi");

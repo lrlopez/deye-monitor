@@ -12,6 +12,15 @@
 // o en la app SolarmanPV → Dispositivo → S/N)
 #define LOGGER_SERIAL 1234567890UL
 
+// ── Aplicación ────────────────────────────────────────────────────────────
+#define APP_NAME        "Deye Monitor"
+#define APP_VERSION     "1.0.0"
+
+// ── NTP ───────────────────────────────────────────────────────────────────
+#define NTP_SERVER1     "es.pool.ntp.org"
+#define NTP_SERVER2     "time.cloudflare.com"
+#define TIMEZONE        "CET-1CEST,M3.5.0,M10.5.0/3"   // España peninsula
+
 // ── Modbus ────────────────────────────────────────────────────────────────
 #define MODBUS_UNIT_ID  1     // dirección del inversor en el bus
 
@@ -43,9 +52,6 @@
 // ── Polling ───────────────────────────────────────────────────────────────
 #define POLL_INTERVAL_MS  5000
 #define POLL_DAILY_MS     60000UL
-
-// ── Zona horaria ──────────────────────────────────────────────────────────
-#define TIMEZONE            "CET-1CEST,M3.5.0,M10.5.0/3"   // España peninsula
 
 // ── Escala gráfica ────────────────────────────────────────────────────────
 #define CHART_AUTOSCALE_DEF  true

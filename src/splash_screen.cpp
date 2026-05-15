@@ -1,39 +1,67 @@
 #include <Arduino.h>
 #include "splash_screen.h"
+#include "config.h"
 #include "ui_constants.h"
 
-#define C_BG     lv_color_hex(0x0D1117)
-#define C_CARD   lv_color_hex(0x161B22)
-#define C_WHITE  lv_color_hex(0xEAEAEA)
-#define C_MUTED  lv_color_hex(0x6E7681)
-#define C_OK     lv_color_hex(0x2ECC71)
-#define C_WARN   lv_color_hex(0xF5C518)
-#define C_ERR    lv_color_hex(0xE74C3C)
-#define C_RUN    lv_color_hex(0x4A9EFF)
+// ── Paleta ────────────────────────────────────────────────────────────────
+#define C_BG        lv_color_hex(0x0A0E17)
+#define C_CARD      lv_color_hex(0x131929)
+#define C_WHITE     lv_color_hex(0xEAEAEA)
+#define C_MUTED     lv_color_hex(0x4E5A6E)
+#define C_MUTED2    lv_color_hex(0x6E7A8E)
+#define C_OK        lv_color_hex(0x2ECC71)
+#define C_WARN      lv_color_hex(0xF5C518)
+#define C_ERR       lv_color_hex(0xE74C3C)
+#define C_RUN       lv_color_hex(0x4A9EFF)
+#define C_ACCENT    lv_color_hex(0x1F6FEB)
+#define C_ACCENT2   lv_color_hex(0xF5C518)
+#define C_DOTS      lv_color_hex(0x1E2D45)
+
+// ── Pasos visibles (sin WIFI_OK/WIFI_FAIL que son alias) ──────────────────
+static const int VISIBLE_STEPS[] = {
+    (int)SplashStep::LITTLEFS,
+    (int)SplashStep::DATASTORE,
+    (int)SplashStep::PSRAM_CACHE,
+    (int)SplashStep::NTP,
+    (int)SplashStep::WIFI_CONNECTING,
+    (int)SplashStep::WEBSERVER,
+    (int)SplashStep::TELEGRAM,
+};
+static constexpr int N_VISIBLE = sizeof(VISIBLE_STEPS)/sizeof(VISIBLE_STEPS[0]);
 
 static const char* STEP_NAMES[] = {
     "Sistema de archivos",
     "Almacenamiento",
     "Cache PSRAM",
     "Hora NTP",
-    "Conectando WiFi...",
-    "WiFi",
-    "WiFi (sin conexion)",
+    "Red WiFi",
+    "Red WiFi",      // WIFI_OK  → alias
+    "Red WiFi",      // WIFI_FAIL → alias
     "Servidor web",
     "Notificaciones",
     "Listo"
 };
 
-static lv_obj_t* s_screen    = nullptr;
-static lv_obj_t* s_bar       = nullptr;   // barra de progreso
-static lv_obj_t* s_lbl_step  = nullptr;   // paso actual en grande
-static lv_obj_t* s_lbl_detail= nullptr;   // detalle opcional
-static lv_obj_t* s_rows[(int)SplashStep::DONE] = {};  // icono + label por paso
-static lv_obj_t* s_row_labels[(int)SplashStep::DONE] = {};
+// ── Geometría ─────────────────────────────────────────────────────────────
+#define HEADER_H     SY(72)    // zona del título
+#define ACCENT_Y     SY(58)    // línea decorativa bajo el título
+#define VERSION_Y    SY(62)    // versión y fecha de compilación
+#define LIST_TOP     SY(80)    // inicio de la lista de pasos
+#define ROW_H        SY(24)    // altura de cada fila
+#define LIST_X       SX(16)    // margen izquierdo de la lista
+#define DOT_X        LIST_X
+#define LABEL_X      (LIST_X + SX(16))
+#define STATUS_X     (SCREEN_WIDTH - SX(28))
+#define BAR_Y        (SCREEN_HEIGHT - SY(18))
+#define DETAIL_Y     (BAR_Y - SY(16))
 
-static constexpr int N_STEPS = (int)SplashStep::DONE;
-static constexpr int ROW_H   = 22;
-static constexpr int LIST_Y  = SY(90);
+// ── Widgets ───────────────────────────────────────────────────────────────
+static lv_obj_t* s_screen      = nullptr;
+static lv_obj_t* s_bar         = nullptr;
+static lv_obj_t* s_lbl_detail  = nullptr;
+static lv_obj_t* s_dots[N_VISIBLE]       = {};  // círculo de color
+static lv_obj_t* s_step_labels[N_VISIBLE] = {};  // nombre del paso
+static lv_obj_t* s_step_status[N_VISIBLE] = {};  // icono de estado derecha
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 static lv_color_t state_color(SplashState s) {
@@ -56,131 +84,247 @@ static const char* state_icon(SplashState s) {
     }
 }
 
-// ── Init ──────────────────────────────────────────────────────────────────
+// Índice en VISIBLE_STEPS para un step enum
+static int visible_idx(int step_enum) {
+    // Normalizar aliases
+    if (step_enum == (int)SplashStep::WIFI_OK ||
+        step_enum == (int)SplashStep::WIFI_FAIL)
+        step_enum = (int)SplashStep::WIFI_CONNECTING;
+    for (int i = 0; i < N_VISIBLE; i++)
+        if (VISIBLE_STEPS[i] == step_enum) return i;
+    return -1;
+}
+
+// ── Fecha de compilación legible ──────────────────────────────────────────
+// __DATE__ = "May 15 2026", __TIME__ = "22:14:05"
+static void build_date_str(char* out, size_t max) {
+    // Parsear __DATE__ para reordenar a "15 May 2026"
+    static const char* months[] = {
+        "Jan","Feb","Mar","Apr","May","Jun",
+        "Jul","Aug","Sep","Oct","Nov","Dec"
+    };
+    static const char* months_es[] = {
+        "Ene","Feb","Mar","Abr","May","Jun",
+        "Jul","Ago","Sep","Oct","Nov","Dic"
+    };
+    char month_s[4] = {}; int day = 0, year = 0;
+    sscanf(__DATE__, "%3s %d %d", month_s, &day, &year);
+    int month_idx = 0;
+    for (int i = 0; i < 12; i++)
+        if (strncmp(month_s, months[i], 3) == 0) { month_idx = i; break; }
+
+    char time_s[6] = {};
+    strncpy(time_s, __TIME__, 5);   // "HH:MM"
+
+    snprintf(out, max, "v%s  ·  %d %s %d  ·  %s",
+             APP_VERSION, day, months_es[month_idx], year, time_s);
+}
+
+// ── Línea decorativa con degradado simulado ───────────────────────────────
+// LVGL 9 no tiene gradiente nativo → simulamos con 3 rectángulos
+static void make_accent_line(lv_obj_t* parent, int y) {
+    struct Seg { int x, w; lv_color_t col; lv_opa_t opa; };
+    const int TH = SS(2);   // grosor de la línea
+    Seg segs[] = {
+        { 0,                SX(60),  C_ACCENT,  LV_OPA_20 },
+        { SX(60),           SX(120), C_ACCENT,  LV_OPA_70 },
+        { SX(180),          SX(120), C_ACCENT2, LV_OPA_90 },
+        { SX(300),          SX(120), C_ACCENT,  LV_OPA_70 },
+        { SX(420),          SX(60),  C_ACCENT,  LV_OPA_20 },
+    };
+    for (auto& seg : segs) {
+        lv_obj_t* r = lv_obj_create(parent);
+        lv_obj_set_pos(r, seg.x, y);
+        lv_obj_set_size(r, seg.w, TH);
+        lv_obj_set_style_bg_color(r, seg.col, 0);
+        lv_obj_set_style_bg_opa(r, seg.opa, 0);
+        lv_obj_set_style_border_width(r, 0, 0);
+        lv_obj_set_style_radius(r, 0, 0);
+        lv_obj_remove_flag(r, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
+    }
+}
+
+// ── Fila de puntos separadores ────────────────────────────────────────────
+// Relleno visual entre nombre y estado con puntitos
+static void make_dots_row(lv_obj_t* parent, int y) {
+    const int DOT_W  = SX(3);
+    const int DOT_SP = SX(5);
+    const int START  = LABEL_X + SX(130);
+    const int END    = STATUS_X - SX(8);
+    for (int x = START; x < END; x += DOT_W + DOT_SP) {
+        lv_obj_t* d = lv_obj_create(parent);
+        lv_obj_set_pos(d, x, y + ROW_H/2 - 1);
+        lv_obj_set_size(d, DOT_W, SS(2));
+        lv_obj_set_style_bg_color(d, C_DOTS, 0);
+        lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(d, 0, 0);
+        lv_obj_set_style_radius(d, 1, 0);
+        lv_obj_remove_flag(d, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(d, LV_OBJ_FLAG_SCROLLABLE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// API pública
+// ═════════════════════════════════════════════════════════════════════════
+
 void splash_init() {
     s_screen = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(s_screen, C_BG, 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+    lv_obj_set_scrollbar_mode(s_screen, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_scr_load(s_screen);
 
-    // Título
+    // ── Zona de cabecera con fondo sutil ──────────────────────────────────
+    lv_obj_t* header_bg = lv_obj_create(s_screen);
+    lv_obj_set_pos(header_bg, 0, 0);
+    lv_obj_set_size(header_bg, SCREEN_WIDTH, HEADER_H);
+    lv_obj_set_style_bg_color(header_bg, C_CARD, 0);
+    lv_obj_set_style_bg_opa(header_bg, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(header_bg, 0, 0);
+    lv_obj_remove_flag(header_bg, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(header_bg, LV_OBJ_FLAG_SCROLLABLE);
+
+    // ── Título: icono + nombre ────────────────────────────────────────────
+    // Icono solar en amarillo
+    lv_obj_t* icon = lv_label_create(s_screen);
+    lv_obj_set_style_text_font(icon, &FONT_LARGE, 0);
+    lv_obj_set_style_text_color(icon, C_ACCENT2, 0);
+    lv_label_set_text(icon, LV_SYMBOL_CHARGE);
+    lv_obj_set_pos(icon, SX(140), SY(12));
+
+    // Nombre de la aplicación
     lv_obj_t* title = lv_label_create(s_screen);
-    lv_obj_set_pos(title, 0, SY(14));
-    lv_obj_set_width(title, SCREEN_WIDTH);
-    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(title, &FONT_LARGE, 0);
     lv_obj_set_style_text_color(title, C_WHITE, 0);
-    lv_label_set_text(title, LV_SYMBOL_CHARGE " Deye Monitor");
+    lv_label_set_text(title, APP_NAME);
+    lv_obj_set_pos(title, SX(178), SY(12));
 
-    // Subtítulo / paso actual
-    s_lbl_step = lv_label_create(s_screen);
-    lv_obj_set_pos(s_lbl_step, 0, SY(54));
-    lv_obj_set_width(s_lbl_step, SCREEN_WIDTH);
-    lv_obj_set_style_text_align(s_lbl_step, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(s_lbl_step, &FONT_NORMAL, 0);
-    lv_obj_set_style_text_color(s_lbl_step, C_MUTED, 0);
-    lv_label_set_text(s_lbl_step, "Iniciando...");
+    // ── Línea decorativa ─────────────────────────────────────────────────
+    make_accent_line(s_screen, ACCENT_Y);
 
-    // Lista de pasos (solo mostramos los relevantes, no WIFI_OK/WIFI_FAIL
-    // que son aliases de WIFI_CONNECTING con distinto estado)
-    const int VISIBLE_STEPS[] = {
-        (int)SplashStep::LITTLEFS,
-        (int)SplashStep::DATASTORE,
-        (int)SplashStep::PSRAM_CACHE,
-        (int)SplashStep::NTP,
-        (int)SplashStep::WIFI_CONNECTING,
-        (int)SplashStep::WEBSERVER,
-        (int)SplashStep::TELEGRAM,
-    };
-    const int N_VISIBLE = sizeof(VISIBLE_STEPS)/sizeof(VISIBLE_STEPS[0]);
+    // ── Versión y fecha de compilación ────────────────────────────────────
+    char build_info[64];
+    build_date_str(build_info, sizeof(build_info));
 
-    int list_x = SX(80);
+    lv_obj_t* ver = lv_label_create(s_screen);
+    lv_obj_set_width(ver, SCREEN_WIDTH);
+    lv_obj_set_pos(ver, 0, VERSION_Y);
+    lv_obj_set_style_text_align(ver, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(ver, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(ver, C_MUTED2, 0);
+    lv_label_set_text(ver, build_info);
+
+    // ── Lista de pasos ────────────────────────────────────────────────────
     for (int vi = 0; vi < N_VISIBLE; vi++) {
         int si = VISIBLE_STEPS[vi];
-        int y  = LIST_Y + vi * ROW_H;
+        int y  = LIST_TOP + vi * ROW_H;
 
-        // Icono de estado
-        lv_obj_t* icon = lv_label_create(s_screen);
-        lv_obj_set_pos(icon, list_x, y);
-        lv_obj_set_style_text_font(icon, &FONT_SMALL, 0);
-        lv_obj_set_style_text_color(icon, C_MUTED, 0);
-        lv_label_set_text(icon, LV_SYMBOL_MINUS);
+        // Dot de color izquierdo
+        lv_obj_t* dot = lv_obj_create(s_screen);
+        lv_obj_set_pos(dot, DOT_X, y + ROW_H/2 - SS(4));
+        lv_obj_set_size(dot, SS(8), SS(8));
+        lv_obj_set_style_bg_color(dot, C_MUTED, 0);
+        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(dot, 0, 0);
+        lv_obj_set_style_radius(dot, SS(4), 0);   // círculo
+        lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+        s_dots[vi] = dot;
 
         // Nombre del paso
         lv_obj_t* lbl = lv_label_create(s_screen);
-        lv_obj_set_pos(lbl, list_x + SX(20), y);
+        lv_obj_set_pos(lbl, LABEL_X, y + (ROW_H - FONT_SMALL_SIZE) / 2);
         lv_obj_set_style_text_font(lbl, &FONT_SMALL, 0);
         lv_obj_set_style_text_color(lbl, C_MUTED, 0);
         lv_label_set_text(lbl, STEP_NAMES[si]);
+        s_step_labels[vi] = lbl;
 
-        // Guardamos el puntero del icono (índice = step enum)
-        s_rows[si] = icon;
-        s_row_labels[si] = lbl;   // guardar referencia directa
+        // Puntos separadores decorativos
+        make_dots_row(s_screen, y);
+
+        // Icono de estado derecha
+        lv_obj_t* st = lv_label_create(s_screen);
+        lv_obj_set_pos(st, STATUS_X, y + (ROW_H - FONT_SMALL_SIZE) / 2);
+        lv_obj_set_style_text_font(st, &FONT_SMALL, 0);
+        lv_obj_set_style_text_color(st, C_MUTED, 0);
+        lv_label_set_text(st, LV_SYMBOL_MINUS);
+        s_step_status[vi] = st;
     }
 
-    // Label de detalle (IP, error, etc.)
+    // ── Label de detalle ──────────────────────────────────────────────────
     s_lbl_detail = lv_label_create(s_screen);
-    lv_obj_set_pos(s_lbl_detail, 0, LIST_Y + N_VISIBLE * ROW_H + SY(8));
-    lv_obj_set_width(s_lbl_detail, SCREEN_WIDTH);
-    lv_obj_set_style_text_align(s_lbl_detail, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(s_lbl_detail, SX(16), DETAIL_Y);
+    lv_obj_set_width(s_lbl_detail, SCREEN_WIDTH - SX(32));
     lv_obj_set_style_text_font(s_lbl_detail, &FONT_SMALL, 0);
-    lv_obj_set_style_text_color(s_lbl_detail, C_MUTED, 0);
+    lv_obj_set_style_text_color(s_lbl_detail, C_MUTED2, 0);
+    lv_obj_set_style_text_align(s_lbl_detail, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(s_lbl_detail, "");
 
-    // Barra de progreso
+    // ── Barra de progreso ─────────────────────────────────────────────────
     s_bar = lv_bar_create(s_screen);
-    lv_obj_set_pos(s_bar, SX(20), SCREEN_HEIGHT - SY(20));
-    lv_obj_set_size(s_bar, SCREEN_WIDTH - SX(40), SS(8));
-    lv_bar_set_range(s_bar, 0, N_STEPS - 1);
+    lv_obj_set_pos(s_bar, SX(16), BAR_Y);
+    lv_obj_set_size(s_bar, SCREEN_WIDTH - SX(32), SS(6));
+    lv_bar_set_range(s_bar, 0, (int)SplashStep::DONE);
     lv_bar_set_value(s_bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_bar, lv_color_hex(0x21262D), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_bar, lv_color_hex(0x4A9EFF), LV_PART_INDICATOR);
-    lv_obj_set_style_radius(s_bar, SS(4), LV_PART_MAIN);
-    lv_obj_set_style_radius(s_bar, SS(4), LV_PART_INDICATOR);
 
-    // Primer render
+    lv_obj_set_style_bg_color(s_bar, lv_color_hex(0x1A2233), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER,             LV_PART_MAIN);
+    lv_obj_set_style_radius(s_bar, SS(3),                     LV_PART_MAIN);
+
+    // Indicador con degradado simulado: usamos el color accent
+    lv_obj_set_style_bg_color(s_bar, C_ACCENT,   LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(s_bar, SS(3),         LV_PART_INDICATOR);
+
     lv_timer_handler();
 }
 
-// ── Actualizar ────────────────────────────────────────────────────────────
+// ── splash_update ─────────────────────────────────────────────────────────
 void splash_update(SplashStep step, SplashState state, const char* detail) {
-    int si = (int)step;
+    int si  = (int)step;
+    int vi  = visible_idx(si);
+    lv_color_t col = state_color(state);
 
-    // Normalizar WIFI_OK y WIFI_FAIL al slot de WIFI_CONNECTING
-    int row_idx = si;
-    if (step == SplashStep::WIFI_OK || step == SplashStep::WIFI_FAIL)
-        row_idx = (int)SplashStep::WIFI_CONNECTING;
+    if (vi >= 0) {
+        // Dot de color
+        lv_obj_set_style_bg_color(s_dots[vi], col, 0);
 
-    // Actualizar icono y color del paso
-    if (s_rows[row_idx]) {
-        lv_label_set_text(s_rows[row_idx], state_icon(state));
-        lv_obj_set_style_text_color(s_rows[row_idx], state_color(state), 0);
+        // Nombre del paso con color del estado
+        lv_obj_set_style_text_color(s_step_labels[vi], col, 0);
 
-        if (s_row_labels[row_idx])
-            lv_obj_set_style_text_color(s_row_labels[row_idx], state_color(state), 0);
+        // Icono de estado
+        lv_label_set_text(s_step_status[vi], state_icon(state));
+        lv_obj_set_style_text_color(s_step_status[vi], col, 0);
     }
 
-    // Label del paso actual en grande
-    lv_label_set_text(s_lbl_step, STEP_NAMES[si]);
-    lv_obj_set_style_text_color(s_lbl_step, state_color(state), 0);
+    // Detalle
+    if (detail && detail[0]) {
+        lv_label_set_text(s_lbl_detail, detail);
+        lv_obj_set_style_text_color(s_lbl_detail,
+            (state == SplashState::ERROR) ? C_ERR :
+            (state == SplashState::WARN)  ? C_WARN : C_MUTED2, 0);
+    } else {
+        lv_label_set_text(s_lbl_detail, "");
+    }
 
-    // Detalle opcional
-    if (detail) lv_label_set_text(s_lbl_detail, detail);
-    else        lv_label_set_text(s_lbl_detail, "");
+    // Barra — avanza si el estado es terminal
+    if (state == SplashState::OK   ||
+        state == SplashState::WARN ||
+        state == SplashState::ERROR) {
+        lv_bar_set_value(s_bar, si + 1, LV_ANIM_ON);
+    }
 
-    // Barra de progreso
-    lv_bar_set_value(s_bar, si, LV_ANIM_ON);
-
-    // Forzar render inmediato — crítico para que se vea durante el init
     lv_timer_handler();
     delay(5);
 }
 
-// ── Finish ────────────────────────────────────────────────────────────────
+// ── splash_finish ─────────────────────────────────────────────────────────
 void splash_finish() {
-    // El tileview ya está creado en setup(); simplemente cargamos esa pantalla
-    // El splash se elimina al ser reemplazado
     extern lv_obj_t* g_main_screen;
-    lv_scr_load_anim(g_main_screen, LV_SCR_LOAD_ANIM_FADE_IN, 400, 0, true);
+    lv_scr_load_anim(g_main_screen,
+                     LV_SCR_LOAD_ANIM_FADE_IN, 400, 200, true);
     s_screen = nullptr;
 }
