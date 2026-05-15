@@ -695,16 +695,7 @@ const pwrChart = new Chart(document.getElementById('chart-pwr'), {
     plugins: {
       ...commonOpts.plugins,
       tooltip: {
-        ...commonOpts.plugins.tooltip,
-        callbacks: {
-          afterBody: (items) => {
-            const ds = pwrChart.data.datasets[items[0].datasetIndex];
-            // El dataset no tiene n directamente; lo guardamos aparte
-            const h = items[0].dataIndex;
-            const n = window._hourly_n ? window._hourly_n[h] : null;
-            return n !== null ? `Muestras: ${n}/12` : '';
-          }
-        }
+        ...commonOpts.plugins.tooltip
       },
       annotation: {
         annotations: {
@@ -795,9 +786,6 @@ async function loadDay(dateStr, incremental = false) {
         bdis: data.daily.bdis,
       });
     }
-    
-    window._hourly_n = new Array(24).fill(null);
-    records.forEach(r => { window._hourly_n[r.h] = r.n; });
 
     // Status
     const isInc = incremental && data.new_records > 0;
