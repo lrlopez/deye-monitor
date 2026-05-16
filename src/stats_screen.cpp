@@ -62,6 +62,9 @@ static void update_nav_label() {
                      : lv_obj_remove_state(s_btn_next, LV_STATE_DISABLED);
     (s_offset <= -6) ? lv_obj_add_state(s_btn_prev, LV_STATE_DISABLED)
                      : lv_obj_remove_state(s_btn_prev, LV_STATE_DISABLED);
+
+    lv_obj_set_style_text_color(s_lbl_date,
+        s_offset == 0 ? C_WHITE : lv_color_hex(0x4A9EFF), 0);
 }
 
 // ── Donut helpers ─────────────────────────────────────────────────────────
@@ -252,6 +255,12 @@ void stats_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_font(s_lbl_date, &FONT_NORMAL, 0);
     lv_obj_set_style_text_color(s_lbl_date, C_WHITE, 0);
     lv_label_set_text(s_lbl_date, "Hoy");
+    lv_obj_add_flag(s_lbl_date, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_lbl_date, [](lv_event_t*) {
+        if (s_offset == 0) return;   // ya estamos en hoy
+        s_offset = 0;
+        load_and_render(0);
+    }, LV_EVENT_CLICKED, nullptr);
 
     // Separadores
     lv_obj_t* sep_h = lv_obj_create(parent);

@@ -78,6 +78,9 @@ static void update_date_label() {
     else                lv_obj_remove_state(s_btn_next, LV_STATE_DISABLED);
     if (s_offset <= -6) lv_obj_add_state(s_btn_prev, LV_STATE_DISABLED);
     else                lv_obj_remove_state(s_btn_prev, LV_STATE_DISABLED);
+
+    lv_obj_set_style_text_color(s_lbl_date,
+        s_offset == 0 ? C_WHITE : lv_color_hex(0x4A9EFF), 0);
 }
 
 // Devuelve la coordenada X absoluta (en pantalla) del punto de hora h
@@ -384,6 +387,12 @@ void chart_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_font(s_lbl_date, &FONT_NORMAL, 0);
     lv_obj_set_style_text_color(s_lbl_date, C_WHITE, 0);
     lv_label_set_text(s_lbl_date, "---");
+    lv_obj_add_flag(s_lbl_date, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_lbl_date, [](lv_event_t*) {
+        if (s_offset == 0) return;
+        s_offset = 0;
+        load_day();
+    }, LV_EVENT_CLICKED, nullptr);
 
     // ── Chart de potencias ────────────────────────────────────────────────
     s_chart_pwr = make_chart(parent, PWR_Y, PWR_H, -6000, 6000, 5);
