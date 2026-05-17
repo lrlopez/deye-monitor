@@ -103,11 +103,7 @@ static void render_month() {
         bool is_old      = (s_old_ep > 0 && dep < s_old_ep);
         bool is_disabled = is_future || is_old;
 
-        bool has_data = false;
-        if (!is_disabled) {
-            DailyRecord dr{};
-            has_data = Cache.getDaily(dep, dr);
-        }
+        bool has_data = !is_disabled && Cache.dayHasData(dep);
 
         // Epoch para el callback (0 = no clickable)
         s_epochs[ci] = is_disabled ? 0 : dep;

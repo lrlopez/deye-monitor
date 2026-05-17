@@ -8,10 +8,6 @@
 #include "calendar_popup.h"
 
 // ── Paleta ────────────────────────────────────────────────────────────────
-#define C_BG    lv_color_hex(0x0D1117)
-#define C_CARD  lv_color_hex(0x161B22)
-#define C_MUTED lv_color_hex(0x6E7681)
-#define C_WHITE lv_color_hex(0xEAEAEA)
 #define C_PV    lv_color_hex(0xF5C518)
 #define C_GRID  lv_color_hex(0x4A9EFF)
 #define C_BATT  lv_color_hex(0x2ECC71)

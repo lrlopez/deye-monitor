@@ -275,12 +275,6 @@ static void solarmanTask(void* /*pv*/) {
                 r.grid_w     = (int16_t)constrain(local_e.grid_power, -32767, 32767);
                 r.batt_w     = (int16_t)constrain(local_e.batt_power, -32767, 32767);
                 r.load_w     = (int16_t)constrain(local_e.load_power, -32767, 32767);
-                r.day_pv     = (uint16_t)(local_d.pv_kwh             * 10.0f + 0.5f);
-                r.day_export = (uint16_t)(local_d.export_kwh          * 10.0f + 0.5f);
-                r.day_import = (uint16_t)(local_d.import_kwh          * 10.0f + 0.5f);
-                r.day_load   = (uint16_t)(local_d.load_kwh            * 10.0f + 0.5f);
-                r.day_bchg   = (uint16_t)(local_d.batt_charge_kwh     * 10.0f + 0.5f);
-                r.day_bdis   = (uint16_t)(local_d.batt_discharge_kwh  * 10.0f + 0.5f);
                 r.soc        = (uint8_t)local_e.batt_soc;
                 r.flags      = 0x01;
 

@@ -1,7 +1,10 @@
 #pragma once
 #include <Arduino.h>
 #include <freertos/semphr.h>
+#include <LittleFS.h>
 #include "solarman.h"   // DailyStats
+
+static constexpr uint32_t STORE_DAYS = 1461;
 
 // ── Registro de 5 minutos ─────────────────────────────────────────────────
 // 32 bytes exactos — no cambiar orden sin incrementar versión de formato
@@ -15,22 +18,13 @@ struct Record5Min {
     int16_t  batt_w;        // + descargando / - cargando  (RAW)
     int16_t  load_w;        // ≥ 0
 
-    // Totales acumulados del día (unidad: 0.1 kWh)
-    // Son los registros directos del inversor; se resetean a medianoche
-    uint16_t day_pv;        // producción FV
-    uint16_t day_export;    // exportación a red
-    uint16_t day_import;    // importación de red
-    uint16_t day_load;      // consumo de carga
-    uint16_t day_bchg;      // carga de batería
-    uint16_t day_bdis;      // descarga de batería
-
     uint8_t  soc;           // %
     uint8_t  flags;         // bit0=válido  bit1=parcial (arranque tras corte)
 
-    int16_t  extra[3];      // reserva para 3 medidas futuras
+    int16_t  extra[1];      // reserva para 1 medida futura
 };  // = 32 bytes
 
-static_assert(sizeof(Record5Min) == 32, "Record5Min must be 32 bytes");
+static_assert(sizeof(Record5Min) == 16, "Record5Min must be 16 bytes");
 
 // ── HourlyRecord — agregación horaria pre-calculada ───────────────────────
 struct HourlyRecord {
@@ -140,22 +134,47 @@ private:
         uint32_t    count;
     };
 
-    CircBuf  _raw  {"/raw.bin",  201600, 0, 0};  // 700 días × 288
-    CircBuf  _hrly {"/hrly.bin",  17520, 0, 0};  // 730 días × 24
-    CircBuf  _day  {"/day.bin",      730, 0, 0};  // 730 días
+    CircBuf  _raw  {"/raw.bin",  STORE_DAYS * 288, 0, 0};  // STORE_DAYS días × 288
+    CircBuf  _hrly {"/hrly.bin",  STORE_DAYS * 24, 0, 0};  // STORE_DAYS días × 24
+    CircBuf  _day  {"/day.bin",        STORE_DAYS, 0, 0};  // STORE_DAYS días
 
     uint32_t& _raw_count  = _raw.count;
     uint32_t& _hrly_count = _hrly.count;
     uint32_t& _day_count  = _day.count;
+    
+    // File handles abiertos permanentemente
+    File _f_raw, _f_hrly, _f_day;
+
+    // Índice de días en PSRAM
+    struct DayIdx { uint32_t day_epoch; uint32_t logical_start; };
+    DayIdx*  _day_idx       = nullptr;
+    uint32_t _day_idx_count  = 0;
+    static constexpr uint32_t DAY_IDX_MAX = STORE_DAYS;
+
+    // Meta en RAM, guardada solo periódicamente
+    uint32_t _pushes_since_meta_save = 0;
+    static constexpr uint32_t META_SAVE_INTERVAL = 1;
 
     static const char* META_FILE;
     static const uint32_t MAGIC   = 0x5A5ADEA2;
-    static const uint8_t  VERSION = 2;           // versión 2: tres buffers
+    static const uint8_t  VERSION = 4;           // versión 3: optimizado
 
     bool loadMeta();
     bool saveMeta();
+    
     bool writeAt(const CircBuf& cb, uint32_t phys, const void* data, size_t sz);
     bool readAt (const CircBuf& cb, uint32_t phys, void* data,       size_t sz);
+
+    bool writeRaw (uint32_t phys, const Record5Min& r);
+    bool readRaw  (uint32_t phys, Record5Min& r);
+    bool writeHrly(uint32_t phys, const HourlyRecord& r);
+    bool readHrly (uint32_t phys, HourlyRecord& r);
+    bool writeDay_ (uint32_t phys, const DailyRecord& r);
+    bool readDay_ (uint32_t phys, DailyRecord& r);
+
+    void   _day_idx_insert(uint32_t day_epoch, uint32_t logical_start);
+    int    _day_idx_find  (uint32_t day_epoch) const;
+    void   _day_idx_load  ();
     uint32_t physIdx(const CircBuf& cb, uint32_t logical) const;
     uint32_t lowerBoundRaw(uint32_t ts);
     uint32_t lowerBoundHrly(uint32_t ts);

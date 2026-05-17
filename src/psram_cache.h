@@ -3,17 +3,17 @@
 #include <freertos/semphr.h>
 #include "data_store.h"
 
-// ── Raw cache (90 días) ───────────────────────────────────────────────────
+// ── Raw cache ─────────────────────────────────────────────────────────────
 constexpr int    CACHE_RAW_DAYS   = 90;
 constexpr int    RECS_PER_DAY     = 288;
 constexpr size_t CACHE_RAW_SIZE   = (size_t)CACHE_RAW_DAYS * RECS_PER_DAY * sizeof(Record5Min);
 
-// ── Hourly cache (90 días) ────────────────────────────────────────────────
-constexpr int    CACHE_HRLY_DAYS  = 90;
+// ── Hourly cache ──────────────────────────────────────────────────────────
+constexpr int    CACHE_HRLY_DAYS  = STORE_DAYS;
 constexpr size_t CACHE_HRLY_SIZE  = (size_t)CACHE_HRLY_DAYS * 24 * sizeof(HourlyRecord);
 
-// ── Daily cache (730 días — TODO en PSRAM, solo 23 KB) ───────────────────
-constexpr int    CACHE_DAY_MAX    = 730;
+// ── Daily cache ───────────────────────────────────────────────────────────
+constexpr int    CACHE_DAY_MAX    = STORE_DAYS;
 constexpr size_t CACHE_DAY_SIZE   = (size_t)CACHE_DAY_MAX * sizeof(DailyRecord);
 
 struct CachedRawDay {
@@ -53,10 +53,13 @@ public:
     // ── Daily (toda la historia en PSRAM, acceso O(1)) ────────────────────
     bool getDaily(uint32_t dep, DailyRecord& out);
     void pushDaily(const DailyRecord& r);
+
     // Para stats/summary: acceso directo al array ordenado
     const DailyRecord* getDailyArray() const { return _day_buf; }
     uint32_t           getDailyCount()  const { return _day_count; }
     uint32_t           getOldestDailyEpoch() const;
+
+    bool dayHasData(uint32_t day_epoch) const;
 
     void lock()   { xSemaphoreTake(_mutex, portMAX_DELAY); }
     void unlock() { xSemaphoreGive(_mutex); }
@@ -64,6 +67,8 @@ public:
 
 private:
     PsramCache() = default;
+
+    static constexpr uint32_t BITMAP_DAYS = STORE_DAYS;
 
     SemaphoreHandle_t _mutex = nullptr;
 
@@ -79,6 +84,8 @@ private:
     DailyRecord*   _day_buf   = nullptr;
     uint32_t       _day_count = 0;
 
+    uint8_t* _has_data_bitmap = nullptr;   // Bytes en PSRAM, 1 bit por día
+
     int  _raw_slot_for(uint32_t dep)  const;
     int  _raw_oldest_slot()           const;
     void _raw_load(uint32_t dep);
@@ -89,6 +96,9 @@ private:
 
     void _day_load_all();
     int  _day_find(uint32_t dep) const;
+
+    void _bitmap_set(uint32_t day_epoch, bool has);
+    void _bitmap_build();
 
     static void _bg_task(void* pv);
 };

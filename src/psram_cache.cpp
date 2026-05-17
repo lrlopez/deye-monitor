@@ -10,26 +10,23 @@ PsramCache& PsramCache::instance() { static PsramCache c; return c; }
 bool PsramCache::begin() {
     _mutex = xSemaphoreCreateMutex();
 
-    // Raw buffer
-    _raw_buf = (Record5Min*)heap_caps_malloc(CACHE_RAW_SIZE,
-                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    _raw_days = (CachedRawDay*)heap_caps_malloc(
-                    CACHE_RAW_DAYS * sizeof(CachedRawDay),
-                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-
-    // Hourly buffer
-    _hrly_buf = (HourlyRecord*)heap_caps_malloc(CACHE_HRLY_SIZE,
-                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    // ── Alojar buffers en PSRAM ───────────────────────────────────────────
+    _raw_buf   = (Record5Min*)  heap_caps_malloc(CACHE_RAW_SIZE,
+                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    _raw_days  = (CachedRawDay*)heap_caps_malloc(
+                     CACHE_RAW_DAYS * sizeof(CachedRawDay),
+                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    _hrly_buf  = (HourlyRecord*)heap_caps_malloc(CACHE_HRLY_SIZE,
+                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     _hrly_days = (CachedHrlyDay*)heap_caps_malloc(
-                    CACHE_HRLY_DAYS * sizeof(CachedHrlyDay),
-                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-
-    // Daily buffer
-    _day_buf = (DailyRecord*)heap_caps_malloc(CACHE_DAY_SIZE,
-                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                     CACHE_HRLY_DAYS * sizeof(CachedHrlyDay),
+                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    _day_buf   = (DailyRecord*) heap_caps_malloc(CACHE_DAY_SIZE,
+                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
     if (!_raw_buf || !_raw_days || !_hrly_buf || !_hrly_days || !_day_buf) {
-        Serial0.println("[Cache] ERROR: PSRAM insuficiente"); return false;
+        Serial.println("[Cache] ERROR: PSRAM insuficiente");
+        return false;
     }
 
     memset(_raw_buf,   0, CACHE_RAW_SIZE);
@@ -38,13 +35,14 @@ bool PsramCache::begin() {
     memset(_hrly_days, 0, CACHE_HRLY_DAYS * sizeof(CachedHrlyDay));
     memset(_day_buf,   0, CACHE_DAY_SIZE);
 
-    Serial0.printf("[Cache] PSRAM: raw=%uKB hrly=%uKB day=%uKB total=%uKB\n",
+    Serial.printf("[Cache] PSRAM: raw=%uKB hrly=%uKB day=%uKB total=%uKB libre=%luKB\n",
                   (unsigned)(CACHE_RAW_SIZE/1024),
                   (unsigned)(CACHE_HRLY_SIZE/1024),
                   (unsigned)(CACHE_DAY_SIZE/1024),
-                  (unsigned)((CACHE_RAW_SIZE+CACHE_HRLY_SIZE+CACHE_DAY_SIZE)/1024));
+                  (unsigned)((CACHE_RAW_SIZE+CACHE_HRLY_SIZE+CACHE_DAY_SIZE)/1024),
+                  (unsigned long)ESP.getFreePsram()/1024);
 
-    // Asignar epochs a los últimos N días
+    // ── Inicializar slots raw (últimos 90 días) ───────────────────────────
     time_t now; time(&now);
     struct tm tm_now; localtime_r(&now, &tm_now);
     tm_now.tm_hour = 0; tm_now.tm_min = 0; tm_now.tm_sec = 0; tm_now.tm_isdst = -1;
@@ -55,34 +53,54 @@ bool PsramCache::begin() {
         _raw_days[i].loaded    = false;
         _raw_days[i].valid     = false;
     }
+
+    // ── Inicializar slots hourly (todos los días disponibles) ─────────────
     for (int i = 0; i < CACHE_HRLY_DAYS; i++) {
         _hrly_days[i].day_epoch = today - (uint32_t)(CACHE_HRLY_DAYS-1-i)*86400;
         _hrly_days[i].loaded    = false;
         _hrly_days[i].valid     = false;
     }
 
-    // Cargar daily completo (pequeño, carga eager)
+    // ── Carga eager: daily (pequeño, 47 KB) + últimos 7 días raw + hrly ───
     _day_load_all();
+    _bitmap_build();
 
-    // Cargar últimos 7 días eager, resto en background
+    // Últimos 7 días en raw y hourly (para UI inmediata)
     for (int i = CACHE_RAW_DAYS-7; i < CACHE_RAW_DAYS; i++)
         _raw_load(_raw_days[i].day_epoch);
     for (int i = CACHE_HRLY_DAYS-7; i < CACHE_HRLY_DAYS; i++)
         _hrly_load(_hrly_days[i].day_epoch);
 
+    // ── Carga en background de toda la historia horaria ───────────────────
+    // Prioridad mínima, Core 0, para no interferir con la UI
     xTaskCreatePinnedToCore(_bg_task, "cache_bg", 4096, this, 0, nullptr, 0);
+
+    printStats();
     return true;
 }
 
 void PsramCache::_bg_task(void* pv) {
     PsramCache* self = static_cast<PsramCache*>(pv);
-    for (int i = CACHE_HRLY_DAYS-8; i >= 0; i--) {
+    Serial.println("[Cache] Background: cargando historia horaria...");
+
+    uint32_t loaded = 0;
+    // De más antiguo a más reciente, saltando los últimos 7 (ya cargados en eager)
+    for (int i = 0; i < CACHE_HRLY_DAYS - 7; i++) {
         if (!self->_hrly_days[i].loaded) {
             self->_hrly_load(self->_hrly_days[i].day_epoch);
-            vTaskDelay(pdMS_TO_TICKS(30));
+            loaded++;
+            // Ceder CPU cada 10 días cargados para no bloquear otras tareas
+            if (loaded % 10 == 0)
+                vTaskDelay(pdMS_TO_TICKS(20));
         }
     }
-    Serial0.println("[Cache] Carga background completada");
+
+    uint32_t valid = 0;
+    for (int i = 0; i < CACHE_HRLY_DAYS; i++)
+        if (self->_hrly_days[i].valid) valid++;
+
+    Serial.printf("[Cache] Background completado: %lu/%d días con datos horarios\n",
+                  (unsigned long)valid, CACHE_HRLY_DAYS);
     vTaskDelete(nullptr);
 }
 
@@ -93,6 +111,12 @@ void PsramCache::_day_load_all() {
     _day_count = Store.readAllDaily(_day_buf, CACHE_DAY_MAX);
     Serial0.printf("[Cache] Daily cargado: %lu registros\n",
                   (unsigned long)_day_count);
+    _has_data_bitmap = (uint8_t*)heap_caps_malloc(
+        92, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (_has_data_bitmap) {
+        memset(_has_data_bitmap, 0, 92);
+        _bitmap_build();
+    }
 }
 
 int PsramCache::_day_find(uint32_t dep) const {
@@ -122,6 +146,7 @@ void PsramCache::pushDaily(const DailyRecord& r) {
         memmove(_day_buf, _day_buf + 1, (_day_count-1) * sizeof(DailyRecord));
         _day_buf[_day_count-1] = r;
     }
+    _bitmap_set(r.day_epoch, r.flags & 0x01);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -277,6 +302,47 @@ uint32_t PsramCache::getOldestDailyEpoch() const {
             oldest = _day_buf[i].day_epoch;
     }
     return (oldest == UINT32_MAX) ? 0 : oldest;
+}
+
+void PsramCache::_bitmap_build() {
+    if (!_has_data_bitmap) return;
+    for (uint32_t i = 0; i < _day_count; i++) {
+        if (_day_buf[i].flags & 0x01)
+            _bitmap_set(_day_buf[i].day_epoch, true);
+    }
+}
+
+void PsramCache::_bitmap_set(uint32_t dep, bool has) {
+    if (!_has_data_bitmap) return;
+    // Usar hoy como referencia: bit N = hace N días
+    uint32_t today = [] {
+        time_t now; time(&now);
+        struct tm t; localtime_r(&now, &t);
+        t.tm_hour = 0; t.tm_min = 0; t.tm_sec = 0; t.tm_isdst = -1;
+        return (uint32_t)mktime(&t);
+    }();
+    if (dep > today) return;
+    uint32_t days_ago = (today - dep) / 86400;
+    if (days_ago >= BITMAP_DAYS) return;
+    uint32_t byte_idx = days_ago / 8;
+    uint32_t bit_idx  = days_ago % 8;
+    if (has) _has_data_bitmap[byte_idx] |=  (1 << bit_idx);
+    else     _has_data_bitmap[byte_idx] &= ~(1 << bit_idx);
+}
+
+bool PsramCache::dayHasData(uint32_t dep) const {
+    if (!_has_data_bitmap) {
+        DailyRecord dr{};
+        return const_cast<PsramCache*>(this)->getDaily(dep, dr);
+    }
+    time_t now; time(&now);
+    struct tm t; localtime_r(&now, &t);
+    t.tm_hour = 0; t.tm_min = 0; t.tm_sec = 0; t.tm_isdst = -1;
+    uint32_t today = (uint32_t)mktime(&t);
+    if (dep > today) return false;
+    uint32_t days_ago = (today - dep) / 86400;
+    if (days_ago >= BITMAP_DAYS) return false;
+    return (_has_data_bitmap[days_ago/8] >> (days_ago%8)) & 1;
 }
 
 void PsramCache::printStats() {
