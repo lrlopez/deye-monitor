@@ -14,7 +14,7 @@
 
 // ── Aplicación ────────────────────────────────────────────────────────────
 #define APP_NAME        "Deye Monitor"
-#define APP_VERSION     "1.0.0"
+#define APP_VERSION     "1.0.1"
 
 // ── NTP ───────────────────────────────────────────────────────────────────
 #define NTP_SERVER1     "es.pool.ntp.org"
