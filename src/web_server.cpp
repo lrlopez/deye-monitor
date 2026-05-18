@@ -430,6 +430,13 @@ main{flex:1;padding:12px 16px;display:flex;flex-direction:column;gap:12px}
 .chart-card h2{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;
                color:var(--muted);margin-bottom:10px}
 .chart-wrap{position:relative;height:260px}
+.no-data-overlay{
+  display:none;position:absolute;inset:0;
+  align-items:center;justify-content:center;flex-direction:column;gap:8px;
+  background:rgba(13,17,23,.65);border-radius:6px;pointer-events:none}
+.no-data-overlay.visible{display:flex}
+.no-data-icon{font-size:2.2rem;opacity:.35}
+.no-data-txt{color:var(--muted);font-size:.85rem}
 .donut-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .donut-box{display:flex;flex-direction:column;align-items:center;gap:6px;
            background:var(--card);border:1px solid var(--border);
@@ -466,13 +473,22 @@ footer a{color:var(--accent);text-decoration:none}
 <!-- Gráfica de potencias -->
 <div class="chart-card">
   <h2>&#9889; Potencias (W)</h2>
-  <div class="chart-wrap"><canvas id="chart-pwr"></canvas></div>
+  <div class="chart-wrap">
+    <canvas id="chart-pwr"></canvas>
+    <div id="no-data-pwr" class="no-data-overlay">
+      <span class="no-data-icon">&#128202;</span>
+      <span class="no-data-txt">Sin datos para este d&iacute;a</span>
+    </div>
+  </div>
 </div>
 
 <!-- Gráfica de SOC -->
 <div class="chart-card">
-  <h2>&#128267; Estado batería (%)</h2>
-  <div class="chart-wrap" style="height:120px"><canvas id="chart-soc"></canvas></div>
+  <h2>&#128267; Estado bater&iacute;a (%)</h2>
+  <div class="chart-wrap" style="height:120px">
+    <canvas id="chart-soc"></canvas>
+    <div id="no-data-soc" class="no-data-overlay"></div>
+  </div>
 </div>
 
 <!-- Donuts -->
@@ -732,6 +748,12 @@ const socChart = new Chart(document.getElementById('chart-soc'), {
   }
 });
 
+// ── Sin datos ─────────────────────────────────────────────────────────────
+function showNoData(visible) {
+  document.getElementById('no-data-pwr').classList.toggle('visible', visible);
+  document.getElementById('no-data-soc').classList.toggle('visible', visible);
+}
+
 // ── Carga de datos ────────────────────────────────────────────────────────
 function appendData(records) {
   if (!records || records.length === 0) return;
@@ -771,9 +793,16 @@ async function loadDay(dateStr, incremental = false) {
       pwrChart.data.datasets.forEach(ds => ds.data = []);
       socChart.data.datasets[0].data = [];
       lastTs = 0;
+      // Renderizar vacío ahora; appendData lo rellena si hay datos
+      pwrChart.update('none');
+      socChart.update('none');
     }
 
+    const hasRecords = data.records && data.records.length > 0;
     appendData(data.records);
+
+    // Mostrar overlay "sin datos" solo en cargas completas
+    if (!incremental) showNoData(!hasRecords);
 
     // Actualizar donuts siempre (también en incrementales)
     if (data.daily) {
