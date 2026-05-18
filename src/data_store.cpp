@@ -81,10 +81,20 @@ bool DataStore::begin() {
     if (!_day_idx) {
         Serial0.println("[Store] Sin PSRAM para índice de días"); return false;
     }
-    memset(_day_idx, 0, 730 * sizeof(DayIdx));
+    memset(_day_idx, 0, STORE_DAYS * sizeof(DayIdx));
 
-    // Cargar meta
-    bool meta_ok = loadMeta();
+    // Cargar meta; si falla (primer arranque, magia incorrecta o versión
+    // incompatible) borrar los ficheros binarios para empezar desde cero.
+    // Sin esto, los .bin quedan con datos de un formato anterior y las
+    // escrituras nuevas desde posición 0 dejan basura al final del anillo.
+    if (!loadMeta()) {
+        Serial0.println("[Store] Meta inválida o ausente — reinicializando flash");
+        LittleFS.remove(_raw.path);
+        LittleFS.remove(_hrly.path);
+        LittleFS.remove(_day.path);
+        LittleFS.remove(META_FILE);
+        // head y count ya son 0 por la inicialización de CircBuf
+    }
 
     // ── Abrir ficheros y mantenerlos abiertos ────────────────────────────
     auto open_rw = [](File& f, const char* path, uint32_t cap, uint32_t rec_sz) {
@@ -122,13 +132,16 @@ bool DataStore::begin() {
 
 // ── Acceso directo con file handle abierto ────────────────────────────────
 bool DataStore::writeRaw(uint32_t phys, const Record5Min& r) {
-    return _f_raw.seek((uint32_t)phys * sizeof(Record5Min)) &&
-           _f_raw.write((const uint8_t*)&r, sizeof(r)) == sizeof(r);
+    if (!_f_raw.seek((uint32_t)phys * sizeof(Record5Min))) return false;
+    if (_f_raw.write((const uint8_t*)&r, sizeof(r)) != sizeof(r)) return false;
+    _f_raw.flush();   // forzar commit a flash; sin esto el write-buffer de LittleFS
+                      // pierde los datos si el ESP se reinicia antes de llenar el bloque
+    return true;
 }
 bool DataStore::readRaw(uint32_t phys, Record5Min& r) {
     return _f_raw.seek((uint32_t)phys * sizeof(Record5Min)) &&
            _f_raw.read((uint8_t*)&r, sizeof(r)) == sizeof(r) &&
-           (r.flags & 0x01);
+           r.timestamp > 1577836800UL;  // >= 2020-01-01; filtra arranques pre-NTP (~1970)
 }
 bool DataStore::writeHrly(uint32_t phys, const HourlyRecord& r) {
     return _f_hrly.seek((uint32_t)phys * sizeof(HourlyRecord)) &&
@@ -169,8 +182,40 @@ void DataStore::_day_idx_load() {
             prev_dep = dep;
         }
     }
-    Serial0.printf("[Store] Índice de días: %lu entradas\n",
-                  (unsigned long)_day_idx_count);
+    Serial0.printf("[Store] Índice de días: %lu entradas (raw_count=%lu head=%lu cap=%lu)\n",
+                  (unsigned long)_day_idx_count,
+                  (unsigned long)_raw.count,
+                  (unsigned long)_raw.head,
+                  (unsigned long)_raw.capacity);
+    for (uint32_t i = 0; i < _day_idx_count && i < 5; i++)
+        Serial0.printf("[Store]   [%lu] dep=%lu li=%lu\n",
+                       (unsigned long)i,
+                       (unsigned long)_day_idx[i].day_epoch,
+                       (unsigned long)_day_idx[i].logical_start);
+    if (_day_idx_count > 5)
+        Serial0.printf("[Store]   ... último: dep=%lu li=%lu\n",
+                       (unsigned long)_day_idx[_day_idx_count-1].day_epoch,
+                       (unsigned long)_day_idx[_day_idx_count-1].logical_start);
+
+    // Diagnóstico: si el índice está vacío pero hay registros, leer los primeros
+    // bytes del fichero directamente para ver qué contiene
+    if (_day_idx_count == 0 && _raw.count > 0) {
+        uint8_t raw16[16] = {};
+        bool seekOk = _f_raw.seek(0);
+        size_t nRead = _f_raw.read(raw16, 16);
+        Serial0.printf("[Store] DIAG raw.bin[0]: seek=%d read=%u "
+                       "bytes=[%02X %02X %02X %02X | %02X %02X | %02X %02X | "
+                       "%02X %02X | %02X %02X | %02X %02X | %02X %02X]\n",
+                       (int)seekOk, (unsigned)nRead,
+                       raw16[0],raw16[1],raw16[2],raw16[3],
+                       raw16[4],raw16[5], raw16[6],raw16[7],
+                       raw16[8],raw16[9], raw16[10],raw16[11],
+                       raw16[12],raw16[13], raw16[14],raw16[15]);
+        Serial0.printf("[Store] DIAG sizeof(Record5Min)=%u "
+                       "raw.bin size=%u\n",
+                       (unsigned)sizeof(Record5Min),
+                       (unsigned)_f_raw.size());
+    }
 }
 
 void DataStore::_day_idx_insert(uint32_t dep, uint32_t logical_start) {
@@ -191,7 +236,10 @@ int DataStore::_day_idx_find(uint32_t dep) const {
 
 // ── push(): meta guardada cada 12 pushes ──────────────────────────────────
 bool DataStore::push(const Record5Min& r) {
-    if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return false;
+    if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
+        Serial0.println("[Store] push: mutex timeout");
+        return false;
+    }
 
     // Detectar inicio de nuevo día para actualizar índice
     time_t t = (time_t)r.timestamp;
@@ -199,32 +247,42 @@ bool DataStore::push(const Record5Min& r) {
     tm_r.tm_hour = 0; tm_r.tm_min = 0; tm_r.tm_sec = 0; tm_r.tm_isdst = -1;
     uint32_t dep = (uint32_t)mktime(&tm_r);
 
-    uint32_t next_logical;
+    uint32_t phys = (_raw.count < _raw.capacity)
+                  ? physIdx(_raw, _raw.count)
+                  : _raw.head;
+
+    if (!writeRaw(phys, r)) {
+        Serial0.printf("[Store] push FALLO escritura ts=%lu phys=%lu\n",
+                       (unsigned long)r.timestamp, (unsigned long)phys);
+        xSemaphoreGive(_mutex);
+        return false;
+    }
+
+    // Solo actualizar estado si la escritura tuvo éxito
     if (_raw.count < _raw.capacity) {
-        next_logical = _raw.count;
         _raw.count++;
     } else {
-        next_logical = _raw.head;
-        _raw.head    = (_raw.head + 1) % _raw.capacity;
+        _raw.head = (_raw.head + 1) % _raw.capacity;
     }
+    uint32_t logical_start = _raw.count - 1;
 
     // ¿Es el primer registro de este día?
     if (_day_idx_count == 0 ||
         _day_idx[_day_idx_count-1].day_epoch != dep) {
-        _day_idx_insert(dep, next_logical);
+        _day_idx_insert(dep, logical_start);
     }
 
-    bool ok = writeRaw(physIdx(_raw, next_logical > 0 ?
-                                next_logical : _raw.count - 1), r);
+    Serial0.printf("[Store] push ts=%lu phys=%lu count=%lu\n",
+                   (unsigned long)r.timestamp, (unsigned long)phys,
+                   (unsigned long)_raw.count);
 
-    // Meta cada META_SAVE_INTERVAL pushes
     if (++_pushes_since_meta_save >= META_SAVE_INTERVAL) {
-        saveMeta();
+        if (!saveMeta()) Serial0.println("[Store] saveMeta FALLO");
         _pushes_since_meta_save = 0;
     }
 
     xSemaphoreGive(_mutex);
-    return ok;
+    return true;
 }
 
 // ── readDay(): O(1) con índice + scan secuencial ──────────────────────────
@@ -238,6 +296,21 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
     int idx_entry = _day_idx_find(dep);
     uint32_t start_li = (idx_entry >= 0) ?
                         _day_idx[idx_entry].logical_start : 0;
+
+    // Diagnóstico: mostrar dep buscado y contenido del índice
+    if (idx_entry < 0 && _day_idx_count > 0) {
+        Serial0.printf("[Store] readDay dep=%lu NO ENCONTRADO. idx_count=%lu "
+                       "first=%lu last=%lu\n",
+                       (unsigned long)dep,
+                       (unsigned long)_day_idx_count,
+                       (unsigned long)_day_idx[0].day_epoch,
+                       (unsigned long)_day_idx[_day_idx_count-1].day_epoch);
+    } else {
+        Serial0.printf("[Store] readDay dep=%lu idx=%d start_li=%lu raw_count=%lu\n",
+                       (unsigned long)dep, idx_entry,
+                       idx_entry >= 0 ? (unsigned long)_day_idx[idx_entry].logical_start : 0UL,
+                       (unsigned long)_raw.count);
+    }
 
     // Si no está en el índice, no hay datos para ese día
     if (idx_entry < 0) {
@@ -253,6 +326,7 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
         if (r.timestamp >= dep) out[found++] = r;
     }
 
+    Serial0.printf("[Store] readDay encontrados=%lu\n", (unsigned long)found);
     xSemaphoreGive(_mutex);
     return found;
 }
@@ -326,6 +400,11 @@ uint32_t DataStore::lowerBoundRaw(uint32_t ts) {
         else hi = mid;
     }
     return lo;
+}
+
+uint32_t DataStore::getLastRawDayEpoch() const {
+    if (_day_idx_count == 0) return 0;
+    return _day_idx[_day_idx_count - 1].day_epoch;
 }
 
 bool DataStore::getLastRecord(Record5Min& out) {

@@ -870,8 +870,19 @@ function scheduleMidnight() {
 
 // ── Inicio ────────────────────────────────────────────────────────────────
 updateNav();
-loadDay(currentDate, false).then(() => {
-  if (isToday(currentDate)) scheduleRefresh();
+fetch('/api/latest_date').then(r => r.json()).then(d => {
+  // Si el último día con datos 5-min no es hoy, navegar a él directamente
+  if (d.date && d.date !== currentDate) {
+    currentDate = d.date;
+    updateNav();
+  }
+  loadDay(currentDate, false).then(() => {
+    if (isToday(currentDate)) scheduleRefresh();
+  });
+}).catch(() => {
+  loadDay(currentDate, false).then(() => {
+    if (isToday(currentDate)) scheduleRefresh();
+  });
 });
 </script></body></html>)=EOF=");
 }
@@ -1011,6 +1022,22 @@ static void handle_status() {
         (int)WiFi.RSSI(),
         WiFi.localIP().toString().c_str());
 
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", json);
+}
+
+// ── GET /api/latest_date ──────────────────────────────────────────────────
+static void handle_latest_date() {
+    uint32_t ep = Store.getLastRawDayEpoch();
+    char json[48];
+    if (ep == 0) {
+        snprintf(json, sizeof(json), "{\"date\":null}");
+    } else {
+        time_t t = (time_t)ep;
+        struct tm tm; localtime_r(&t, &tm);
+        snprintf(json, sizeof(json), "{\"date\":\"%04d%02d%02d\"}",
+                 tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+    }
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", json);
 }
@@ -1192,8 +1219,9 @@ void webserver_begin() {
     server.on("/update",   HTTP_GET,  handle_update_get);
     server.on("/api/data", HTTP_GET,  handle_api_data);
     server.on("/update",   HTTP_POST, handle_update_post, handle_upload);
-    server.on("/api/history", HTTP_GET, handle_history);
-    server.on("/api/status",  HTTP_GET, handle_status);
+    server.on("/api/history",     HTTP_GET, handle_history);
+    server.on("/api/latest_date", HTTP_GET, handle_latest_date);
+    server.on("/api/status",      HTTP_GET, handle_status);
     server.on("/chart", HTTP_GET, handle_chart);
     server.onNotFound([]() {
         server.send(404, "text/plain", "Not found");

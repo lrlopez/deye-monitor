@@ -112,8 +112,10 @@ El datalogger y el ESP32-S3 solo necesitan estar en la **misma red WiFi**. No se
 │  │             │  │             │  │                   │    │
 │  │ Polling 5s  │  │ HTTP server │  │ Polling + alertas │    │
 │  │ Grabación   │  │ /api/data   │  │ Comandos bot      │    │
-│  │ 5min/hrly/  │  │ /api/hist   │  │                   │    │
-│  │ daily       │  │ /chart      │  │                   │    │
+│  │ 5min/hrly/  │  │ /api/history│  │                   │    │
+│  │ daily       │  │ /api/latest │  │                   │    │
+│  │             │  │ /api/status │  │                   │    │
+│  │             │  │ /chart      │  │                   │    │
 │  └──────┬──────┘  └─────┬───────┘  └─────────┬─────────┘    │
 │         │               │                    │              │
 │  ┌──────▼───────────────▼────────────────────▼──────────┐   │
@@ -171,9 +173,8 @@ deye-monitor/
 │   │
 │   ├── dashboard.h / .cpp         # Pantalla 0: tiempo real
 │   ├── stats_screen.h / .cpp      # Pantalla 1: estadísticas diarias
-│   ├── summary_screen.h / .cpp    # Pantalla 2: resumen semanal
-│   ├── chart_screen.h / .cpp      # Pantalla 3: gráfica diaria
-│   ├── config_screen.h / .cpp     # Pantalla 4: configuración
+│   ├── chart_screen.h / .cpp      # Pantalla 2: gráfica diaria
+│   ├── config_screen.h / .cpp     # Pantalla 3: configuración
 │   ├── splash_screen.h / .cpp     # Pantalla de inicio
 │   ├── calendar_popup.h / .cpp    # Calendario modal
 │   ├── pagination_dots.h / .cpp   # Indicador de posición
@@ -222,15 +223,7 @@ Donuts de distribución de energía con navegación día a día y selector de ca
 - Tap en el título de fecha → volver a hoy
 - Botón 📅 → calendario mensual con días coloreados según disponibilidad de datos
 
-### Pantalla 2 — Resumen semanal
-
-Barras apiladas horizontales por día con dos niveles:
-- Barra superior: distribución del CONSUMO
-- Barra inferior: distribución de la PRODUCCIÓN
-- Tap en una fila → popup con valores exactos y porcentajes
-- Navegación semana a semana
-
-### Pantalla 3 — Gráfica diaria
+### Pantalla 2 — Gráfica diaria
 
 Gráfica de líneas con 5 series temporales por hora:
 
@@ -247,7 +240,7 @@ Gráfica de líneas con 5 series temporales por hora:
 - Autoescalado o escala fija configurable
 - Refresco automático al llegar las 00:00
 
-### Pantalla 4 — Configuración
+### Pantalla 3 — Configuración
 
 Formulario scrollable con teclado virtual:
 
@@ -276,10 +269,20 @@ Accesible en `http://<ip-del-esp32>/`
 | `/chart` | Gráfica diaria interactiva con Chart.js, navegable |
 | `/update` | Actualización de firmware OTA |
 
+### API REST
+
+| Ruta | Descripción |
+|---|---|
+| `/api/data` | Valores en tiempo real (live + totales del día) |
+| `/api/history` | Histórico: 5min, horario o diario con filtros de fecha |
+| `/api/latest_date` | Último día con datos de 5 min persistidos en flash |
+| `/api/status` | Contadores de almacenamiento, PSRAM libre, IP y RSSI |
+
 ### Actualización dinámica
 
 - Los valores instantáneos se refrescan **sin recargar la página** vía `fetch('/api/data')` cada 5 segundos
 - La gráfica de `/chart` usa actualizaciones **incrementales**: solo se piden los registros nuevos desde el último timestamp recibido (`from_ts`)
+- Al cargar `/chart`, se consulta `/api/latest_date` para navegar directamente al último día con datos, evitando mostrar una gráfica vacía tras un reinicio
 - Al llegar las 00:00 se cambia automáticamente al nuevo día
 
 ---
@@ -531,7 +534,16 @@ ci_skip = true   # Este entorno no se compilará en GitHub Actions
 
 ## 🌐 API REST
 
-### Endpoints disponibles
+### Resumen de endpoints
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/data` | Valores en tiempo real |
+| `GET` | `/api/history` | Histórico (5min / horario / diario) |
+| `GET` | `/api/latest_date` | Último día con datos de 5 min en flash |
+| `GET` | `/api/status` | Estado del almacenamiento y sistema |
+
+---
 
 #### `GET /api/data`
 Valores actuales en tiempo real.
@@ -553,6 +565,8 @@ Valores actuales en tiempo real.
 
 **Signo de `batt_w`:** positivo = descargando, negativo = cargando.  
 **Signo de `grid_w`:** positivo = importando, negativo = exportando.
+
+---
 
 #### `GET /api/history`
 Histórico con múltiples granularidades.
@@ -581,8 +595,25 @@ GET /api/history?date=20260508&granularity=hourly
 GET /api/history?granularity=daily&from=20260501&to=20260510
 ```
 
+---
+
+#### `GET /api/latest_date`
+Devuelve el último día para el que existen registros de 5 minutos en flash. La página `/chart` lo consulta al cargar para navegar directamente al día con datos más reciente en lugar de mostrar siempre el día de hoy (que puede estar vacío tras un reinicio).
+
+```json
+{ "date": "20260519" }
+```
+
+Si no hay ningún registro persistido aún:
+
+```json
+{ "date": null }
+```
+
+---
+
 #### `GET /api/status`
-Estado del almacenamiento.
+Estado del almacenamiento y del sistema.
 
 ```json
 {

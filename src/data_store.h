@@ -101,6 +101,7 @@ public:
     bool     push(const Record5Min& r);
     uint32_t readDay(uint32_t day_epoch, Record5Min* out, uint32_t max);
     bool     getLastRecord(Record5Min& out);
+    uint32_t getLastRawDayEpoch() const;   // epoch medianoche del último día con datos 5-min
 
     // ── Hourly ────────────────────────────────────────────────────────────
     // Finaliza la hora anterior y escribe el HourlyRecord

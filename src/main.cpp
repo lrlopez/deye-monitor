@@ -170,8 +170,14 @@ static void solarmanTask(void* /*pv*/) {
             while (time(nullptr) < 1700000000UL &&
                    millis() - ntp_wait < 10000)
                 vTaskDelay(pdMS_TO_TICKS(500));
-            Serial0.println(time(nullptr) > 1700000000UL
-                ? "[NTP] Sincronizado" : "[NTP] Timeout");
+            if (time(nullptr) > 1700000000UL) {
+                Serial0.println("[NTP] Sincronizado");
+                // Corregir los slots del cache que se inicializaron en begin()
+                // con el reloj en 1970 (antes de tener WiFi/NTP).
+                Cache.reinitAfterNtp();
+            } else {
+                Serial0.println("[NTP] Timeout");
+            }
         }
 
         // ── 1. Datos instantáneos ─────────────────────────────────────────
@@ -269,6 +275,7 @@ static void solarmanTask(void* /*pv*/) {
             if ((int32_t)slot_5min != s_cur_5min_slot) {
                 s_cur_5min_slot = (int32_t)slot_5min;
                 uint32_t record_ts = slot_5min * 300;
+                Serial0.printf("[Record] Slot: ts=%lu\n", (unsigned long)record_ts);
 
                 Record5Min r{};
                 r.timestamp  = record_ts;
@@ -279,8 +286,8 @@ static void solarmanTask(void* /*pv*/) {
                 r.soc        = (uint8_t)local_e.batt_soc;
                 r.flags      = 0x01;
 
-                Store.push(r);
-                Cache.pushRaw(r);
+                if (Store.push(r))
+                    Cache.pushRaw(r);
 
                 Storage.saveSessionState({record_ts, true});
             }
@@ -436,6 +443,14 @@ void setup() {
         splash_update(SplashStep::LITTLEFS, SplashState::OK, detail);
     }
 
+    // ── Zona horaria — configurar ANTES de Store.begin() ──────────────────
+    // _day_idx_load() usa localtime_r sobre los timestamps de flash para calcular
+    // los epochs de medianoche. Si la TZ no está configurada aquí, usa UTC y los
+    // epochs quedan desfasados respecto al resto del código (que sí usa la TZ).
+    configTime(0, 0, NTP_SERVER1, NTP_SERVER2);
+    setenv("TZ", TIMEZONE, 1);
+    tzset();
+
     // ── DataStore ─────────────────────────────────────────────────────────
     splash_update(SplashStep::DATASTORE, SplashState::RUNNING);
     if (!Store.begin()) {
@@ -473,11 +488,8 @@ void setup() {
     WiFi.begin(g_cfg.wifi_ssid, g_cfg.wifi_pass);
     // NO esperamos aquí — la tarea Solarman gestiona la conexión
 
-    // ── NTP — configurar zona horaria ya (se sincronizará cuando haya WiFi) ─
+    // ── NTP — la TZ ya está configurada arriba; el sync ocurre al conectar WiFi ─
     splash_update(SplashStep::NTP, SplashState::RUNNING);
-    configTime(0, 0, NTP_SERVER1, NTP_SERVER2);
-    setenv("TZ", TIMEZONE, 1);
-    tzset();
     splash_update(SplashStep::NTP, SplashState::OK, "Pendiente de WiFi");
 
     // ── Construir pantalla principal (tileview) ───────────────────────────

@@ -89,9 +89,8 @@ void PsramCache::_bg_task(void* pv) {
         if (!self->_hrly_days[i].loaded) {
             self->_hrly_load(self->_hrly_days[i].day_epoch);
             loaded++;
-            // Ceder CPU cada 10 días cargados para no bloquear otras tareas
-            if (loaded % 10 == 0)
-                vTaskDelay(pdMS_TO_TICKS(20));
+            // Ceder tras cada carga para que Store.push() pueda adquirir el mutex
+            vTaskDelay(pdMS_TO_TICKS(20));
         }
     }
 
@@ -273,14 +272,22 @@ void PsramCache::pushRaw(const Record5Min& r) {
     uint32_t dep = (uint32_t)mktime(&tm_r);
 
     int slot = _raw_slot_for(dep);
-    if (slot < 0) {
-        slot = _raw_oldest_slot();
-        _raw_days[slot].day_epoch = dep;
-        _raw_days[slot].count     = 0;
-        _raw_days[slot].valid     = false;
-        _raw_days[slot].loaded    = true;
+    if (slot < 0 || !_raw_days[slot].loaded) {
+        // Carga los datos pre-arranque desde flash antes de añadir registros nuevos.
+        // Sin esto, un reboot durante el día provocaría que la cache empezara vacía
+        // y la gráfica solo mostrara registros post-arranque.
+        _raw_load(dep);
+        slot = _raw_slot_for(dep);
+        if (slot < 0) return;
     }
     uint16_t& cnt = _raw_days[slot].count;
+    // Evitar duplicado: Store.push() guarda en flash antes de que llegamos aquí,
+    // por lo que _raw_load puede haber cargado ya este mismo registro.
+    if (cnt > 0 && _raw_buf[slot * RECS_PER_DAY + cnt - 1].timestamp == r.timestamp) {
+        _raw_buf[slot * RECS_PER_DAY + cnt - 1] = r;
+        _raw_days[slot].last = r;
+        return;
+    }
     if (cnt < RECS_PER_DAY) {
         _raw_buf[slot*RECS_PER_DAY + cnt] = r; cnt++;
     } else {
@@ -291,6 +298,46 @@ void PsramCache::pushRaw(const Record5Min& r) {
     }
     _raw_days[slot].valid = true;
     _raw_days[slot].last  = r;
+}
+
+void PsramCache::reinitAfterNtp() {
+    time_t now; time(&now);
+    if (now < 1700000000UL) return;   // NTP aún no listo
+
+    struct tm tm_now; localtime_r(&now, &tm_now);
+    tm_now.tm_hour = 0; tm_now.tm_min = 0; tm_now.tm_sec = 0; tm_now.tm_isdst = -1;
+    uint32_t today = (uint32_t)mktime(&tm_now);
+
+    Serial0.printf("[Cache] reinitAfterNtp: today=%lu\n", (unsigned long)today);
+
+    // Corregir los slots raw que tienen epochs incorrectos (originados en begin()
+    // cuando NTP aún no estaba disponible, lo que provoca overflow de uint32_t).
+    for (int i = 0; i < CACHE_RAW_DAYS; i++) {
+        uint32_t expected = today - (uint32_t)(CACHE_RAW_DAYS - 1 - i) * 86400;
+        if (_raw_days[i].day_epoch != expected) {
+            _raw_days[i].day_epoch = expected;
+            _raw_days[i].count     = 0;
+            _raw_days[i].valid     = false;
+            _raw_days[i].loaded    = false;
+        }
+    }
+    for (int i = 0; i < CACHE_HRLY_DAYS; i++) {
+        uint32_t expected = today - (uint32_t)(CACHE_HRLY_DAYS - 1 - i) * 86400;
+        if (_hrly_days[i].day_epoch != expected) {
+            _hrly_days[i].day_epoch   = expected;
+            _hrly_days[i].valid       = false;
+            _hrly_days[i].loaded      = false;
+            _hrly_days[i].hours_valid = 0;
+        }
+    }
+
+    // Eager-load de los últimos 7 días con los epochs correctos
+    for (int i = CACHE_RAW_DAYS - 7; i < CACHE_RAW_DAYS; i++)
+        _raw_load(_raw_days[i].day_epoch);
+    for (int i = CACHE_HRLY_DAYS - 7; i < CACHE_HRLY_DAYS; i++)
+        _hrly_load(_hrly_days[i].day_epoch);
+
+    printStats();
 }
 
 uint32_t PsramCache::getOldestDailyEpoch() const {

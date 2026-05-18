@@ -61,6 +61,10 @@ public:
 
     bool dayHasData(uint32_t day_epoch) const;
 
+    // Llamar una vez tras la sincronización NTP para corregir los epochs de los
+    // slots que se inicializaron en begin() con el reloj aún en 1970.
+    void reinitAfterNtp();
+
     void lock()   { xSemaphoreTake(_mutex, portMAX_DELAY); }
     void unlock() { xSemaphoreGive(_mutex); }
     void printStats();
