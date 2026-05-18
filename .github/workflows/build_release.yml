@@ -1,0 +1,211 @@
+name: Build & Release Firmware
+
+on:
+  push:
+    tags:
+      - 'v*'          # v1.0.0, v1.2.3-beta, etc.
+
+# Permisos necesarios para crear releases
+permissions:
+  contents: write
+
+jobs:
+  # ── Job 1: Detectar entornos de platformio.ini dinámicamente ─────────────
+  get-environments:
+    name: Detectar entornos
+    runs-on: ubuntu-latest
+    outputs:
+      envs:    ${{ steps.get-envs.outputs.envs }}
+      version: ${{ steps.get-version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Obtener versión del tag
+        id: get-version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Versión: $VERSION"
+
+      - name: Leer entornos de platformio.ini
+        id: get-envs
+        run: |
+          python3 .github/scripts/get_envs.py >> $GITHUB_OUTPUT
+
+  # ── Job 2: Build en paralelo para cada entorno ────────────────────────────
+  build:
+    name: Build · ${{ matrix.env }}
+    needs: get-environments
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        env: ${{ fromJson(needs.get-environments.outputs.envs) }}
+      fail-fast: false   # si un entorno falla, los demás continúan
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Cache del toolchain y librerías — reduce ~10 min a ~30 s en builds sucesivos
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio/libdeps/${{ matrix.env }}
+          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}-${{ hashFiles('**/*.h', '**/*.cpp', 'src/**') }}
+          restore-keys: |
+            pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}-
+            pio-${{ matrix.env }}-
+            pio-
+
+      - name: Instalar PlatformIO
+        run: pip install platformio
+
+      - name: Build · ${{ matrix.env }}
+        run: |
+          pio run --environment ${{ matrix.env }}
+          echo "Build completado para: ${{ matrix.env }}"
+
+      - name: Verificar y renombrar firmware
+        id: firmware
+        run: |
+          VERSION=${{ needs.get-environments.outputs.version }}
+          ENV=${{ matrix.env }}
+          SRC=".pio/build/${ENV}/firmware.bin"
+
+          if [ ! -f "$SRC" ]; then
+            echo "ERROR: No se encontró $SRC"
+            ls -la .pio/build/${ENV}/ || echo "(directorio vacío)"
+            exit 1
+          fi
+
+          mkdir -p artifacts
+
+          # Nombre del fichero: app_entorno_version.bin
+          FILENAME="deye_monitor_${ENV}_${VERSION}.bin"
+          cp "$SRC" "artifacts/${FILENAME}"
+
+          # Tamaño
+          SIZE=$(du -sh "artifacts/${FILENAME}" | cut -f1)
+
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+          echo "size=$SIZE"         >> $GITHUB_OUTPUT
+
+          echo "✅ $FILENAME ($SIZE)"
+          ls -lh artifacts/
+
+      # Subir firmware como artefacto del job (descargable desde Actions)
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.env }}
+          path: artifacts/*.bin
+          if-no-files-found: error
+          retention-days: 30
+
+  # ── Job 3: Crear GitHub Release con todos los firmwares ───────────────────
+  release:
+    name: Publicar Release
+    needs: [get-environments, build]
+    runs-on: ubuntu-latest
+    # Ejecutar aunque algún build haya fallado (para publicar los que sí funcionaron)
+    if: always() && needs.get-environments.result == 'success'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Descargar todos los artefactos
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true   # todos los firmware-* en un directorio plano
+
+      - name: Listar firmwares generados
+        run: |
+          echo "Firmwares disponibles:"
+          ls -lh artifacts/ || echo "(ninguno)"
+
+      - name: Generar notas del release
+        id: notes
+        run: |
+          VERSION=${{ needs.get-environments.outputs.version }}
+          IS_PRE=$([[ "$VERSION" == *"-"* ]] && echo "true" || echo "false")
+          echo "is_prerelease=$IS_PRE" >> $GITHUB_OUTPUT
+
+          # Generar cuerpo del release en Markdown
+          cat > release_notes.md << 'NOTES_EOF'
+          ## Qué hay en este release
+
+          NOTES_EOF
+
+          # Lista de firmwares con tamaño
+          echo "### 📦 Firmwares incluidos" >> release_notes.md
+          echo "" >> release_notes.md
+          if ls artifacts/*.bin 1>/dev/null 2>&1; then
+            for f in artifacts/*.bin; do
+              name=$(basename "$f")
+              size=$(du -sh "$f" | cut -f1)
+              # Extraer el nombre del entorno del nombre del fichero
+              env=$(echo "$name" | sed 's/deye_monitor_//; s/_v[0-9].*//')
+              echo "| \`$name\` | $size | \`$env\` |" >> release_notes.md
+            done
+            # Añadir cabecera de tabla antes de las filas (insertar al inicio de la tabla)
+            sed -i '/^| `deye_monitor/i | Fichero | Tamaño | Entorno |\n|---------|--------|---------|' release_notes.md
+          else
+            echo "> ⚠️ Ningún firmware fue generado correctamente." >> release_notes.md
+          fi
+
+          cat >> release_notes.md << 'NOTES_EOF'
+
+          ---
+
+          ### 🔄 Actualización OTA (recomendado)
+
+          1. Accede a `http://<ip-del-esp32>/update` desde tu navegador
+          2. Selecciona el fichero `.bin` correspondiente a tu configuración
+          3. Pulsa **Actualizar** — el ESP32 se reiniciará automáticamente
+
+          ### 🔌 Instalación inicial por USB
+
+```bash
+          # Clonar el repositorio y compilar localmente:
+          pio run --environment <entorno> --target upload
+
+          # O usando el fichero .bin directamente:
+          esptool.py --chip esp32s3 write_flash 0x10000 deye_monitor_<entorno>_<version>.bin
+```
+
+          ### ⚠️ Primera instalación
+
+          En la primera instalación también es necesario flashear el filesystem:
+
+```bash
+          pio run --environment <entorno> --target uploadfs
+```
+          NOTES_EOF
+
+          cat release_notes.md
+
+      - name: Crear GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:      ${{ needs.get-environments.outputs.version }}
+          name:          "Deye Monitor ${{ needs.get-environments.outputs.version }}"
+          body_file:     release_notes.md
+          draft:         false
+          prerelease:    ${{ steps.notes.outputs.is_prerelease == 'true' }}
+          files:         artifacts/*.bin
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
