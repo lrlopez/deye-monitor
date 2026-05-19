@@ -1009,6 +1009,19 @@ static String html_escape(const char* s) {
     return out;
 }
 
+static String sanitize_mdns(const String& s) {
+    String out;
+    out.reserve(s.length());
+    for (size_t i = 0; i < s.length(); i++) {
+        char c = s[i];
+        if (c >= 'A' && c <= 'Z') c += 32;
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') out += c;
+    }
+    while (out.length() && out[0] == '-') out.remove(0, 1);
+    while (out.length() && out[out.length()-1] == '-') out.remove(out.length()-1);
+    return out;
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 // Ruta GET /admin  →  Panel de administración (protegido por contraseña)
 // ═════════════════════════════════════════════════════════════════════════
@@ -1109,12 +1122,18 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
 
     server.sendContent("<form method='post' action='/admin'>");
 
-    // ── WiFi (solo lectura) ───────────────────────────────────────────────
-    server.sendContent("<div class='card'><h2>&#128267; Red WiFi</h2>"
-        "<p class='info'>Red: <strong style='color:var(--white)'>");
+    // ── Red ───────────────────────────────────────────────────────────────
+    server.sendContent("<div class='card'><h2>&#128267; Red</h2>"
+        "<p class='info'>WiFi: <strong style='color:var(--white)'>");
     server.sendContent(html_escape(cfg.wifi_ssid));
-    server.sendContent("</strong> &nbsp;&mdash;&nbsp; "
-        "Solo visible. Configurable desde la pantalla t&aacute;ctil.</p></div>");
+    server.sendContent("</strong> &mdash; Configurable desde la pantalla t&aacute;ctil.</p>"
+        "<div class='row'><span class='lbl'>Nombre mDNS</span>"
+        "<input type='text' name='mdns_host' value='");
+    server.sendContent(html_escape(cfg.mdns_hostname));
+    server.sendContent("' maxlength='31' placeholder='inversor'></div>"
+        "<p class='info'>Accede al dispositivo en la red como <strong style='color:var(--white)'>");
+    server.sendContent(html_escape(cfg.mdns_hostname));
+    server.sendContent("</strong>.local &mdash; Requiere reinicio para aplicar.</p></div>");
 
     // ── Inversor ──────────────────────────────────────────────────────────
     server.sendContent("<div class='card'><h2>&#128268; Inversor / Datalogger</h2>"
@@ -1210,8 +1229,13 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
 static void handle_admin_post() {
     if (!check_auth()) return;
 
+    // ── Red ───────────────────────────────────────────────────────────────
+    AppConfig cfg{}; Storage.loadConfig(cfg);   // preservar WiFi y mDNS
+    String mdns = sanitize_mdns(server.arg("mdns_host"));
+    if (mdns.length() > 0 && mdns.length() < sizeof(cfg.mdns_hostname))
+        mdns.toCharArray(cfg.mdns_hostname, sizeof(cfg.mdns_hostname));
+
     // ── Inversor ──────────────────────────────────────────────────────────
-    AppConfig cfg{}; Storage.loadConfig(cfg);   // preservar WiFi
     String lip = server.arg("logger_ip");
     if (lip.length() > 0 && lip.length() < sizeof(cfg.logger_ip))
         lip.toCharArray(cfg.logger_ip, sizeof(cfg.logger_ip));

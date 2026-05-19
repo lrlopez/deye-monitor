@@ -15,6 +15,7 @@
 // ── Aplicación ────────────────────────────────────────────────────────────
 #define APP_NAME        "Deye Monitor"
 #define APP_VERSION     "1.0.6"
+#define MDNS_HOSTNAME   "inversor"
 
 // ── NTP ───────────────────────────────────────────────────────────────────
 #define NTP_SERVER1     "es.pool.ntp.org"

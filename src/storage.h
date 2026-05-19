@@ -9,6 +9,7 @@ struct AppConfig {
     char     wifi_pass[64];
     char     logger_ip[24];
     uint32_t logger_serial;
+    char     mdns_hostname[32];
 };
 
 // ── Estado de sesión persistido en NVS ───────────────────────────────────

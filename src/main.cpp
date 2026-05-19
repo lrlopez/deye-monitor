@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <lvgl.h>
 #include <time.h>
 #include <LittleFS.h>
@@ -169,6 +170,12 @@ static void solarmanTask(void* /*pv*/) {
                 Cache.reinitAfterNtp();
             } else {
                 Serial0.println("[NTP] Timeout");
+            }
+            if (MDNS.begin(g_cfg.mdns_hostname)) {
+                MDNS.addService("http", "tcp", 80);
+                Serial0.printf("[mDNS] Activo: %s.local\n", g_cfg.mdns_hostname);
+            } else {
+                Serial0.println("[mDNS] Error al iniciar");
             }
         }
 

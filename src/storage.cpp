@@ -11,6 +11,7 @@ static const char* K_SSID    = "ssid";
 static const char* K_PASS    = "pass";
 static const char* K_LIP     = "lip";
 static const char* K_LSERIAL = "lserial";
+static const char* K_MDNS    = "mdns_host";
 
 // ── Claves histórico ──────────────────────────────────────────────────────
 static const char* K_META    = "meta";
@@ -30,15 +31,18 @@ void StorageManager::loadConfig(AppConfig& out) {
     String ssid = p.getString(K_SSID,    WIFI_SSID);
     String pass = p.getString(K_PASS,    WIFI_PASS);
     String lip  = p.getString(K_LIP,     LOGGER_IP);
+    String mdns = p.getString(K_MDNS,    MDNS_HOSTNAME);
     out.logger_serial = p.getULong(K_LSERIAL, LOGGER_SERIAL);
 
-    ssid.toCharArray(out.wifi_ssid,    sizeof(out.wifi_ssid));
-    pass.toCharArray(out.wifi_pass,    sizeof(out.wifi_pass));
-    lip.toCharArray(out.logger_ip,     sizeof(out.logger_ip));
+    ssid.toCharArray(out.wifi_ssid,      sizeof(out.wifi_ssid));
+    pass.toCharArray(out.wifi_pass,      sizeof(out.wifi_pass));
+    lip.toCharArray(out.logger_ip,       sizeof(out.logger_ip));
+    mdns.toCharArray(out.mdns_hostname,  sizeof(out.mdns_hostname));
 
     p.end();
-    Serial0.printf("[NVS] Config cargada: SSID=%s  IP=%s  Serial=%lu\n",
-                  out.wifi_ssid, out.logger_ip, (unsigned long)out.logger_serial);
+    Serial0.printf("[NVS] Config cargada: SSID=%s  IP=%s  Serial=%lu  mDNS=%s\n",
+                  out.wifi_ssid, out.logger_ip,
+                  (unsigned long)out.logger_serial, out.mdns_hostname);
 }
 
 void StorageManager::saveConfig(const AppConfig& cfg) {
@@ -48,6 +52,7 @@ void StorageManager::saveConfig(const AppConfig& cfg) {
     p.putString(K_PASS,    cfg.wifi_pass);
     p.putString(K_LIP,     cfg.logger_ip);
     p.putULong(K_LSERIAL,  cfg.logger_serial);
+    p.putString(K_MDNS,    cfg.mdns_hostname);
     p.end();
     Serial0.println("[NVS] Config guardada");
 }
