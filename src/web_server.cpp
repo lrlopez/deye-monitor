@@ -1348,21 +1348,19 @@ static String epoch_to_date(uint32_t ep) {
 
 // ── GET /api/status ───────────────────────────────────────────────────────
 static void handle_status() {
-    Record5Min first{}, last{};
-    bool has_first = false, has_last = false;
-    has_last = Store.getLastRecord(last);
-
     char json[512];
     snprintf(json, sizeof(json),
         "{\"raw\":{\"count\":%lu,\"capacity\":%lu},"
-        "\"hourly\":{\"count\":%lu,\"capacity\":17520},"
-        "\"daily\":{\"count\":%lu,\"capacity\":730},"
+        "\"hourly\":{\"count\":%lu,\"capacity\":%lu},"
+        "\"daily\":{\"count\":%lu,\"capacity\":%lu},"
         "\"psram_free_kb\":%lu,"
         "\"wifi_rssi\":%d,\"ip\":\"%s\"}",
         (unsigned long)Store.getRawCount(),
-        (unsigned long)201600,
+        (unsigned long)Store.getRawCapacity(),
         (unsigned long)Store.getHourlyCount(),
+        (unsigned long)Store.getHourlyCapacity(),
         (unsigned long)Store.getDailyCount(),
+        (unsigned long)Store.getDailyCapacity(),
         (unsigned long)ESP.getFreePsram() / 1024,
         (int)WiFi.RSSI(),
         WiFi.localIP().toString().c_str());
