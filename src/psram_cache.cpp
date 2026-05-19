@@ -8,7 +8,7 @@ PsramCache& PsramCache::instance() { static PsramCache c; return c; }
 // begin()
 // ═══════════════════════════════════════════════════════════════════════════
 bool PsramCache::begin() {
-    _mutex = xSemaphoreCreateMutex();
+    _mutex = xSemaphoreCreateRecursiveMutex();
 
     // ── Alojar buffers en PSRAM ───────────────────────────────────────────
     _raw_buf   = (Record5Min*)  heap_caps_malloc(CACHE_RAW_SIZE,
@@ -84,19 +84,21 @@ void PsramCache::_bg_task(void* pv) {
     Serial0.println("[Cache] Background: cargando historia horaria...");
 
     uint32_t loaded = 0;
-    // De más antiguo a más reciente, saltando los últimos 7 (ya cargados en eager)
     for (int i = 0; i < CACHE_HRLY_DAYS - 7; i++) {
+        self->lock();
         if (!self->_hrly_days[i].loaded) {
             self->_hrly_load(self->_hrly_days[i].day_epoch);
             loaded++;
-            // Ceder tras cada carga para que Store.push() pueda adquirir el mutex
-            vTaskDelay(pdMS_TO_TICKS(20));
         }
+        self->unlock();
+        vTaskDelay(pdMS_TO_TICKS(20));   // ceder para que push() pueda adquirir el mutex
     }
 
     uint32_t valid = 0;
+    self->lock();
     for (int i = 0; i < CACHE_HRLY_DAYS; i++)
         if (self->_hrly_days[i].valid) valid++;
+    self->unlock();
 
     Serial0.printf("[Cache] Background completado: %lu/%d días con datos horarios\n",
                   (unsigned long)valid, CACHE_HRLY_DAYS);
@@ -126,26 +128,29 @@ int PsramCache::_day_find(uint32_t dep) const {
 }
 
 bool PsramCache::getDaily(uint32_t dep, DailyRecord& out) {
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
     int idx = _day_find(dep);
-    if (idx < 0 || !(_day_buf[idx].flags & 0x01)) return false;
-    out = _day_buf[idx];
-    return true;
+    bool ok = (idx >= 0 && (_day_buf[idx].flags & 0x01));
+    if (ok) out = _day_buf[idx];
+    xSemaphoreGiveRecursive(_mutex);
+    return ok;
 }
 
 void PsramCache::pushDaily(const DailyRecord& r) {
     Store.pushDaily(r);
 
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
     int idx = _day_find(r.day_epoch);
     if (idx >= 0) {
-        _day_buf[idx] = r;   // actualizar existente
+        _day_buf[idx] = r;
     } else if (_day_count < CACHE_DAY_MAX) {
-        _day_buf[_day_count++] = r;   // añadir nuevo
+        _day_buf[_day_count++] = r;
     } else {
-        // Buffer lleno: desplazar (rarísimo, 730 días = 2 años)
         memmove(_day_buf, _day_buf + 1, (_day_count-1) * sizeof(DailyRecord));
         _day_buf[_day_count-1] = r;
     }
     _bitmap_set(r.day_epoch, r.flags & 0x01);
+    xSemaphoreGiveRecursive(_mutex);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -180,13 +185,17 @@ void PsramCache::_hrly_load(uint32_t dep) {
 }
 
 const HourlyRecord* PsramCache::getHourly(uint32_t dep) {
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
     int slot = _hrly_slot_for(dep);
     if (slot < 0 || !_hrly_days[slot].loaded) {
         _hrly_load(dep);
         slot = _hrly_slot_for(dep);
     }
-    if (slot < 0 || !_hrly_days[slot].valid) return nullptr;
-    return _hrly_buf + slot * 24;
+    const HourlyRecord* result = nullptr;
+    if (slot >= 0 && _hrly_days[slot].valid)
+        result = _hrly_buf + slot * 24;
+    xSemaphoreGiveRecursive(_mutex);
+    return result;
 }
 
 void PsramCache::pushHourly(const HourlyRecord& r) {
@@ -199,6 +208,7 @@ void PsramCache::pushHourly(const HourlyRecord& r) {
     int h        = (int)((r.hour_epoch - dep) / 3600);
     if (h < 0 || h >= 24) return;
 
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
     int slot = _hrly_slot_for(dep);
     if (slot < 0) {
         slot = _hrly_oldest_slot();
@@ -211,11 +221,14 @@ void PsramCache::pushHourly(const HourlyRecord& r) {
     _hrly_buf[slot*24 + h]  = r;
     _hrly_days[slot].valid  = true;
     _hrly_days[slot].hours_valid++;
+    xSemaphoreGiveRecursive(_mutex);
 }
 
 void PsramCache::invalidateHourly(uint32_t dep) {
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
     int slot = _hrly_slot_for(dep);
     if (slot >= 0) { _hrly_days[slot].loaded = false; _hrly_days[slot].valid = false; }
+    xSemaphoreGiveRecursive(_mutex);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -251,18 +264,28 @@ void PsramCache::_raw_load(uint32_t dep) {
 }
 
 const Record5Min* PsramCache::getRawDay(uint32_t dep, uint32_t& cnt) {
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
     int slot = _raw_slot_for(dep);
     if (slot < 0 || !_raw_days[slot].loaded) { _raw_load(dep); slot = _raw_slot_for(dep); }
-    if (slot < 0 || !_raw_days[slot].valid) { cnt = 0; return nullptr; }
+    if (slot < 0 || !_raw_days[slot].valid) {
+        cnt = 0;
+        xSemaphoreGiveRecursive(_mutex);
+        return nullptr;
+    }
     cnt = _raw_days[slot].count;
+    // El puntero devuelto es válido mientras el llamador mantenga Cache.lock()
+    xSemaphoreGiveRecursive(_mutex);
     return _raw_buf + slot * RECS_PER_DAY;
 }
 
 bool PsramCache::getLastRaw(uint32_t dep, Record5Min& out) {
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
     int slot = _raw_slot_for(dep);
     if (slot < 0 || !_raw_days[slot].loaded) { _raw_load(dep); slot = _raw_slot_for(dep); }
-    if (slot < 0 || !_raw_days[slot].valid) return false;
-    out = _raw_days[slot].last; return true;
+    bool ok = (slot >= 0 && _raw_days[slot].valid);
+    if (ok) out = _raw_days[slot].last;
+    xSemaphoreGiveRecursive(_mutex);
+    return ok;
 }
 
 void PsramCache::pushRaw(const Record5Min& r) {
@@ -271,21 +294,21 @@ void PsramCache::pushRaw(const Record5Min& r) {
     tm_r.tm_hour = 0; tm_r.tm_min = 0; tm_r.tm_sec = 0; tm_r.tm_isdst = -1;
     uint32_t dep = (uint32_t)mktime(&tm_r);
 
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
     int slot = _raw_slot_for(dep);
     if (slot < 0 || !_raw_days[slot].loaded) {
-        // Carga los datos pre-arranque desde flash antes de añadir registros nuevos.
-        // Sin esto, un reboot durante el día provocaría que la cache empezara vacía
-        // y la gráfica solo mostrara registros post-arranque.
         _raw_load(dep);
         slot = _raw_slot_for(dep);
-        if (slot < 0) return;
+        if (slot < 0) {
+            xSemaphoreGiveRecursive(_mutex);
+            return;
+        }
     }
     uint16_t& cnt = _raw_days[slot].count;
-    // Evitar duplicado: Store.push() guarda en flash antes de que llegamos aquí,
-    // por lo que _raw_load puede haber cargado ya este mismo registro.
     if (cnt > 0 && _raw_buf[slot * RECS_PER_DAY + cnt - 1].timestamp == r.timestamp) {
         _raw_buf[slot * RECS_PER_DAY + cnt - 1] = r;
         _raw_days[slot].last = r;
+        xSemaphoreGiveRecursive(_mutex);
         return;
     }
     if (cnt < RECS_PER_DAY) {
@@ -298,11 +321,14 @@ void PsramCache::pushRaw(const Record5Min& r) {
     }
     _raw_days[slot].valid = true;
     _raw_days[slot].last  = r;
+    xSemaphoreGiveRecursive(_mutex);
 }
 
 void PsramCache::reinitAfterNtp() {
     time_t now; time(&now);
     if (now < 1700000000UL) return;   // NTP aún no listo
+
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
 
     struct tm tm_now; localtime_r(&now, &tm_now);
     tm_now.tm_hour = 0; tm_now.tm_min = 0; tm_now.tm_sec = 0; tm_now.tm_isdst = -1;
@@ -337,17 +363,20 @@ void PsramCache::reinitAfterNtp() {
     for (int i = CACHE_HRLY_DAYS - 7; i < CACHE_HRLY_DAYS; i++)
         _hrly_load(_hrly_days[i].day_epoch);
 
+    xSemaphoreGiveRecursive(_mutex);
     printStats();
 }
 
 uint32_t PsramCache::getOldestDailyEpoch() const {
-    if (_day_count == 0) return 0;
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
+    if (_day_count == 0) { xSemaphoreGiveRecursive(_mutex); return 0; }
     uint32_t oldest = UINT32_MAX;
     for (uint32_t i = 0; i < _day_count; i++) {
         if ((_day_buf[i].flags & 0x01) &&
             _day_buf[i].day_epoch < oldest)
             oldest = _day_buf[i].day_epoch;
     }
+    xSemaphoreGiveRecursive(_mutex);
     return (oldest == UINT32_MAX) ? 0 : oldest;
 }
 
@@ -378,18 +407,26 @@ void PsramCache::_bitmap_set(uint32_t dep, bool has) {
 }
 
 bool PsramCache::dayHasData(uint32_t dep) const {
+    xSemaphoreTakeRecursive(_mutex, portMAX_DELAY);
+    bool result;
     if (!_has_data_bitmap) {
         DailyRecord dr{};
-        return const_cast<PsramCache*>(this)->getDaily(dep, dr);
+        result = const_cast<PsramCache*>(this)->getDaily(dep, dr);
+    } else {
+        time_t now; time(&now);
+        struct tm t; localtime_r(&now, &t);
+        t.tm_hour = 0; t.tm_min = 0; t.tm_sec = 0; t.tm_isdst = -1;
+        uint32_t today = (uint32_t)mktime(&t);
+        if (dep > today) {
+            xSemaphoreGiveRecursive(_mutex);
+            return false;
+        }
+        uint32_t days_ago = (today - dep) / 86400;
+        result = (days_ago < BITMAP_DAYS) &&
+                 ((_has_data_bitmap[days_ago/8] >> (days_ago%8)) & 1);
     }
-    time_t now; time(&now);
-    struct tm t; localtime_r(&now, &t);
-    t.tm_hour = 0; t.tm_min = 0; t.tm_sec = 0; t.tm_isdst = -1;
-    uint32_t today = (uint32_t)mktime(&t);
-    if (dep > today) return false;
-    uint32_t days_ago = (today - dep) / 86400;
-    if (days_ago >= BITMAP_DAYS) return false;
-    return (_has_data_bitmap[days_ago/8] >> (days_ago%8)) & 1;
+    xSemaphoreGiveRecursive(_mutex);
+    return result;
 }
 
 void PsramCache::printStats() {

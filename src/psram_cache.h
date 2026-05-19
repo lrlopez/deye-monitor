@@ -65,8 +65,8 @@ public:
     // slots que se inicializaron en begin() con el reloj aún en 1970.
     void reinitAfterNtp();
 
-    void lock()   { xSemaphoreTake(_mutex, portMAX_DELAY); }
-    void unlock() { xSemaphoreGive(_mutex); }
+    void lock()   { xSemaphoreTakeRecursive(_mutex, portMAX_DELAY); }
+    void unlock() { xSemaphoreGiveRecursive(_mutex); }
     void printStats();
 
 private:
@@ -74,7 +74,7 @@ private:
 
     static constexpr uint32_t BITMAP_DAYS = STORE_DAYS;
 
-    SemaphoreHandle_t _mutex = nullptr;
+    mutable SemaphoreHandle_t _mutex = nullptr;
 
     // Raw
     Record5Min*    _raw_buf  = nullptr;

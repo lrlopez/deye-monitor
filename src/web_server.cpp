@@ -1444,10 +1444,12 @@ static void handle_history() {
         if (server.hasArg("from_ts"))
             from_ts = (uint32_t)server.arg("from_ts").toInt();
 
+        // Lock antes de getRawDay: mantener el mutex hasta terminar de iterar
+        // sobre el puntero recs para evitar que pushRaw() modifique el buffer.
+        Cache.lock();
         uint32_t  count_out = 0;
         const Record5Min* recs = Cache.getRawDay(dep, count_out);
 
-        // Filtrar por from_ts y contar cuántos enviaremos
         uint32_t first_idx = 0;
         if (from_ts > 0 && recs) {
             while (first_idx < count_out && recs[first_idx].timestamp <= from_ts)
@@ -1455,12 +1457,10 @@ static void handle_history() {
         }
         uint32_t send_count = count_out - first_idx;
 
-        // Último registro del día para los totales diarios
-        Record5Min last_rec{};
         DailyRecord dr{};
         DailyStats daily{};
         if (Cache.getDaily(dep, dr)) daily = daily_record_to_stats(dr);
-        
+
         char hdr[256];
         snprintf(hdr, sizeof(hdr),
             "{\"date\":\"%s\",\"granularity\":\"5min\","
@@ -1475,7 +1475,6 @@ static void handle_history() {
             daily.load_kwh, daily.batt_charge_kwh, daily.batt_discharge_kwh);
         server.sendContent(hdr);
 
-        Cache.lock();
         for (uint32_t i = first_idx; i < count_out; i++) {
             const Record5Min& r = recs[i];
             char buf[128];
@@ -1491,12 +1490,17 @@ static void handle_history() {
         server.sendContent("]}");
     } else {
         // ── hourly (default) ──────────────────────────────────────────────
-        const HourlyRecord* hr = Cache.getHourly(dep);
-
-        // Último registro del día para totales diarios
+        // Copiar los datos hourly mientras se mantiene el lock para evitar
+        // que pushHourly() modifique el buffer durante el envío HTTP.
+        HourlyRecord hr_local[24]{};
+        bool hr_valid = false;
         DailyRecord dr{};
         DailyStats  daily{};
+        Cache.lock();
+        const HourlyRecord* hr = Cache.getHourly(dep);
+        if (hr) { memcpy(hr_local, hr, 24 * sizeof(HourlyRecord)); hr_valid = true; }
         if (Cache.getDaily(dep, dr)) daily = daily_record_to_stats(dr);
+        Cache.unlock();
 
         char hdr[256];
         snprintf(hdr, sizeof(hdr),
@@ -1510,18 +1514,18 @@ static void handle_history() {
         server.sendContent(hdr);
 
         bool first = true;
-        if (hr) {
+        if (hr_valid) {
             for (int h = 0; h < 24; h++) {
-                if (!(hr[h].flags & 0x01) || hr[h].sample_count == 0) continue;
+                if (!(hr_local[h].flags & 0x01) || hr_local[h].sample_count == 0) continue;
                 char buf[160];
                 snprintf(buf, sizeof(buf),
                     "%s{\"h\":%d,\"pv_w\":%d,\"grid_w\":%d,"
                     "\"batt_w\":%d,\"load_w\":%d,\"soc\":%d,\"n\":%d}",
                     first ? "" : ",",
                     h,
-                    hr[h].avg_pv_w, hr[h].avg_grid_w,
-                    hr[h].avg_batt_w, hr[h].avg_load_w,
-                    hr[h].soc_end, hr[h].sample_count);
+                    hr_local[h].avg_pv_w, hr_local[h].avg_grid_w,
+                    hr_local[h].avg_batt_w, hr_local[h].avg_load_w,
+                    hr_local[h].soc_end, hr_local[h].sample_count);
                 server.sendContent(buf);
                 first = false;
             }
