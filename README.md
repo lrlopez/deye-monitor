@@ -1,6 +1,6 @@
 # ⚡ Deye Monitor
 
-Monitor de instalación solar fotovoltaica con inversor híbrido **Deye SUN-6K-SG05** en tiempo real, con pantalla táctil, historial de hasta 4 años, servidor web integrado, notificaciones Telegram y actualización OTA.
+Monitor de instalación solar fotovoltaica con inversor híbrido **Deye SUN-6K-SG05** en tiempo real, con pantalla táctil, historial de hasta 4 años, servidor web integrado, notificaciones Telegram, acceso por nombre mDNS (`inversor.local`) y actualización OTA.
 
 Desarrollado para **ESP32-S3** con pantalla táctil de 480×272 px usando **LVGL 9** y **PlatformIO**.
 
@@ -60,8 +60,9 @@ Desarrollado para **ESP32-S3** con pantalla táctil de 480×272 px usando **LVGL
 - Navegación día a día en el navegador
 - API REST con soporte de granularidad 5min/horario/diario
 - Actualización de firmware OTA vía navegador (`/update`)
-- **Panel de administración** en `/admin`: configura inversor, gráfica, Telegram y pantalla desde el navegador
+- **Panel de administración** en `/admin`: configura inversor, gráfica, Telegram, pantalla y nombre mDNS desde el navegador
 - Protección por contraseña del panel de administración y de OTA, configurable desde la pantalla táctil
+- **Acceso por nombre mDNS**: el dispositivo es accesible en la red local como `http://inversor.local` (nombre configurable)
 
 ### Notificaciones Telegram
 - Alertas proactivas: batería baja/recuperada, solar arranca/para, corte de red, fallo logger
@@ -70,7 +71,7 @@ Desarrollado para **ESP32-S3** con pantalla táctil de 480×272 px usando **LVGL
 - Cambio de umbrales en caliente sin reiniciar
 
 ### Otras características
-- Configuración WiFi, IP del logger y parámetros por pantalla táctil, guardados en **NVS**
+- Configuración WiFi, IP del logger, nombre mDNS y demás parámetros por pantalla táctil, guardados en **NVS**
 - Detección y selección de redes WiFi disponibles
 - Reconexión WiFi automática sin bloquear la interfaz
 - Recuperación de datos en gaps por corte de alimentación
@@ -254,7 +255,7 @@ Formulario scrollable con teclado virtual:
 | GRÁFICA | Autoescalado / máximo kW |
 | PANTALLA | Brillo normal/reducido, inactividad, horario nocturno |
 | TELEGRAM | Bot token, chat ID, umbral batería, tipos de alerta |
-| ESTADO RED | IP del ESP32, señal WiFi |
+| ESTADO RED | IP del ESP32, señal WiFi, nombre mDNS |
 | ACCESO WEB | Contraseña para el panel de administración web y OTA |
 
 Los cambios de WiFi/logger requieren reinicio. Los de brillo y Telegram se aplican en caliente.
@@ -263,7 +264,7 @@ Los cambios de WiFi/logger requieren reinicio. Los de brillo y Telegram se aplic
 
 ## 🌐 Servidor web
 
-Accesible en `http://<ip-del-esp32>/`
+Accesible en `http://<ip-del-esp32>/` o, si mDNS está activo, en `http://inversor.local/` (el nombre es configurable).
 
 ### Páginas
 
@@ -294,7 +295,7 @@ Accesible en `http://<ip-del-esp32>/`
 
 ## 🔐 Panel de administración web
 
-Accesible en `http://<ip-del-esp32>/admin`
+Accesible en `http://<ip-del-esp32>/admin` o `http://inversor.local/admin`.
 
 Permite configurar todos los parámetros del sistema desde el navegador, sin necesidad de acceder a la pantalla táctil. La WiFi **no es modificable** desde aquí por seguridad: solo se muestra el nombre de la red activa como campo de solo lectura.
 
@@ -302,13 +303,13 @@ Permite configurar todos los parámetros del sistema desde el navegador, sin nec
 
 | Sección | Parámetros configurables |
 |---|---|
-| **WiFi** | SSID (solo lectura) |
+| **Red** | SSID (solo lectura), nombre mDNS |
 | **Inversor** | IP del datalogger, número de serie |
 | **Gráfica** | Autoescalado, máximo kW |
 | **Telegram** | Token del bot, chat ID, umbral de batería, tipos de alerta |
 | **Pantalla** | Brillo normal y reducido, tiempo de inactividad, horario nocturno |
 
-El panel incluye un botón **Guardar** que aplica todos los cambios y redirige de vuelta al panel, y un botón **Reiniciar** para aplicar cambios que requieren reinicio (como la IP del datalogger).
+El panel incluye un botón **Guardar** que aplica todos los cambios y redirige de vuelta al panel, y un botón **Reiniciar** para aplicar cambios que requieren reinicio (como la IP del datalogger o el nombre mDNS).
 
 ### Protección por contraseña
 
@@ -347,15 +348,17 @@ Configura el bot en la pantalla de configuración con el token de @BotFather y t
 
 ### Alertas proactivas
 
-| Evento | Condición | Cooldown |
+Las alertas usan máquinas de estado: una vez disparada, no se repite hasta que la condición se recupera.
+
+| Evento | Condición de disparo | Condición de recuperación |
 |---|---|---|
-| Batería baja | SOC < umbral configurado | 30 min |
-| Batería recuperada | SOC > umbral + 10% | 30 min |
-| Solar arranca | PV pasa de 0 a >100W | 5 min |
-| Solar para | PV pasa de >100W a 0 | 5 min |
-| Fallo logger | 3 reintentos fallidos | 10 min |
-| Corte de red | Importación brusca sin solar | 10 min |
-| Red restaurada | Fin del corte | 10 min |
+| Batería baja | SOC < umbral (configurable, 5–50 %) | SOC ≥ umbral + 5 % |
+| Batería recuperada | — | (ver fila anterior) |
+| Solar arranca | PV > 50 W en 3 lecturas consecutivas (15 s) | PV < 20 W en 3 lecturas consecutivas |
+| Solar para | PV < 20 W en 3 lecturas consecutivas (15 s) | PV > 50 W en 3 lecturas consecutivas |
+| Fallo logger | 5 fallos TCP seguidos (~25 s) | Siguiente lectura exitosa |
+| Corte de red | `\|grid_w\|` = 0 W durante 15 s (solo tras haber visto red activa) | `\|grid_w\|` Distinto de 0 W en 1 lectura |
+| Red restaurada | — | (ver fila anterior) |
 
 ---
 
@@ -409,6 +412,7 @@ La historia horaria completa reside en PSRAM, por lo que **la generación de gr�
 | Namespace | Clave | Contenido |
 |---|---|---|
 | `cfg` | `ssid`, `pass`, `lip`, `lserial` | WiFi e inversor |
+| `cfg` | `mdns_host` | Nombre mDNS (default: `inversor`) |
 | `cfg` | `ch_auto`, `ch_kw` | Configuración de la gráfica |
 | `cfg` | `bl_norm`, `bl_red`, `bl_inact`, `bl_isecs`, `bl_night`, `bl_nstart`, `bl_nend` | Brillo y horario nocturno |
 | `cfg` | `tg_token`, `tg_chatid`, `tg_batt`, `tg_solar`, `tg_grid`, `tg_logger` | Telegram |
@@ -427,7 +431,7 @@ La historia horaria completa reside en PSRAM, por lo que **la generación de gr�
 ### 2. Clonar el repositorio
 
 ```bash
-git clone https://github.com/tu-usuario/deye-monitor.git
+git clone https://github.com/lrlopez/deye-monitor.git
 cd deye-monitor
 ```
 
@@ -519,6 +523,7 @@ En el monitor serie deberías ver:
 ```
 [WiFi] Conectado: 192.168.1.34
 [NTP] Sincronizado
+[mDNS] Activo: inversor.local
 [Solarman] Conectando a 192.168.1.214:8899
 [Live] PV:705W Grid:-914W Bat:-37W(99%) Load:360W
 [Record] Startup ok: slot=92345 h=14 d=10
