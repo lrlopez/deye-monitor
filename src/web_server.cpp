@@ -992,6 +992,23 @@ static void handle_upload() {
     }
 }
 
+// ── HTML escape: sustituye &, <, >, ", ' para evitar XSS en atributos ────
+static String html_escape(const char* s) {
+    String out;
+    while (*s) {
+        switch (*s) {
+            case '&':  out += "&amp;";  break;
+            case '<':  out += "&lt;";   break;
+            case '>':  out += "&gt;";   break;
+            case '"':  out += "&quot;"; break;
+            case '\'': out += "&#39;";  break;
+            default:   out += *s;       break;
+        }
+        ++s;
+    }
+    return out;
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 // Ruta GET /admin  →  Panel de administración (protegido por contraseña)
 // ═════════════════════════════════════════════════════════════════════════
@@ -1095,7 +1112,7 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
     // ── WiFi (solo lectura) ───────────────────────────────────────────────
     server.sendContent("<div class='card'><h2>&#128267; Red WiFi</h2>"
         "<p class='info'>Red: <strong style='color:var(--white)'>");
-    server.sendContent(cfg.wifi_ssid);
+    server.sendContent(html_escape(cfg.wifi_ssid));
     server.sendContent("</strong> &nbsp;&mdash;&nbsp; "
         "Solo visible. Configurable desde la pantalla t&aacute;ctil.</p></div>");
 
@@ -1103,7 +1120,7 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
     server.sendContent("<div class='card'><h2>&#128268; Inversor / Datalogger</h2>"
         "<div class='row'><span class='lbl'>IP Logger</span>"
         "<input type='text' name='logger_ip' value='");
-    server.sendContent(cfg.logger_ip);
+    server.sendContent(html_escape(cfg.logger_ip));
     server.sendContent("' maxlength='23'></div>"
         "<div class='row'><span class='lbl'>N&ordm; Serie (decimal)</span>"
         "<input type='text' name='logger_serial' value='");
@@ -1122,11 +1139,11 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
     server.sendContent("<div class='card'><h2>&#128276; Telegram</h2>"
         "<div class='row'><span class='lbl'>Bot Token</span>"
         "<input type='text' name='tg_token' value='");
-    server.sendContent(tgcfg.token);
+    server.sendContent(html_escape(tgcfg.token));
     server.sendContent("' maxlength='63'></div>"
         "<div class='row'><span class='lbl'>Chat ID</span>"
         "<input type='text' name='tg_chatid' value='");
-    server.sendContent(tgcfg.chat_id);
+    server.sendContent(html_escape(tgcfg.chat_id));
     server.sendContent("' maxlength='31'></div>");
     send_range("Alerta bater&iacute;a", "tg_batt", 5, 50,
                tgcfg.batt_threshold, "fmtPct",
