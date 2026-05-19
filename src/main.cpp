@@ -520,9 +520,9 @@ void setup() {
        
         // Alternativa si lv_tileview_get_tile_act no compila:
         int idx = 0;
-        for (int i = 0; i < 5; i++) {
-            lv_obj_t* tiles[] = {g_tile_dash, g_tile_stats,
-                                g_tile_chart, g_tile_config};
+        lv_obj_t* tiles[] = {g_tile_dash, g_tile_stats,
+                             g_tile_chart, g_tile_config};
+        for (int i = 0; i < 4; i++) {
             if (tiles[i] == tile) { idx = i; break; }
         }
         pagination_dots_set(idx);

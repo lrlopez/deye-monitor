@@ -2,32 +2,39 @@
 
 Todos los cambios importantes de este proyecto están documentados en este fichero.
 
-El formato sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
+El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
+
+---
+
+## [Unreleased]
+
+### Corregido
+- `main.cpp`: acceso fuera de bounds en el array de tiles de navegación — el bucle iteraba hasta `i < 5` sobre un array de 4 elementos, accediendo a memoria adyacente en el stack (UB); corregido a `i < 4` y el array sacado fuera del bucle
 
 ---
 
 ## [v1.0.3] — 2026-05-19
 
-### Añadido
+### Added
 - Panel de administración web en `/admin`: permite configurar el inversor, la gráfica, Telegram y el brillo de la pantalla desde el navegador sin acceder a la pantalla táctil
 - Protección por contraseña (HTTP Basic Auth) del panel `/admin` y de la página de actualización OTA `/update`, configurable exclusivamente desde la pantalla táctil (sección ACCESO WEB)
 - Mensaje informativo en la gráfica web cuando no hay datos disponibles para el día seleccionado
 
-### Corregido
+### Fixed
 - El cursor no se mostraba correctamente al escribir en los cuadros de texto de la pantalla de configuración
 
 ---
 
 ## [v1.0.2] — 2026-05-19
 
-### Corregido
+### Fixed
 - Fallos en el guardado y la recuperación de medidas de 5 minutos que podían provocar pérdida o corrupción de registros
 
 ---
 
 ## [v1.0.1] — 2026-05-18
 
-### Corregido
+### Fixed
 - Problema de transparencia en los puntos de navegación entre pantallas
 - Errores en el flujo de compilación y publicación de releases en `build_release.yml`
 
@@ -37,7 +44,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y el p
 
 Lanzamiento inicial del monitor solar Deye. Incluye el sistema completo de monitorización, almacenamiento, interfaz táctil, servidor web y notificaciones.
 
-### Añadido
+### Added
 
 #### Monitor en tiempo real
 - Comunicación con el datalogger mediante protocolo SolarmanV5 sobre TCP (puerto 8899), con polling cada 5 segundos
@@ -80,7 +87,7 @@ Lanzamiento inicial del monitor solar Deye. Incluye el sistema completo de monit
 - Configuración persistida en NVS (WiFi, inversor, gráfica, brillo, Telegram)
 - Particionado personalizado: NVS + OTA dual + LittleFS 8 MB
 
-### Corregido
+### Fixed
 - Error al mostrar el teclado virtual sobre pantallas ya eliminadas
 - Problema con el tamaño del buffer I2C del controlador táctil
 - Pantalla de estadísticas con valores al 100% mostraba el arco cortado
