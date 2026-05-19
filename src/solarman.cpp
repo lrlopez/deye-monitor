@@ -94,9 +94,12 @@ bool SolarmanClient::readRegisters(uint16_t startReg, uint16_t count, uint16_t* 
     uint8_t resp[256];
     int received = 0;
     uint32_t t0 = millis();
-    while (received < expectedLen && (millis() - t0) < 3000) {
+    while (received < expectedLen && received < (int)sizeof(resp) &&
+           (millis() - t0) < 3000) {
         if (client.available())
             resp[received++] = client.read();
+        else
+            vTaskDelay(pdMS_TO_TICKS(1));
     }
     client.stop();
 
