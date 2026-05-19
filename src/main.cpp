@@ -114,14 +114,6 @@ static volatile bool g_wifi_connected = false;
 // Pantalla principal (tileview vive aquí)
 lv_obj_t* g_main_screen = nullptr;
 
-// Función delta con protección de rollover de medianoche
-static int16_t delta_wh(float cur, float prev) {
-    float d = cur - prev;
-    if (d < 0.0f) d = cur;           // reset de medianoche
-    int v = (int)(d * 1000.0f + 0.5f);
-    return (int16_t)(v > 32000 ? 32000 : v);
-}
-
 // ── Tarea de red (Core 0) ─────────────────────────────────────────────────
 static void solarmanTask(void* /*pv*/) {
     SolarmanClient client(g_cfg.logger_ip, LOGGER_PORT,

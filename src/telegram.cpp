@@ -300,9 +300,11 @@ String TelegramBot::cmdAyuda() const {
 // ── Formateo de alertas proactivas ────────────────────────────────────────
 String TelegramBot::fmtAlert(const AlertMsg& msg) const {
     switch (msg.type) {
-    case AlertType::BATT_LOW:
+    case AlertType::BATT_LOW: {
+        String bat = cmdBateria();
         return "⚠️ *Batería baja*\nSOC: *" + String(msg.value) + "%*\n"
-               + cmdBateria().substring(cmdBateria().indexOf('\n')+1);
+               + bat.substring(bat.indexOf('\n')+1);
+    }
     case AlertType::BATT_RECOVERED:
         return "✅ *Batería recuperada*\nSOC: *" + String(msg.value) + "%*";
     case AlertType::SOLAR_START:

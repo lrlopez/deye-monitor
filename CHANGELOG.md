@@ -10,6 +10,19 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ---
 
+## [v1.0.6] — 2026-05-19
+
+### Corregido
+- `data_store.cpp`: doble llamada a `LittleFS.begin()` — `Store.begin()` volvía a montar el sistema de ficheros aunque `main.cpp` ya lo había montado; eliminada la llamada duplicada y añadido comentario indicando que el llamador es el responsable de montar LittleFS
+- `data_store.cpp` / `web_server.cpp`: `/api/status` usaba capacidades hardcoded (`201600`, `17520`, `730`) en lugar de las constantes reales del buffer; sustituido por llamadas a `Store.getRawCapacity()`, `Store.getHourlyCapacity()` y `Store.getDailyCapacity()`
+- `data_store.cpp`: `getLastRecord()` usaba `readAt()` (abría y cerraba el fichero cada vez) en lugar del handle permanente `_f_raw`; corregido usando `readRaw()` con el índice físico correcto y validación de `timestamp > 0`
+- `psram_cache.cpp`: `begin()` llamaba a `_bitmap_build()` explícitamente después de `_day_load_all()`, que ya la invoca internamente; eliminada la llamada redundante
+- `psram_cache.cpp`: `pushHourly()` incrementaba `hours_valid` sin cota superior, pudiendo superar 24; añadida comprobación `if (hours_valid < 24)` antes de incrementar
+- `telegram.cpp`: `fmtAlert(BATT_LOW)` llamaba a `cmdBateria()` dos veces (doble consulta al inversor en el mismo mensaje); el resultado ahora se almacena en una variable local
+- `main.cpp`: función `delta_wh()` declarada pero nunca llamada eliminada del código
+
+---
+
 ## [v1.0.5] — 2026-05-19
 
 ### Corregido

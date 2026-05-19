@@ -62,8 +62,7 @@ bool PsramCache::begin() {
     }
 
     // ── Carga eager: daily (pequeño, 47 KB) + últimos 7 días raw + hrly ───
-    _day_load_all();
-    _bitmap_build();
+    _day_load_all();   // incluye _bitmap_build() internamente
 
     // Últimos 7 días en raw y hourly (para UI inmediata)
     for (int i = CACHE_RAW_DAYS-7; i < CACHE_RAW_DAYS; i++)
@@ -220,7 +219,7 @@ void PsramCache::pushHourly(const HourlyRecord& r) {
     }
     _hrly_buf[slot*24 + h]  = r;
     _hrly_days[slot].valid  = true;
-    _hrly_days[slot].hours_valid++;
+    if (_hrly_days[slot].hours_valid < 24) _hrly_days[slot].hours_valid++;
     xSemaphoreGiveRecursive(_mutex);
 }
 
