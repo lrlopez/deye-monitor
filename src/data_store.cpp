@@ -96,11 +96,11 @@ bool DataStore::begin() {
         // head y count ya son 0 por la inicialización de CircBuf
     }
 
-    // ── Abrir ficheros y mantenerlos abiertos ────────────────────────────
-    auto open_rw = [](File& f, const char* path, uint32_t cap, uint32_t rec_sz) {
+    // ── Pre-alocar ficheros y abrir el raw con handle permanente ─────────
+    // hrly y day se abren/cierran en cada acceso (readAt/writeAt); solo raw
+    // mantiene handle abierto para minimizar latencia en el path caliente.
+    auto ensure_file = [](const char* path, uint32_t cap, uint32_t rec_sz) {
         if (!LittleFS.exists(path)) {
-            // Pre-alocar con un write al último byte para evitar
-            // fragmentación posterior
             File tmp = LittleFS.open(path, "w");
             if (tmp) {
                 tmp.seek((uint32_t)(cap * rec_sz) - 1);
@@ -108,14 +108,22 @@ bool DataStore::begin() {
                 tmp.close();
             }
         }
-        f = LittleFS.open(path, "r+");
-        return (bool)f;
+        // Verificar que el fichero se puede abrir
+        File f = LittleFS.open(path, "r+");
+        bool ok = (bool)f;
+        if (f) f.close();
+        return ok;
     };
 
-    if (!open_rw(_f_raw,  "/raw.bin",  _raw.capacity,  sizeof(Record5Min))  ||
-        !open_rw(_f_hrly, "/hrly.bin", _hrly.capacity, sizeof(HourlyRecord)) ||
-        !open_rw(_f_day,  "/day.bin",  _day.capacity,  sizeof(DailyRecord))) {
-        Serial0.println("[Store] Error abriendo ficheros");
+    if (!ensure_file("/raw.bin",  _raw.capacity,  sizeof(Record5Min))  ||
+        !ensure_file("/hrly.bin", _hrly.capacity, sizeof(HourlyRecord)) ||
+        !ensure_file("/day.bin",  _day.capacity,  sizeof(DailyRecord))) {
+        Serial0.println("[Store] Error creando ficheros");
+        return false;
+    }
+    _f_raw = LittleFS.open("/raw.bin", "r+");
+    if (!_f_raw) {
+        Serial0.println("[Store] Error abriendo raw.bin");
         return false;
     }
 
@@ -143,22 +151,6 @@ bool DataStore::readRaw(uint32_t phys, Record5Min& r) {
            _f_raw.read((uint8_t*)&r, sizeof(r)) == sizeof(r) &&
            r.timestamp > 1577836800UL;  // >= 2020-01-01; filtra arranques pre-NTP (~1970)
 }
-bool DataStore::writeHrly(uint32_t phys, const HourlyRecord& r) {
-    return _f_hrly.seek((uint32_t)phys * sizeof(HourlyRecord)) &&
-           _f_hrly.write((const uint8_t*)&r, sizeof(r)) == sizeof(r);
-}
-bool DataStore::readHrly(uint32_t phys, HourlyRecord& r) {
-    return _f_hrly.seek((uint32_t)phys * sizeof(HourlyRecord)) &&
-           _f_hrly.read((uint8_t*)&r, sizeof(r)) == sizeof(r);
-}
-bool DataStore::writeDay_(uint32_t phys, const DailyRecord& r) {
-    return _f_day.seek((uint32_t)phys * sizeof(DailyRecord)) &&
-           _f_day.write((const uint8_t*)&r, sizeof(r)) == sizeof(r);
-}
-bool DataStore::readDay_(uint32_t phys, DailyRecord& r) {
-    return _f_day.seek((uint32_t)phys * sizeof(DailyRecord)) &&
-           _f_day.read((uint8_t*)&r, sizeof(r)) == sizeof(r);
-}
 
 // ── Índice de días ────────────────────────────────────────────────────────
 void DataStore::_day_idx_load() {
@@ -178,7 +170,7 @@ void DataStore::_day_idx_load() {
         uint32_t dep = (uint32_t)mktime(&tm_r);
 
         if (dep != prev_dep && _day_idx_count < DAY_IDX_MAX) {
-            _day_idx[_day_idx_count++] = {dep, li};
+            _day_idx[_day_idx_count++] = {dep, physIdx(_raw, li)};
             prev_dep = dep;
         }
     }
@@ -191,11 +183,11 @@ void DataStore::_day_idx_load() {
         Serial0.printf("[Store]   [%lu] dep=%lu li=%lu\n",
                        (unsigned long)i,
                        (unsigned long)_day_idx[i].day_epoch,
-                       (unsigned long)_day_idx[i].logical_start);
+                       (unsigned long)_day_idx[i].phys_start);
     if (_day_idx_count > 5)
         Serial0.printf("[Store]   ... último: dep=%lu li=%lu\n",
                        (unsigned long)_day_idx[_day_idx_count-1].day_epoch,
-                       (unsigned long)_day_idx[_day_idx_count-1].logical_start);
+                       (unsigned long)_day_idx[_day_idx_count-1].phys_start);
 
     // Diagnóstico: si el índice está vacío pero hay registros, leer los primeros
     // bytes del fichero directamente para ver qué contiene
@@ -218,14 +210,13 @@ void DataStore::_day_idx_load() {
     }
 }
 
-void DataStore::_day_idx_insert(uint32_t dep, uint32_t logical_start) {
+void DataStore::_day_idx_insert(uint32_t dep, uint32_t phys_start) {
     if (_day_idx_count >= DAY_IDX_MAX) {
-        // Desplazar (el más antiguo se pierde con el buffer circular)
         memmove(_day_idx, _day_idx + 1,
                 (_day_idx_count - 1) * sizeof(DayIdx));
         _day_idx_count--;
     }
-    _day_idx[_day_idx_count++] = {dep, logical_start};
+    _day_idx[_day_idx_count++] = {dep, phys_start};
 }
 
 int DataStore::_day_idx_find(uint32_t dep) const {
@@ -264,12 +255,12 @@ bool DataStore::push(const Record5Min& r) {
     } else {
         _raw.head = (_raw.head + 1) % _raw.capacity;
     }
-    uint32_t logical_start = _raw.count - 1;
 
-    // ¿Es el primer registro de este día?
+    // ¿Es el primer registro de este día? Guardar posición física (inmutable),
+    // no lógica — la posición lógica cambia con cada avance de head.
     if (_day_idx_count == 0 ||
         _day_idx[_day_idx_count-1].day_epoch != dep) {
-        _day_idx_insert(dep, logical_start);
+        _day_idx_insert(dep, phys);
     }
 
     Serial0.printf("[Store] push ts=%lu phys=%lu count=%lu\n",
@@ -292,12 +283,8 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
     uint32_t next_dep = dep + 86400;
     uint32_t found    = 0;
 
-    // Buscar inicio del día en el índice O(n_days) ≈ O(730) comparaciones
     int idx_entry = _day_idx_find(dep);
-    uint32_t start_li = (idx_entry >= 0) ?
-                        _day_idx[idx_entry].logical_start : 0;
 
-    // Diagnóstico: mostrar dep buscado y contenido del índice
     if (idx_entry < 0 && _day_idx_count > 0) {
         Serial0.printf("[Store] readDay dep=%lu NO ENCONTRADO. idx_count=%lu "
                        "first=%lu last=%lu\n",
@@ -305,20 +292,25 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
                        (unsigned long)_day_idx_count,
                        (unsigned long)_day_idx[0].day_epoch,
                        (unsigned long)_day_idx[_day_idx_count-1].day_epoch);
-    } else {
-        Serial0.printf("[Store] readDay dep=%lu idx=%d start_li=%lu raw_count=%lu\n",
-                       (unsigned long)dep, idx_entry,
-                       idx_entry >= 0 ? (unsigned long)_day_idx[idx_entry].logical_start : 0UL,
-                       (unsigned long)_raw.count);
     }
 
-    // Si no está en el índice, no hay datos para ese día
     if (idx_entry < 0) {
         xSemaphoreGive(_mutex);
         return 0;
     }
 
-    // Scan secuencial desde el inicio del día (sin seek por búsqueda binaria)
+    // Convertir posición física (inmutable) a índice lógico actual.
+    // La posición física no varía nunca; el índice lógico cambia con cada
+    // avance de head al envolver el anillo, de ahí que se recalcule aquí.
+    uint32_t phys_s   = _day_idx[idx_entry].phys_start;
+    uint32_t start_li = (phys_s - _raw.head + _raw.capacity) % _raw.capacity;
+
+    Serial0.printf("[Store] readDay dep=%lu idx=%d phys=%lu start_li=%lu raw_count=%lu\n",
+                   (unsigned long)dep, idx_entry,
+                   (unsigned long)phys_s,
+                   (unsigned long)start_li,
+                   (unsigned long)_raw.count);
+
     for (uint32_t li = start_li; li < _raw.count && found < max; li++) {
         Record5Min r{};
         if (!readRaw(physIdx(_raw, li), r)) continue;
@@ -386,20 +378,6 @@ bool DataStore::pushDaily(const DailyRecord& r) {
                   r.pv_10wh/10.0f, r.export_10wh/10.0f,
                   r.import_10wh/10.0f, r.load_10wh/10.0f);
     return ok;
-}
-
-// ── Raw read ──────────────────────────────────────────────────────────────
-uint32_t DataStore::lowerBoundRaw(uint32_t ts) {
-    if (_raw.count == 0) return 0;
-    uint32_t lo = 0, hi = _raw.count;
-    while (lo < hi) {
-        uint32_t mid = (lo + hi) / 2;
-        Record5Min r{};
-        if (readAt(_raw, physIdx(_raw, mid), &r, sizeof(r)) && r.timestamp < ts)
-            lo = mid + 1;
-        else hi = mid;
-    }
-    return lo;
 }
 
 uint32_t DataStore::getLastRawDayEpoch() const {

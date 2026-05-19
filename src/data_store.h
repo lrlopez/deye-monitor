@@ -143,11 +143,12 @@ private:
     uint32_t& _hrly_count = _hrly.count;
     uint32_t& _day_count  = _day.count;
     
-    // File handles abiertos permanentemente
-    File _f_raw, _f_hrly, _f_day;
+    // File handle del buffer raw (abierto permanentemente para rendimiento)
+    File _f_raw;
 
-    // Índice de días en PSRAM
-    struct DayIdx { uint32_t day_epoch; uint32_t logical_start; };
+    // Índice de días en PSRAM — guarda posición FÍSICA (inmutable) en lugar de
+    // lógica, para que no se desfase cuando head avanza al envolver el anillo.
+    struct DayIdx { uint32_t day_epoch; uint32_t phys_start; };
     DayIdx*  _day_idx       = nullptr;
     uint32_t _day_idx_count  = 0;
     static constexpr uint32_t DAY_IDX_MAX = STORE_DAYS;
@@ -162,22 +163,17 @@ private:
 
     bool loadMeta();
     bool saveMeta();
-    
+
     bool writeAt(const CircBuf& cb, uint32_t phys, const void* data, size_t sz);
     bool readAt (const CircBuf& cb, uint32_t phys, void* data,       size_t sz);
 
-    bool writeRaw (uint32_t phys, const Record5Min& r);
-    bool readRaw  (uint32_t phys, Record5Min& r);
-    bool writeHrly(uint32_t phys, const HourlyRecord& r);
-    bool readHrly (uint32_t phys, HourlyRecord& r);
-    bool writeDay_ (uint32_t phys, const DailyRecord& r);
-    bool readDay_ (uint32_t phys, DailyRecord& r);
+    bool writeRaw(uint32_t phys, const Record5Min& r);
+    bool readRaw (uint32_t phys, Record5Min& r);
 
-    void   _day_idx_insert(uint32_t day_epoch, uint32_t logical_start);
+    void   _day_idx_insert(uint32_t day_epoch, uint32_t phys_start);
     int    _day_idx_find  (uint32_t day_epoch) const;
     void   _day_idx_load  ();
     uint32_t physIdx(const CircBuf& cb, uint32_t logical) const;
-    uint32_t lowerBoundRaw(uint32_t ts);
     uint32_t lowerBoundHrly(uint32_t ts);
 };
 
