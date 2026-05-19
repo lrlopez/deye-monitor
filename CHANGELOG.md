@@ -8,6 +8,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Añadido
+- Dashboard web: versión de la aplicación mostrada en el encabezado y el pie de página (obtenida en tiempo de carga desde `/api/status`)
+- Dashboard web: porcentajes de **autosuficiencia** (consumo cubierto sin importar red) y **autoconsumo** (solar aprovechado localmente) visibles en la sección "Hoy", actualizados junto al resto de datos cada 5 segundos
+- `/api/status`: nuevo campo `version` en la respuesta JSON con la versión del firmware compilado
+
 ---
 
 ## [v1.0.8] — 2026-05-19

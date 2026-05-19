@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <time.h>
 #include "web_server.h"
+#include "config.h"
 #include "storage.h"
 #include "data_store.h"
 #include "psram_cache.h"
@@ -103,7 +104,7 @@ static void handle_root() {
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="/icon.svg">
 </head><body>
-<h1>&#9889; Deye Monitor – )";
+<h1>&#9889; Deye Monitor <span style="font-size:.7rem;color:var(--muted);font-weight:400" id="h1-ver">v--</span> – )";
     html += WiFi.localIP().toString();
     html += R"(</h1>
 
@@ -138,7 +139,17 @@ static void handle_root() {
 
 <!-- Daily donuts SVG -->
 <div class="donut-wrap">
-  <h1 style="margin-bottom:12px">Hoy</h1>
+  <h1 style="margin-bottom:8px">Hoy</h1>
+  <div style="display:flex;gap:24px;justify-content:center;margin-bottom:12px">
+    <div style="text-align:center">
+      <div style="font-size:1.4rem;font-weight:700;color:#2ecc71" id="kpi-autosuf">--%</div>
+      <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Autosuficiencia</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:1.4rem;font-weight:700;color:#f5c518" id="kpi-autocon">--%</div>
+      <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Autoconsumo</div>
+    </div>
+  </div>
   <div class="donut-row">
     <div class="donut-box">
       <h3>Consumo</h3>
@@ -219,6 +230,8 @@ static void handle_root() {
   <a href="/admin">&#9881; Admin</a>
   &nbsp;|&nbsp;
   <a href="/update">&#8593; Firmware</a>
+  &nbsp;|&nbsp;
+  <span id="app-ver" style="color:var(--muted)">v--</span>
 </footer>
 
 <!-- Status bar fija -->
@@ -313,6 +326,15 @@ async function refresh() {
       document.getElementById('dl-pro-load').textContent = fmt(pvToLoad * 1000);
       document.getElementById('dl-pro-chg').textContent  = fmt(day.batt_charge_kwh * 1000);
       document.getElementById('dl-pro-exp').textContent  = fmt(day.export_kwh * 1000);
+
+      const autosuf = day.load_kwh > 0.01
+        ? Math.max(0, Math.min(100, (day.load_kwh - day.import_kwh) / day.load_kwh * 100))
+        : 0;
+      const autocon = day.pv_kwh > 0.01
+        ? Math.max(0, Math.min(100, (day.pv_kwh - day.export_kwh) / day.pv_kwh * 100))
+        : 0;
+      document.getElementById('kpi-autosuf').textContent = autosuf.toFixed(0) + '%';
+      document.getElementById('kpi-autocon').textContent = autocon.toFixed(0) + '%';
     } else if (day && !day.valid) {
       // Datos aún no disponibles — mostrar estado de espera
       document.getElementById('dc-total').textContent = '...';
@@ -337,6 +359,13 @@ function clock() {
 }
 
 refresh();                          // carga inicial inmediata
+fetch('/api/status').then(r=>r.json()).then(s=>{
+  if(s.version){
+    const v='v'+s.version;
+    document.getElementById('app-ver').textContent=v;
+    document.getElementById('h1-ver').textContent=v;
+  }
+}).catch(()=>{});
 setInterval(refresh, 5000);         // refresco de datos cada 5 s
 setInterval(clock,   1000);         // reloj cada 1 s
 </script>
@@ -1391,7 +1420,8 @@ static String epoch_to_date(uint32_t ep) {
 static void handle_status() {
     char json[512];
     snprintf(json, sizeof(json),
-        "{\"raw\":{\"count\":%lu,\"capacity\":%lu},"
+        "{\"version\":\"" APP_VERSION "\","
+        "\"raw\":{\"count\":%lu,\"capacity\":%lu},"
         "\"hourly\":{\"count\":%lu,\"capacity\":%lu},"
         "\"daily\":{\"count\":%lu,\"capacity\":%lu},"
         "\"psram_free_kb\":%lu,"
