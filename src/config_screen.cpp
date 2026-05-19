@@ -386,18 +386,19 @@ static void bl_nend_cb(lv_event_t* e) {
 static void save_btn_cb(lv_event_t* /*e*/) {
     close_ssid_list();
 
-    AppConfig cfg;
+    // Cargar config actual ANTES de sobreescribirla para poder comparar
+    AppConfig old_cfg{};
+    Storage.loadConfig(old_cfg);
+
+    AppConfig cfg{};
     strncpy(cfg.wifi_ssid, lv_textarea_get_text(ta_ssid),          sizeof(cfg.wifi_ssid)-1);
     strncpy(cfg.wifi_pass, lv_textarea_get_text(ta_pass),          sizeof(cfg.wifi_pass)-1);
     strncpy(cfg.logger_ip, lv_textarea_get_text(ta_logger_ip),     sizeof(cfg.logger_ip)-1);
     cfg.logger_serial = (uint32_t)atol(lv_textarea_get_text(ta_logger_serial));
 
-    ChartConfig ccfg;
+    ChartConfig ccfg{};
     ccfg.autoscale = lv_obj_has_state(cb_autoscale, LV_STATE_CHECKED);
     ccfg.max_kw = (uint8_t)lv_slider_get_value(slider_kw_global);
-
-    Storage.saveConfig(cfg);
-    Storage.saveChartConfig(ccfg);
 
     TelegramConfig tgcfg{};
     strncpy(tgcfg.token,   lv_textarea_get_text(s_ta_tg_token),
@@ -408,14 +409,7 @@ static void save_btn_cb(lv_event_t* /*e*/) {
     tgcfg.notify_solar   = lv_obj_has_state(s_cb_tg_solar,  LV_STATE_CHECKED);
     tgcfg.notify_grid    = lv_obj_has_state(s_cb_tg_grid,   LV_STATE_CHECKED);
     tgcfg.notify_logger  = lv_obj_has_state(s_cb_tg_logger, LV_STATE_CHECKED);
-    Storage.saveTelegramConfig(tgcfg);
-    Telegram.setCredentials(tgcfg.token, tgcfg.chat_id);
 
-    lv_label_set_text(lbl_status, LV_SYMBOL_OK " Guardado. Reiniciando...");
-    lv_obj_set_style_text_color(lbl_status, C_OK, 0);
-    lv_timer_handler();
-
-    // Backlight config
     BacklightConfig blcfg{};
     blcfg.normal_pct         = (uint8_t)lv_slider_get_value(s_slider_bl_norm);
     blcfg.reduced_pct        = (uint8_t)lv_slider_get_value(s_slider_bl_red);
@@ -424,22 +418,20 @@ static void save_btn_cb(lv_event_t* /*e*/) {
     blcfg.night_enabled      = lv_obj_has_state(s_cb_bl_night, LV_STATE_CHECKED);
     blcfg.night_start_h      = (uint8_t)lv_slider_get_value(s_slider_bl_nstart);
     blcfg.night_end_h        = (uint8_t)lv_slider_get_value(s_slider_bl_nend);
-    Backlight.setConfig(blcfg);  // guarda en NVS y aplica en caliente
-    // El brillo no necesita reinicio → si solo cambió backlight, no reiniciar
-    // Si cambiaron WiFi o logger IP, sí reiniciamos
 
-    AppConfig old_cfg{};
-    Storage.loadConfig(old_cfg);
-
-    bool needs_restart = (strcmp(cfg.wifi_ssid,  old_cfg.wifi_ssid)  != 0 ||
-                          strcmp(cfg.wifi_pass,  old_cfg.wifi_pass)  != 0 ||
-                          strcmp(cfg.logger_ip,  old_cfg.logger_ip)  != 0 ||
+    bool needs_restart = (strcmp(cfg.wifi_ssid, old_cfg.wifi_ssid) != 0 ||
+                          strcmp(cfg.wifi_pass, old_cfg.wifi_pass) != 0 ||
+                          strcmp(cfg.logger_ip, old_cfg.logger_ip) != 0 ||
                           cfg.logger_serial != old_cfg.logger_serial);
 
+    // Guardar todo una sola vez
     Storage.saveConfig(cfg);
     Storage.saveChartConfig(ccfg);
     Storage.saveTelegramConfig(tgcfg);
-    // Backlight ya guardado por setConfig()
+    Backlight.setConfig(blcfg);  // guarda en NVS y aplica en caliente
+
+    // Aplicar credenciales Telegram en caliente
+    Telegram.setCredentials(tgcfg.token, tgcfg.chat_id);
 
     // Contraseña de acceso web (solo si se escribió algo)
     if (s_ta_admin_pass) {
