@@ -8,11 +8,15 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
-### Corregido
-- `main.cpp`: las alertas proactivas de Telegram (`SOLAR_START`, `SOLAR_STOP`, `BATT_LOW`, `BATT_RECOVERED`, `GRID_OUTAGE`, `GRID_RESTORED`, `LOGGER_FAIL`) nunca se disparaban porque la lógica de detección no estaba implementada en `solarmanTask`. Añadida máquina de estados en el bucle de polling con debounce de 3 lecturas (15 s) para solar y red, e histéresis de 5 puntos para la batería. La configuración Telegram (`notify_solar`, `notify_grid`, `notify_logger`, `batt_threshold`) se cachea en RAM y se refresca desde NVS cada 60 s para no bloquear la tarea con lecturas de flash frecuentes
+---
+
+## [v1.0.7] — 2026-05-19
 
 ### Añadido
 - Soporte mDNS: el dispositivo anuncia su presencia en la red local bajo el nombre `<hostname>.local` (por defecto `inversor.local`). El hostname es configurable desde el panel web `/admin` y desde la pantalla táctil (sección ESTADO RED); requiere reinicio para aplicar. La biblioteca `ESPmDNS` es parte del core de Arduino para ESP32 (sin dependencias adicionales). Se anuncia también el servicio HTTP (`_http._tcp`) para que los descubridores de servicios de red lo detecten automáticamente. El valor se sanitiza automáticamente a `[a-z0-9-]` sin guiones al inicio/fin, con fallback a `inversor` si el campo queda vacío
+
+### Corregido
+- `main.cpp`: las alertas proactivas de Telegram (`SOLAR_START`, `SOLAR_STOP`, `BATT_LOW`, `BATT_RECOVERED`, `GRID_OUTAGE`, `GRID_RESTORED`, `LOGGER_FAIL`) nunca se disparaban porque la lógica de detección no estaba implementada en `solarmanTask`. Añadida máquina de estados en el bucle de polling con debounce de 3 lecturas (15 s) para solar y red, e histéresis de 5 puntos para la batería. La configuración Telegram (`notify_solar`, `notify_grid`, `notify_logger`, `batt_threshold`) se cachea en RAM y se refresca desde NVS cada 60 s para no bloquear la tarea con lecturas de flash frecuentes
 
 ---
 
