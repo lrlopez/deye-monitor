@@ -343,6 +343,7 @@ setInterval(clock,   1000);         // reloj cada 1 s
 // Ruta GET /update  →  Formulario de subida OTA
 // ═════════════════════════════════════════════════════════════════════════
 static void handle_update_get() {
+    s_ota_authed = false;   // invalidar cualquier sesión OTA anterior
     if (!check_auth()) return;
     String html = R"(<!DOCTYPE html><html lang="es"><head>
 <meta charset="UTF-8">
