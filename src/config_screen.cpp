@@ -44,6 +44,7 @@ static lv_obj_t* s_slider_bl_nend    = nullptr;
 static lv_obj_t* s_lbl_bl_nend       = nullptr;
 
 static lv_obj_t* s_ta_admin_pass     = nullptr;
+static lv_obj_t* s_ta_mdns          = nullptr;
 
 // ── Widgets scan WiFi ─────────────────────────────────────────────────────
 static lv_obj_t*  scan_btn;
@@ -395,6 +396,23 @@ static void save_btn_cb(lv_event_t* /*e*/) {
     strncpy(cfg.wifi_pass, lv_textarea_get_text(ta_pass),          sizeof(cfg.wifi_pass)-1);
     strncpy(cfg.logger_ip, lv_textarea_get_text(ta_logger_ip),     sizeof(cfg.logger_ip)-1);
     cfg.logger_serial = (uint32_t)atol(lv_textarea_get_text(ta_logger_serial));
+    // mDNS hostname: solo [a-z0-9-], sin guiones al inicio/fin, fallback al default
+    if (s_ta_mdns) {
+        String raw = lv_textarea_get_text(s_ta_mdns);
+        String clean;
+        for (size_t i = 0; i < (size_t)raw.length(); i++) {
+            char c = raw[i];
+            if (c >= 'A' && c <= 'Z') c += 32;
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') clean += c;
+        }
+        while (clean.length() && clean[0] == '-') clean.remove(0, 1);
+        while (clean.length() && clean[clean.length()-1] == '-') clean.remove(clean.length()-1);
+        if (clean.isEmpty()) clean = MDNS_HOSTNAME;
+        strncpy(cfg.mdns_hostname, clean.c_str(), sizeof(cfg.mdns_hostname) - 1);
+        lv_textarea_set_text(s_ta_mdns, cfg.mdns_hostname);
+    } else {
+        strncpy(cfg.mdns_hostname, old_cfg.mdns_hostname, sizeof(cfg.mdns_hostname) - 1);
+    }
 
     ChartConfig ccfg{};
     ccfg.autoscale = lv_obj_has_state(cb_autoscale, LV_STATE_CHECKED);
@@ -419,10 +437,11 @@ static void save_btn_cb(lv_event_t* /*e*/) {
     blcfg.night_start_h      = (uint8_t)lv_slider_get_value(s_slider_bl_nstart);
     blcfg.night_end_h        = (uint8_t)lv_slider_get_value(s_slider_bl_nend);
 
-    bool needs_restart = (strcmp(cfg.wifi_ssid, old_cfg.wifi_ssid) != 0 ||
-                          strcmp(cfg.wifi_pass, old_cfg.wifi_pass) != 0 ||
-                          strcmp(cfg.logger_ip, old_cfg.logger_ip) != 0 ||
-                          cfg.logger_serial != old_cfg.logger_serial);
+    bool needs_restart = (strcmp(cfg.wifi_ssid,      old_cfg.wifi_ssid)      != 0 ||
+                          strcmp(cfg.wifi_pass,      old_cfg.wifi_pass)      != 0 ||
+                          strcmp(cfg.logger_ip,      old_cfg.logger_ip)      != 0 ||
+                          cfg.logger_serial        != old_cfg.logger_serial   ||
+                          strcmp(cfg.mdns_hostname, old_cfg.mdns_hostname)   != 0);
 
     // Guardar todo una sola vez
     Storage.saveConfig(cfg);
@@ -479,7 +498,7 @@ void config_screen_init(lv_obj_t* parent) {
     const int SEC_CHART_Y  = SEC_INV_Y  + SEC_INV_H   + SY(4);
     const int SEC_CHART_H  = CFG_FIELD_H + SS(16) + CFG_SEC_PAD*2 + SY(30);
     const int SEC_NET_Y    = SEC_CHART_Y + SEC_CHART_H + SY(4);
-    const int SEC_NET_H    = CFG_FIELD_H + SY(20) + SY(20);
+    const int SEC_NET_H    = SY(62) + CFG_FIELD_H + CFG_SEC_PAD;
     const int SEC_TG_Y     = SEC_NET_Y   + SEC_NET_H   + SY(4);
     const int SEC_TG_H     = CFG_FIELD_H*2 + SS(16) + CFG_SEC_PAD*2 + SY(50) + SY(20);
 
@@ -592,12 +611,20 @@ void config_screen_init(lv_obj_t* parent) {
         lv_label_set_text(lbl, buf);
     }, LV_EVENT_VALUE_CHANGED, CFG_LBL_kw_val);
 
-    // ── Sección Estado red  (baja a 358 = 254+100+4) ──────────────────────────
+    // ── Sección Estado red ────────────────────────────────────────────────────
     lv_obj_t* sec_net = make_section(parent, LV_SYMBOL_GPS " ESTADO RED", SEC_NET_Y, SEC_NET_H);
     lbl_ip   = make_info_row(sec_net, SY(18), "IP ESP32");
     lbl_rssi = make_info_row(sec_net, SY(38), "Senal WiFi");
 
-    // ── Sección Telegram (y=432, h=178) ───────────────────────────────────
+    make_row_label(sec_net, SY(62), "mDNS");
+    s_ta_mdns = make_field(sec_net, CFG_LBL_W, SY(62),
+                           CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), false, MDNS_HOSTNAME);
+    lv_textarea_set_text(s_ta_mdns, cfg.mdns_hostname);
+    lv_textarea_set_max_length(s_ta_mdns, 31);
+    lv_obj_add_event_cb(s_ta_mdns, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
+    lv_obj_add_event_cb(s_ta_mdns, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+
+    // ── Sección Telegram ──────────────────────────────────────────────────
     TelegramConfig tgcfg = Storage.loadTelegramConfig();
 
     lv_obj_t* sec_tg = make_section(parent, LV_SYMBOL_BELL " TELEGRAM", SEC_TG_Y, SEC_TG_H);
