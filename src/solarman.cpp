@@ -78,7 +78,7 @@ bool SolarmanClient::readRegisters(uint16_t startReg, uint16_t count, uint16_t* 
     WiFiClient client;
     client.setTimeout(3);
 
-    if (!client.connect(_ip, _port)) {
+    if (!client.connect(_ip, _port, 3000)) {
         Serial0.println("[Solarman] Timeout conectando al datalogger");
         return false;
     }
