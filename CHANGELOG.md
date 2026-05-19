@@ -8,6 +8,9 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Corregido
+- `data_store.cpp` / `data_store.h`: el índice de días en PSRAM (`_day_idx`) almacenaba índices **lógicos** (relativos al `head` del anillo). Cada push cuando el buffer está lleno desplaza todos los índices en −1; tras ≈4 años de funcionamiento continuo sin reinicio, `readDay()` devolvía solo 1 registro por día en lugar de hasta 288. Corregido guardando la posición **física** (inmutable) y convirtiéndola a lógica en `readDay()` con `(phys − head + capacity) % capacity`. Eliminados métodos privados muertos (`writeHrly`, `readHrly`, `writeDay_`, `readDay_`, `lowerBoundRaw`) y los file handles `_f_hrly` / `_f_day` que se abrían en `begin()` pero nunca se usaban
+
 ---
 
 ## [v1.0.4] — 2026-05-19
