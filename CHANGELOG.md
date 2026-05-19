@@ -8,6 +8,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+---
+
+## [v1.0.8] — 2026-05-19
+
 ### Añadido
 - PWA (Progressive Web App): el dashboard (`/`) y la gráfica (`/chart`) incluyen ahora `<link rel="manifest">` y las etiquetas `apple-mobile-web-app-*`; el dispositivo sirve `/manifest.json` (nombre, colores, icono) e `/icon.svg` (rayo amarillo sobre fondo oscuro). En Android/Chrome e iOS/Safari aparece la opción "Añadir a inicio" que instala la web como aplicación sin navegador visible
 - Dos niveles de alerta de batería: `batt_warn` (aviso, por defecto 25 %) y `batt_threshold` (crítico, ya existente, por defecto 20 %). La máquina de estados de tres niveles (NORMAL → WARN → CRIT) envía ⚠️ *Aviso batería* al cruzar el umbral de aviso y 🔴 *Batería crítica* al cruzar el crítico, con recuperación única al superar warn+5 %. El umbral de aviso es configurable desde el panel web `/admin` y desde la pantalla táctil (sección TELEGRAM, slider amarillo *Aviso bat.*)
