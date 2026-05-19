@@ -177,7 +177,7 @@ void DataStore::_day_idx_load() {
         tm_r.tm_hour = 0; tm_r.tm_min = 0; tm_r.tm_sec = 0; tm_r.tm_isdst = -1;
         uint32_t dep = (uint32_t)mktime(&tm_r);
 
-        if (dep != prev_dep && _day_idx_count < 730) {
+        if (dep != prev_dep && _day_idx_count < DAY_IDX_MAX) {
             _day_idx[_day_idx_count++] = {dep, li};
             prev_dep = dep;
         }
