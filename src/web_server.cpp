@@ -1310,11 +1310,13 @@ static void handle_api_data() {
 // ── Helper: epoch desde string YYYYMMDD ───────────────────────────────────
 static uint32_t parse_date(const String& s) {
     if (s.length() != 8) return 0;
+    for (int i = 0; i < 8; i++) if (!isdigit(s[i])) return 0;
+    int y = s.substring(0,4).toInt();
+    int m = s.substring(4,6).toInt();
+    int d = s.substring(6,8).toInt();
+    if (y < 2020 || y > 2150 || m < 1 || m > 12 || d < 1 || d > 31) return 0;
     struct tm tm{};
-    tm.tm_year = s.substring(0,4).toInt() - 1900;
-    tm.tm_mon  = s.substring(4,6).toInt() - 1;
-    tm.tm_mday = s.substring(6,8).toInt();
-    tm.tm_isdst = -1;
+    tm.tm_year = y - 1900; tm.tm_mon = m - 1; tm.tm_mday = d; tm.tm_isdst = -1;
     return (uint32_t)mktime(&tm);
 }
 
