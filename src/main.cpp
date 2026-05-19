@@ -535,6 +535,11 @@ void setup() {
     // Lo arrancamos sin WiFi — empezará a responder cuando haya conexión
     splash_update(SplashStep::WEBSERVER, SplashState::RUNNING);
     g_mutex = xSemaphoreCreateMutex();
+    if (!g_mutex) {
+        Serial0.println("[Setup] ERROR: fallo al crear mutex — reiniciando");
+        delay(500);
+        ESP.restart();
+    }
     webserver_set_data(g_mutex, &g_energy, &g_daily);
     webserver_begin();
     splash_update(SplashStep::WEBSERVER, SplashState::OK);
