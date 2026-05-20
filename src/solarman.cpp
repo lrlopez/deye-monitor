@@ -117,6 +117,21 @@ bool SolarmanClient::readRegisters(uint16_t startReg, uint16_t count, uint16_t* 
         return false;
     }
 
+    // CRC Modbus: cubre unit_id + FC + byte_count + datos (3 + count*2 bytes)
+    // Transmitido LSB primero, inmediatamente después de los datos
+    {
+        const int mb_start    = DATA_OFFSET - 3;
+        const int mb_data_len = 3 + count * 2;
+        uint16_t crc_recv = (uint16_t)resp[mb_start + mb_data_len]
+                          | ((uint16_t)resp[mb_start + mb_data_len + 1] << 8);
+        uint16_t crc_calc = modbusCRC(&resp[mb_start], mb_data_len);
+        if (crc_recv != crc_calc) {
+            Serial0.printf("[Solarman] CRC Modbus inválido: recv=0x%04X calc=0x%04X\n",
+                           crc_recv, crc_calc);
+            return false;
+        }
+    }
+
     for (uint16_t r = 0; r < count; r++) {
         int pos = DATA_OFFSET + r * 2;
         values[r] = ((uint16_t)resp[pos] << 8) | resp[pos + 1];

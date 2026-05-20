@@ -1472,6 +1472,10 @@ static void handle_history() {
             server.send(400, "application/json", "{\"error\":\"bad range\"}");
             return;
         }
+        if ((to_ep - from_ep) > 366u * 86400u) {
+            server.send(400, "application/json", "{\"error\":\"range too large (max 366 days)\"}");
+            return;
+        }
 
         server.setContentLength(CONTENT_LENGTH_UNKNOWN);
         server.sendHeader("Content-Type", "application/json");

@@ -111,8 +111,8 @@ TelegramConfig StorageManager::loadTelegramConfig() {
     p.begin(NS_CFG, true);
     String tok = p.getString("tg_token",  "");
     String cid = p.getString("tg_chatid", "");
-    tok.toCharArray(cfg.token,   sizeof(cfg.token));
-    cid.toCharArray(cfg.chat_id, sizeof(cfg.chat_id));
+    tok.toCharArray(cfg.token,   sizeof(cfg.token)   - 1);
+    cid.toCharArray(cfg.chat_id, sizeof(cfg.chat_id) - 1);
     cfg.batt_threshold = p.getUChar("tg_batt",  20);
     cfg.batt_warn      = p.getUChar("tg_bwarn", 25);
     cfg.notify_solar   = p.getBool("tg_solar",  true);
