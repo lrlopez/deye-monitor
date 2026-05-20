@@ -14,7 +14,7 @@
 
 // ── Aplicación ────────────────────────────────────────────────────────────
 #define APP_NAME        "Deye Monitor"
-#define APP_VERSION     "1.0.9"
+#define APP_VERSION     "1.0.10"
 #define MDNS_HOSTNAME   "inversor"
 
 // ── NTP ───────────────────────────────────────────────────────────────────

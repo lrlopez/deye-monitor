@@ -8,6 +8,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+---
+
+## [v1.0.10] — 2026-05-20
+
 ### Corregido
 - `storage.cpp`: `toCharArray` en `loadTelegramConfig()` usaba `sizeof(field)` sin restar 1 — si el token o el chat_id tenían exactamente la longitud máxima (64/32 bytes), el null-terminator no se escribía; corregido a `sizeof - 1`
 - `web_server.cpp`: `/api/history?granularity=daily` aceptaba rangos arbitrariamente amplios; añadido rechazo 400 si `to − from > 366 días`
