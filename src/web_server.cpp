@@ -1063,6 +1063,28 @@ static String sanitize_mdns(const String& s) {
     return out;
 }
 
+static bool is_valid_ipv4(const String& s) {
+    int octets = 0;
+    int val = 0;
+    int digits = 0;
+    for (size_t i = 0; i <= s.length(); i++) {
+        char c = (i < s.length()) ? s[i] : '.';
+        if (c == '.') {
+            if (digits == 0 || val > 255) return false;
+            octets++;
+            val = 0;
+            digits = 0;
+        } else if (c >= '0' && c <= '9') {
+            val = val * 10 + (c - '0');
+            digits++;
+            if (digits > 3) return false;
+        } else {
+            return false;
+        }
+    }
+    return octets == 4;
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 // Ruta GET /admin  →  Panel de administración (protegido por contraseña)
 // ═════════════════════════════════════════════════════════════════════════
@@ -1281,7 +1303,7 @@ static void handle_admin_post() {
 
     // ── Inversor ──────────────────────────────────────────────────────────
     String lip = server.arg("logger_ip");
-    if (lip.length() > 0 && lip.length() < sizeof(cfg.logger_ip))
+    if (lip.length() > 0 && lip.length() < sizeof(cfg.logger_ip) && is_valid_ipv4(lip))
         lip.toCharArray(cfg.logger_ip, sizeof(cfg.logger_ip));
     String lser = server.arg("logger_serial");
     if (!lser.isEmpty())

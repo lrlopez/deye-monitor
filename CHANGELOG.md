@@ -8,6 +8,9 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Corregido
+- `web_server.cpp`: el campo `logger_ip` del panel `/admin` aceptaba cualquier cadena sin validar el formato; añadida función `is_valid_ipv4()` que comprueba que el valor sea exactamente 4 octetos decimales en rango 0–255 antes de guardarlo en NVS
+
 ---
 
 ## [v1.0.10] — 2026-05-20
