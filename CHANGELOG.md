@@ -8,6 +8,9 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Corregido
+- `web_server.cpp`: la página `/admin` aparecía cortada cuando el token de Telegram no estaba configurado. 
+
 ---
 
 ## [v2.0.1] — 2026-05-21

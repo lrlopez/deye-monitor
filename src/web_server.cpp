@@ -1186,29 +1186,35 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
     server.sendContent("<form method='post' action='/admin'>");
 
     // ── Red ───────────────────────────────────────────────────────────────
-    server.sendContent("<div class='card'><h2>&#128267; Red</h2>"
-        "<p class='info'>WiFi: <strong style='color:var(--white)'>");
-    server.sendContent(html_escape(cfg.wifi_ssid));
-    server.sendContent("</strong> &mdash; Configurable desde la pantalla t&aacute;ctil.</p>"
-        "<div class='row'><span class='lbl'>Nombre mDNS</span>"
-        "<input type='text' name='mdns_host' value='");
-    server.sendContent(html_escape(cfg.mdns_hostname));
-    server.sendContent("' maxlength='31' placeholder='inversor'></div>"
-        "<p class='info'>Accede al dispositivo en la red como <strong style='color:var(--white)'>");
-    server.sendContent(html_escape(cfg.mdns_hostname));
-    server.sendContent("</strong>.local &mdash; Requiere reinicio para aplicar.</p></div>");
+    {
+        String _s = "<div class='card'><h2>&#128267; Red</h2>"
+                    "<p class='info'>WiFi: <strong style='color:var(--white)'>";
+        _s += html_escape(cfg.wifi_ssid);
+        _s += "</strong> &mdash; Configurable desde la pantalla t&aacute;ctil.</p>"
+              "<div class='row'><span class='lbl'>Nombre mDNS</span>"
+              "<input type='text' name='mdns_host' value='";
+        _s += html_escape(cfg.mdns_hostname);
+        _s += "' maxlength='31' placeholder='inversor'></div>"
+              "<p class='info'>Accede al dispositivo en la red como <strong style='color:var(--white)'>";
+        _s += html_escape(cfg.mdns_hostname);
+        _s += "</strong>.local &mdash; Requiere reinicio para aplicar.</p></div>";
+        server.sendContent(_s);
+    }
 
     // ── Inversor ──────────────────────────────────────────────────────────
-    server.sendContent("<div class='card'><h2>&#128268; Inversor / Datalogger</h2>"
-        "<div class='row'><span class='lbl'>IP Logger</span>"
-        "<input type='text' name='logger_ip' value='");
-    server.sendContent(html_escape(cfg.logger_ip));
-    server.sendContent("' maxlength='23'></div>"
-        "<div class='row'><span class='lbl'>N&ordm; Serie (decimal)</span>"
-        "<input type='text' name='logger_serial' value='");
-    { char b[12]; snprintf(b, sizeof(b), "%lu", (unsigned long)cfg.logger_serial);
-      server.sendContent(b); }
-    server.sendContent("' maxlength='15'></div></div>");
+    {
+        String _s = "<div class='card'><h2>&#128268; Inversor / Datalogger</h2>"
+                    "<div class='row'><span class='lbl'>IP Logger</span>"
+                    "<input type='text' name='logger_ip' value='";
+        _s += html_escape(cfg.logger_ip);
+        _s += "' maxlength='23'></div>"
+              "<div class='row'><span class='lbl'>N&ordm; Serie (decimal)</span>"
+              "<input type='text' name='logger_serial' value='";
+        char _b[12]; snprintf(_b, sizeof(_b), "%lu", (unsigned long)cfg.logger_serial);
+        _s += _b;
+        _s += "' maxlength='15'></div></div>";
+        server.sendContent(_s);
+    }
 
     // ── Gráfica ───────────────────────────────────────────────────────────
     server.sendContent("<div class='card'><h2>&#128200; Gr&aacute;fica</h2>");
@@ -1218,15 +1224,18 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
     server.sendContent("</div>");
 
     // ── Telegram ──────────────────────────────────────────────────────────
-    server.sendContent("<div class='card'><h2>&#128276; Telegram</h2>"
-        "<div class='row'><span class='lbl'>Bot Token</span>"
-        "<input type='text' name='tg_token' value='");
-    server.sendContent(html_escape(tgcfg.token));
-    server.sendContent("' maxlength='63'></div>"
-        "<div class='row'><span class='lbl'>Chat ID</span>"
-        "<input type='text' name='tg_chatid' value='");
-    server.sendContent(html_escape(tgcfg.chat_id));
-    server.sendContent("' maxlength='31'></div>");
+    {
+        String _s = "<div class='card'><h2>&#128276; Telegram</h2>"
+                    "<div class='row'><span class='lbl'>Bot Token</span>"
+                    "<input type='text' name='tg_token' value='";
+        _s += html_escape(tgcfg.token);
+        _s += "' maxlength='63'></div>"
+              "<div class='row'><span class='lbl'>Chat ID</span>"
+              "<input type='text' name='tg_chatid' value='";
+        _s += html_escape(tgcfg.chat_id);
+        _s += "' maxlength='31'></div>";
+        server.sendContent(_s);
+    }
     send_range("Aviso bater&iacute;a", "tg_bwarn", 5, 95,
                tgcfg.batt_warn, "fmtPct",
                tgcfg.batt_warn, "%");
