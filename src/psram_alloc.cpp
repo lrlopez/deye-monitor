@@ -10,7 +10,7 @@ extern "C" {
     // PSRAM ya está inicializada por el SDK antes de que llegue aquí.
     // No necesitamos hacer nada; el heap de PSRAM está disponible
     // desde el arranque del ESP32-S3.
-    Serial0.printf("[LVGL] lv_mem_init — PSRAM libre: %lu KB\n",
+    DBGSERIAL.printf("[LVGL] lv_mem_init — PSRAM libre: %lu KB\n",
                   (unsigned long)ESP.getFreePsram() / 1024);
 }
 

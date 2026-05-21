@@ -33,7 +33,7 @@ inline void psram_free(void* ptr) {
 }
 
 inline void print_mem_stats(const char* label) {
-    Serial0.printf("[MEM] %s — SRAM libre: %lu KB (bloque máx: %lu KB) | "
+    DBGSERIAL.printf("[MEM] %s — SRAM libre: %lu KB (bloque máx: %lu KB) | "
                   "PSRAM libre: %lu KB\n",
                   label,
                   (unsigned long)ESP.getFreeHeap()     / 1024,

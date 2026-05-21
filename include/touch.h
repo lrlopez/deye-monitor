@@ -16,7 +16,20 @@
 // #define TOUCH_MAP_Y1 0
 // #define TOUCH_MAP_Y2 320
 
-/* uncomment for GT911 */
+#if defined(BOARD_GUITION_JC1060P470)
+/* Configuración del GT911 para Guition JC1060P470 (ESP32-P4) */
+#define TOUCH_GT911
+#define TOUCH_GT911_SCL 8
+#define TOUCH_GT911_SDA 7
+#define TOUCH_GT911_INT 21
+#define TOUCH_GT911_RST 22
+#define TOUCH_GT911_ROTATION ROTATION_NORMAL
+#define TOUCH_MAP_X1 1024
+#define TOUCH_MAP_X2 0
+#define TOUCH_MAP_Y1 600
+#define TOUCH_MAP_Y2 0
+#else
+/* Configuración GT911 original (ESP32-S3) */
 #define TOUCH_GT911
 #define TOUCH_GT911_SCL 20
 #define TOUCH_GT911_SDA 19
@@ -27,6 +40,7 @@
 #define TOUCH_MAP_X2 0
 #define TOUCH_MAP_Y1 270
 #define TOUCH_MAP_Y2 0
+#endif
 
 /* uncomment for XPT2046 */
 // #define TOUCH_XPT2046
@@ -79,24 +93,24 @@ void touch(TPoint p, TEvent e)
   switch (e)
   {
   case TEvent::Tap:
-    Serial0.println("Tap");
+    DBGSERIAL.println("Tap");
     touch_touched_flag = true;
     touch_released_flag = true;
     break;
   case TEvent::DragStart:
-    Serial0.println("DragStart");
+    DBGSERIAL.println("DragStart");
     touch_touched_flag = true;
     break;
   case TEvent::DragMove:
-    Serial0.println("DragMove");
+    DBGSERIAL.println("DragMove");
     touch_touched_flag = true;
     break;
   case TEvent::DragEnd:
-    Serial0.println("DragEnd");
+    DBGSERIAL.println("DragEnd");
     touch_released_flag = true;
     break;
   default:
-    Serial0.println("UNKNOWN");
+    DBGSERIAL.println("UNKNOWN");
     break;
   }
 }

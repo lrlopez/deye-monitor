@@ -40,7 +40,7 @@ void StorageManager::loadConfig(AppConfig& out) {
     mdns.toCharArray(out.mdns_hostname,  sizeof(out.mdns_hostname));
 
     p.end();
-    Serial0.printf("[NVS] Config cargada: SSID=%s  IP=%s  Serial=%lu  mDNS=%s\n",
+    DBGSERIAL.printf("[NVS] Config cargada: SSID=%s  IP=%s  Serial=%lu  mDNS=%s\n",
                   out.wifi_ssid, out.logger_ip,
                   (unsigned long)out.logger_serial, out.mdns_hostname);
 }
@@ -54,7 +54,7 @@ void StorageManager::saveConfig(const AppConfig& cfg) {
     p.putULong(K_LSERIAL,  cfg.logger_serial);
     p.putString(K_MDNS,    cfg.mdns_hostname);
     p.end();
-    Serial0.println("[NVS] Config guardada");
+    DBGSERIAL.println("[NVS] Config guardada");
 }
 
 // ── Config gráfica ────────────────────────────────────────────────────────

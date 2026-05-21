@@ -333,7 +333,7 @@ static lv_obj_t* legend_dot(lv_obj_t* p, int x, int y, lv_color_t c, const char*
 
     lv_obj_t* lbl = lv_label_create(p);
     lv_obj_set_pos(lbl, x + 11, y + 1);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(lbl, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(lbl, C_MUTED, 0);
     lv_label_set_text(lbl, txt);
     return lbl;
@@ -342,7 +342,7 @@ static lv_obj_t* legend_dot(lv_obj_t* p, int x, int y, lv_color_t c, const char*
 // ── make_chart() — eliminar la línea del axis_tick ────────────────────────
 static lv_obj_t* make_chart(lv_obj_t* parent, int y, int h, int y_lo, int y_hi, int hdiv) {
     lv_obj_t* c = lv_chart_create(parent);
-    lv_obj_set_pos(c, 0, y); lv_obj_set_size(c, 480, h);
+    lv_obj_set_pos(c, 0, y); lv_obj_set_size(c, SCREEN_WIDTH, h);
     lv_chart_set_type(c, LV_CHART_TYPE_LINE);
     lv_chart_set_point_count(c, 24);
     lv_chart_set_range(c, LV_CHART_AXIS_PRIMARY_Y, y_lo, y_hi);
@@ -562,7 +562,7 @@ void chart_screen_tick() {
     if (s_offset == 0) {
         uint32_t current_today = day_epoch_from_offset(0);
         if (current_today != s_day_epoch_loaded) {
-            Serial0.println("[Chart] Cambio de dia, recargando...");
+            DBGSERIAL.println("[Chart] Cambio de dia, recargando...");
             load_day();
             s_last_tick = millis();
             return;

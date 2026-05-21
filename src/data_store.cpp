@@ -78,7 +78,7 @@ bool DataStore::begin() {
                DAY_IDX_MAX * sizeof(DayIdx),
                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!_day_idx) {
-        Serial0.println("[Store] Sin PSRAM para índice de días"); return false;
+        DBGSERIAL.println("[Store] Sin PSRAM para índice de días"); return false;
     }
     memset(_day_idx, 0, STORE_DAYS * sizeof(DayIdx));
 
@@ -87,7 +87,7 @@ bool DataStore::begin() {
     // Sin esto, los .bin quedan con datos de un formato anterior y las
     // escrituras nuevas desde posición 0 dejan basura al final del anillo.
     if (!loadMeta()) {
-        Serial0.println("[Store] Meta inválida o ausente — reinicializando flash");
+        DBGSERIAL.println("[Store] Meta inválida o ausente — reinicializando flash");
         LittleFS.remove(_raw.path);
         LittleFS.remove(_hrly.path);
         LittleFS.remove(_day.path);
@@ -95,41 +95,39 @@ bool DataStore::begin() {
         // head y count ya son 0 por la inicialización de CircBuf
     }
 
-    // ── Pre-alocar ficheros y abrir el raw con handle permanente ─────────
-    // hrly y day se abren/cierran en cada acceso (readAt/writeAt); solo raw
-    // mantiene handle abierto para minimizar latencia en el path caliente.
-    auto ensure_file = [](const char* path, uint32_t cap, uint32_t rec_sz) {
+    // ── Crear ficheros si no existen y abrir raw con handle permanente ───
+    // NO pre-alocamos con seek+write(0): eso consume casi todos los bloques
+    // LittleFS (6.7 MB en 8 MB de partición = 94%), dejando sin margen para
+    // los COW de metadatos que necesita flush(). Los ficheros crecen on-demand.
+    auto ensure_file = [](const char* path) {
         if (!LittleFS.exists(path)) {
             File tmp = LittleFS.open(path, "w");
-            if (tmp) {
-                tmp.seek((uint32_t)(cap * rec_sz) - 1);
-                tmp.write(0);
-                tmp.close();
-            }
+            if (tmp) tmp.close();
         }
-        // Verificar que el fichero se puede abrir
         File f = LittleFS.open(path, "r+");
         bool ok = (bool)f;
         if (f) f.close();
         return ok;
     };
 
-    if (!ensure_file("/raw.bin",  _raw.capacity,  sizeof(Record5Min))  ||
-        !ensure_file("/hrly.bin", _hrly.capacity, sizeof(HourlyRecord)) ||
-        !ensure_file("/day.bin",  _day.capacity,  sizeof(DailyRecord))) {
-        Serial0.println("[Store] Error creando ficheros");
+    if (!ensure_file("/raw.bin")  ||
+        !ensure_file("/hrly.bin") ||
+        !ensure_file("/day.bin")) {
+        DBGSERIAL.println("[Store] Error creando ficheros");
         return false;
     }
     _f_raw = LittleFS.open("/raw.bin", "r+");
     if (!_f_raw) {
-        Serial0.println("[Store] Error abriendo raw.bin");
+        DBGSERIAL.println("[Store] Error abriendo raw.bin");
         return false;
     }
 
-    Serial0.printf("[Store] Ficheros abiertos. raw=%lu hrly=%lu day=%lu registros\n",
+    DBGSERIAL.printf("[Store] Ficheros abiertos. raw=%lu hrly=%lu day=%lu registros. "
+                  "LittleFS libre=%u KB\n",
                   (unsigned long)_raw.count,
                   (unsigned long)_hrly.count,
-                  (unsigned long)_day.count);
+                  (unsigned long)_day.count,
+                  (unsigned)(LittleFS.totalBytes() - LittleFS.usedBytes()) / 1024);
 
     // Construir índice de días desde el buffer raw
     if (_raw.count > 0) _day_idx_load();
@@ -173,18 +171,18 @@ void DataStore::_day_idx_load() {
             prev_dep = dep;
         }
     }
-    Serial0.printf("[Store] Índice de días: %lu entradas (raw_count=%lu head=%lu cap=%lu)\n",
+    DBGSERIAL.printf("[Store] Índice de días: %lu entradas (raw_count=%lu head=%lu cap=%lu)\n",
                   (unsigned long)_day_idx_count,
                   (unsigned long)_raw.count,
                   (unsigned long)_raw.head,
                   (unsigned long)_raw.capacity);
     for (uint32_t i = 0; i < _day_idx_count && i < 5; i++)
-        Serial0.printf("[Store]   [%lu] dep=%lu li=%lu\n",
+        DBGSERIAL.printf("[Store]   [%lu] dep=%lu li=%lu\n",
                        (unsigned long)i,
                        (unsigned long)_day_idx[i].day_epoch,
                        (unsigned long)_day_idx[i].phys_start);
     if (_day_idx_count > 5)
-        Serial0.printf("[Store]   ... último: dep=%lu li=%lu\n",
+        DBGSERIAL.printf("[Store]   ... último: dep=%lu li=%lu\n",
                        (unsigned long)_day_idx[_day_idx_count-1].day_epoch,
                        (unsigned long)_day_idx[_day_idx_count-1].phys_start);
 
@@ -194,7 +192,7 @@ void DataStore::_day_idx_load() {
         uint8_t raw16[16] = {};
         bool seekOk = _f_raw.seek(0);
         size_t nRead = _f_raw.read(raw16, 16);
-        Serial0.printf("[Store] DIAG raw.bin[0]: seek=%d read=%u "
+        DBGSERIAL.printf("[Store] DIAG raw.bin[0]: seek=%d read=%u "
                        "bytes=[%02X %02X %02X %02X | %02X %02X | %02X %02X | "
                        "%02X %02X | %02X %02X | %02X %02X | %02X %02X]\n",
                        (int)seekOk, (unsigned)nRead,
@@ -202,7 +200,7 @@ void DataStore::_day_idx_load() {
                        raw16[4],raw16[5], raw16[6],raw16[7],
                        raw16[8],raw16[9], raw16[10],raw16[11],
                        raw16[12],raw16[13], raw16[14],raw16[15]);
-        Serial0.printf("[Store] DIAG sizeof(Record5Min)=%u "
+        DBGSERIAL.printf("[Store] DIAG sizeof(Record5Min)=%u "
                        "raw.bin size=%u\n",
                        (unsigned)sizeof(Record5Min),
                        (unsigned)_f_raw.size());
@@ -227,7 +225,7 @@ int DataStore::_day_idx_find(uint32_t dep) const {
 // ── push(): meta guardada cada 12 pushes ──────────────────────────────────
 bool DataStore::push(const Record5Min& r) {
     if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
-        Serial0.println("[Store] push: mutex timeout");
+        DBGSERIAL.println("[Store] push: mutex timeout");
         return false;
     }
 
@@ -242,7 +240,7 @@ bool DataStore::push(const Record5Min& r) {
                   : _raw.head;
 
     if (!writeRaw(phys, r)) {
-        Serial0.printf("[Store] push FALLO escritura ts=%lu phys=%lu\n",
+        DBGSERIAL.printf("[Store] push FALLO escritura ts=%lu phys=%lu\n",
                        (unsigned long)r.timestamp, (unsigned long)phys);
         xSemaphoreGive(_mutex);
         return false;
@@ -262,12 +260,12 @@ bool DataStore::push(const Record5Min& r) {
         _day_idx_insert(dep, phys);
     }
 
-    Serial0.printf("[Store] push ts=%lu phys=%lu count=%lu\n",
+    DBGSERIAL.printf("[Store] push ts=%lu phys=%lu count=%lu\n",
                    (unsigned long)r.timestamp, (unsigned long)phys,
                    (unsigned long)_raw.count);
 
     if (++_pushes_since_meta_save >= META_SAVE_INTERVAL) {
-        if (!saveMeta()) Serial0.println("[Store] saveMeta FALLO");
+        if (!saveMeta()) DBGSERIAL.println("[Store] saveMeta FALLO");
         _pushes_since_meta_save = 0;
     }
 
@@ -285,7 +283,7 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
     int idx_entry = _day_idx_find(dep);
 
     if (idx_entry < 0 && _day_idx_count > 0) {
-        Serial0.printf("[Store] readDay dep=%lu NO ENCONTRADO. idx_count=%lu "
+        DBGSERIAL.printf("[Store] readDay dep=%lu NO ENCONTRADO. idx_count=%lu "
                        "first=%lu last=%lu\n",
                        (unsigned long)dep,
                        (unsigned long)_day_idx_count,
@@ -304,7 +302,7 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
     uint32_t phys_s   = _day_idx[idx_entry].phys_start;
     uint32_t start_li = (phys_s - _raw.head + _raw.capacity) % _raw.capacity;
 
-    Serial0.printf("[Store] readDay dep=%lu idx=%d phys=%lu start_li=%lu raw_count=%lu\n",
+    DBGSERIAL.printf("[Store] readDay dep=%lu idx=%d phys=%lu start_li=%lu raw_count=%lu\n",
                    (unsigned long)dep, idx_entry,
                    (unsigned long)phys_s,
                    (unsigned long)start_li,
@@ -317,7 +315,7 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
         if (r.timestamp >= dep) out[found++] = r;
     }
 
-    Serial0.printf("[Store] readDay encontrados=%lu\n", (unsigned long)found);
+    DBGSERIAL.printf("[Store] readDay encontrados=%lu\n", (unsigned long)found);
     xSemaphoreGive(_mutex);
     return found;
 }
@@ -337,7 +335,7 @@ bool DataStore::pushHourly(const HourlyRecord& r) {
     if (ok) saveMeta();
     xSemaphoreGive(_mutex);
 
-    Serial0.printf("[Hourly] %08lu guardado: pv=%dW grid=%dW bat=%dW load=%dW soc=%d%% n=%d\n",
+    DBGSERIAL.printf("[Hourly] %08lu guardado: pv=%dW grid=%dW bat=%dW load=%dW soc=%d%% n=%d\n",
                   (unsigned long)r.hour_epoch,
                   r.avg_pv_w, r.avg_grid_w, r.avg_batt_w, r.avg_load_w,
                   r.soc_end, r.sample_count);
@@ -372,7 +370,7 @@ bool DataStore::pushDaily(const DailyRecord& r) {
     if (ok) saveMeta();
     xSemaphoreGive(_mutex);
 
-    Serial0.printf("[Daily] %08lu guardado: pv=%.1f exp=%.1f imp=%.1f load=%.1f kWh\n",
+    DBGSERIAL.printf("[Daily] %08lu guardado: pv=%.1f exp=%.1f imp=%.1f load=%.1f kWh\n",
                   (unsigned long)r.day_epoch,
                   r.pv_10wh/10.0f, r.export_10wh/10.0f,
                   r.import_10wh/10.0f, r.load_10wh/10.0f);

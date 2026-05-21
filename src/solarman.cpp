@@ -79,7 +79,7 @@ bool SolarmanClient::readRegisters(uint16_t startReg, uint16_t count, uint16_t* 
     client.setTimeout(3);
 
     if (!client.connect(_ip, _port, 3000)) {
-        Serial0.println("[Solarman] Timeout conectando al datalogger");
+        DBGSERIAL.println("[Solarman] Timeout conectando al datalogger");
         return false;
     }
 
@@ -104,16 +104,16 @@ bool SolarmanClient::readRegisters(uint16_t startReg, uint16_t count, uint16_t* 
     client.stop();
 
     if (received < expectedLen) {
-        Serial0.printf("[Solarman] Respuesta incompleta: %d/%d bytes\n", received, expectedLen);
+        DBGSERIAL.printf("[Solarman] Respuesta incompleta: %d/%d bytes\n", received, expectedLen);
         return false;
     }
     if (resp[0] != 0xA5 || resp[received - 1] != 0x15) {
-        Serial0.println("[Solarman] Frame V5 inválido");
+        DBGSERIAL.println("[Solarman] Frame V5 inválido");
         return false;
     }
     // FC check relativo a DATA_OFFSET (evita hardcoding)
     if (resp[DATA_OFFSET - 2] != 0x03) {
-        Serial0.printf("[Solarman] FC inesperado: 0x%02X\n", resp[DATA_OFFSET - 2]);
+        DBGSERIAL.printf("[Solarman] FC inesperado: 0x%02X\n", resp[DATA_OFFSET - 2]);
         return false;
     }
 
@@ -126,7 +126,7 @@ bool SolarmanClient::readRegisters(uint16_t startReg, uint16_t count, uint16_t* 
                           | ((uint16_t)resp[mb_start + mb_data_len + 1] << 8);
         uint16_t crc_calc = modbusCRC(&resp[mb_start], mb_data_len);
         if (crc_recv != crc_calc) {
-            Serial0.printf("[Solarman] CRC Modbus inválido: recv=0x%04X calc=0x%04X\n",
+            DBGSERIAL.printf("[Solarman] CRC Modbus inválido: recv=0x%04X calc=0x%04X\n",
                            crc_recv, crc_calc);
             return false;
         }
@@ -144,14 +144,14 @@ bool SolarmanClient::readRegisters(uint16_t startReg, uint16_t count, uint16_t* 
 bool SolarmanClient::fetchEnergyData(EnergyData& out) {
     uint16_t regs[REG_COUNT];
 
-    Serial0.print("Leyendo del logger... ");
+    DBGSERIAL.print("Leyendo del logger... ");
     if (!readRegisters(REG_BASE, REG_COUNT, regs)) {
         out.valid = false;
-        Serial0.println("error!");
+        DBGSERIAL.println("error!");
         return false;
     }
 
-    Serial0.println("ok!");
+    DBGSERIAL.println("ok!");
     out.pv1_power  = (int32_t)(uint16_t)regs[IDX_PV1_POWER];
     out.pv2_power  = (int32_t)(uint16_t)regs[IDX_PV2_POWER];
     out.pv_power   = out.pv1_power + out.pv2_power;
@@ -183,12 +183,12 @@ bool SolarmanClient::fetchDailyStats(DailyStats& out) {
                   + out.batt_charge_kwh - out.batt_discharge_kwh;
     float delta = out.pv_kwh - pv_calc;
     if (fabsf(delta) > 0.5f)
-        Serial0.printf("[Daily] AVISO balance: reg108=%.2f calc=%.2f diff=%.2f kWh\n",
+        DBGSERIAL.printf("[Daily] AVISO balance: reg108=%.2f calc=%.2f diff=%.2f kWh\n",
                       out.pv_kwh, pv_calc, delta);
 
     out.valid = true;
 
-    Serial0.printf("[Daily] PV:%.2f Exp:%.2f Imp:%.2f "
+    DBGSERIAL.printf("[Daily] PV:%.2f Exp:%.2f Imp:%.2f "
                   "BatC:%.2f BatD:%.2f Load:%.2f kWh\n",
                   out.pv_kwh, out.export_kwh, out.import_kwh,
                   out.batt_charge_kwh, out.batt_discharge_kwh, out.load_kwh);

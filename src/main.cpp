@@ -28,6 +28,21 @@ static uint32_t screenHeight = 272;
 
 #include <Arduino_GFX_Library.h>
 
+#if defined(BOARD_GUITION_JC1060P470)
+#define TFT2_BL 23 // Backlight GPIO for Guition JC1060P470
+
+// Constructor: (hsync_pulse_width, hsync_back_porch, hsync_front_porch,
+//               vsync_pulse_width, vsync_back_porch, vsync_front_porch, prefer_speed, lane_bit_rate)
+Arduino_ESP32DSIPanel *dsipanel = new Arduino_ESP32DSIPanel(
+    160 /* hsync_pulse_width */, 160 /* hsync_back_porch */, 40 /* hsync_front_porch */,
+    23  /* vsync_pulse_width */, 12  /* vsync_back_porch */, 10 /* vsync_front_porch */,
+    48000000 /* prefer_speed */
+);
+Arduino_GFX *gfx = new Arduino_DSI_Display(
+    1024, 600, dsipanel, 0 /* rotation */, true /* auto_flush */,
+    GFX_NOT_DEFINED /* rst */,
+    jd9165_init_operations, sizeof(jd9165_init_operations) / sizeof(lcd_init_cmd_t));
+#else
 #define GFX_BL DF_GFX_BL // default backlight pin, you may replace DF_GFX_BL to actual backlight pin
 #define TFT2_BL 2
 
@@ -44,6 +59,7 @@ Arduino_ESP32RGBPanel *panel = new Arduino_ESP32RGBPanel(
 
 // Original: 8 /* hsync_front_porch*/ y 8 /*vsync_front_porch*/
 Arduino_GFX *gfx = new Arduino_RGB_Display(screenWidth, screenHeight, panel);
+#endif
 
 /*******************************************************************************
  * End of Arduino_GFX setting
@@ -56,14 +72,23 @@ static lv_color_t *disp_draw_buf;
 static lv_display_t *disp_drv;
 static unsigned long last_ms;
 
+static SemaphoreHandle_t s_flash_display_mutex;  // definido más abajo, forward-decl para flush_cb
+
 /* Display flushing */
 void my_disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
 {
+#if defined(BOARD_GUITION_JC1060P470)
+    // Serializar con escrituras flash de Core 0: si NVS/LittleFS deshabilita
+    // interrupciones allí, esp_cache_msync no puede enviar el IPI necesario.
+    if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
+    esp_lcd_panel_draw_bitmap(dsipanel->getPanelHandle(),
+                              0, 0, screenWidth, screenHeight, px_map);
+    if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
+#else
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
-
     gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t*) px_map, w, h);
-
+#endif
     lv_disp_flush_ready(disp);
 }
 
@@ -79,7 +104,7 @@ void my_touchpad_read(lv_indev_t * indev, lv_indev_data_t * data)
             data->point.y = touch_last_y;
 
             //Mostrar coordenadas por consola
-            //Serial0.printf("%d, %d\n", data->point.x, data->point.y);
+            //DBGSERIAL.printf("%d, %d\n", data->point.x, data->point.y);
         }
         else if (touch_released())
         {
@@ -158,14 +183,23 @@ static void solarmanTask(void* /*pv*/) {
 
     static uint8_t  s_soc_start_of_day = 0;
 
+    static bool s_wifi_ever_connected = false;
+
     for (;;) {
         // ── Reconexión WiFi ───────────────────────────────────────────────
         if (WiFi.status() != WL_CONNECTED) {
             g_wifi_connected = false;
+            // Sin SSID configurado no hay nada que intentar
+            if (g_cfg.wifi_ssid[0] == '\0') {
+                vTaskDelay(pdMS_TO_TICKS(5000));
+                continue;
+            }
             static uint32_t last_reconnect = 0;
             if (millis() - last_reconnect > 15000) {
-                Serial0.println("[WiFi] Reconectando...");
-                WiFi.disconnect();
+                DBGSERIAL.println("[WiFi] Reconectando...");
+                // Solo desconectar si alguna vez estuvo conectado;
+                // en P4 llamar disconnect() antes de la primera conexión puede crashear.
+                if (s_wifi_ever_connected) WiFi.disconnect();
                 WiFi.begin(g_cfg.wifi_ssid, g_cfg.wifi_pass);
                 last_reconnect = millis();
             }
@@ -176,25 +210,26 @@ static void solarmanTask(void* /*pv*/) {
         // ── WiFi recién conectado ─────────────────────────────────────────
         if (!g_wifi_connected) {
             g_wifi_connected = true;
-            Serial0.printf("[WiFi] Conectado: %s\n",
+            s_wifi_ever_connected = true;
+            DBGSERIAL.printf("[WiFi] Conectado: %s\n",
                           WiFi.localIP().toString().c_str());
             uint32_t ntp_wait = millis();
             while (time(nullptr) < 1700000000UL &&
                    millis() - ntp_wait < 10000)
                 vTaskDelay(pdMS_TO_TICKS(500));
             if (time(nullptr) > 1700000000UL) {
-                Serial0.println("[NTP] Sincronizado");
+                DBGSERIAL.println("[NTP] Sincronizado");
                 // Corregir los slots del cache que se inicializaron en begin()
                 // con el reloj en 1970 (antes de tener WiFi/NTP).
                 Cache.reinitAfterNtp();
             } else {
-                Serial0.println("[NTP] Timeout");
+                DBGSERIAL.println("[NTP] Timeout");
             }
             if (MDNS.begin(g_cfg.mdns_hostname)) {
                 MDNS.addService("http", "tcp", 80);
-                Serial0.printf("[mDNS] Activo: %s.local\n", g_cfg.mdns_hostname);
+                DBGSERIAL.printf("[mDNS] Activo: %s.local\n", g_cfg.mdns_hostname);
             } else {
-                Serial0.println("[mDNS] Error al iniciar");
+                DBGSERIAL.println("[mDNS] Error al iniciar");
             }
         }
 
@@ -202,7 +237,7 @@ static void solarmanTask(void* /*pv*/) {
         if (client.fetchEnergyData(local_e)) {
             s_logger_fail_cnt = 0;
             s_logger_notified = false;
-            Serial0.printf("[Live] PV:%dW Grid:%dW Bat:%dW(%d%%) Load:%dW\n",
+            DBGSERIAL.printf("[Live] PV:%dW Grid:%dW Bat:%dW(%d%%) Load:%dW\n",
                 (int)local_e.pv_power, (int)local_e.grid_power,
                 (int)local_e.batt_power, (int)local_e.batt_soc,
                 (int)local_e.load_power);
@@ -282,10 +317,12 @@ static void solarmanTask(void* /*pv*/) {
                 dr.soc_start   = s_soc_start_of_day;
                 dr.soc_end     = (uint8_t)local_e.batt_soc;
                 dr.flags       = 0x01;
-                Cache.pushDaily(dr);   // disponible para el web server inmediatamente
+                if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
+                Cache.pushDaily(dr);
+                if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
             }
 
-            Serial0.printf("[Record] Startup ok: slot=%lu h=%d d=%d\n",
+            DBGSERIAL.printf("[Record] Startup ok: slot=%lu h=%d d=%d\n",
                 (unsigned long)slot_5min, s_cur_hour, s_cur_day);
             goto end_record;
         }
@@ -308,7 +345,7 @@ static void solarmanTask(void* /*pv*/) {
             if ((int32_t)slot_5min != s_cur_5min_slot) {
                 s_cur_5min_slot = (int32_t)slot_5min;
                 uint32_t record_ts = slot_5min * 300;
-                Serial0.printf("[Record] Slot: ts=%lu\n", (unsigned long)record_ts);
+                DBGSERIAL.printf("[Record] Slot: ts=%lu\n", (unsigned long)record_ts);
 
                 Record5Min r{};
                 r.timestamp  = record_ts;
@@ -319,10 +356,12 @@ static void solarmanTask(void* /*pv*/) {
                 r.soc        = (uint8_t)local_e.batt_soc;
                 r.flags      = 0x01;
 
-                if (Store.push(r))
-                    Cache.pushRaw(r);
-
+                // Serializar con el flush del display en Core 1 (ver s_flash_display_mutex)
+                if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
+                bool push_ok = Store.push(r);
                 Storage.saveSessionState({record_ts, true});
+                if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
+                if (push_ok) Cache.pushRaw(r);
             }
 
             // ── Cambio de hora ────────────────────────────────────────────
@@ -355,7 +394,9 @@ static void solarmanTask(void* /*pv*/) {
                     hr.day_load      = cur_load;
                     hr.day_bchg      = cur_bchg;
                     hr.day_bdis      = cur_bdis;
+                    if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
                     Cache.pushHourly(hr);
+                    if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
 
                     s_snap_day_pv   = cur_pv;   s_snap_day_exp  = cur_exp;
                     s_snap_day_imp  = cur_imp;  s_snap_day_load = cur_load;
@@ -383,7 +424,9 @@ static void solarmanTask(void* /*pv*/) {
                     dr.soc_start   = s_soc_start_of_day;
                     dr.soc_end     = (uint8_t)local_e.batt_soc;
                     dr.flags       = 0x01;
+                    if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
                     Cache.pushDaily(dr);
+                    if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
                 }
             }
 
@@ -396,7 +439,10 @@ static void solarmanTask(void* /*pv*/) {
                 uint32_t dep_yesterday = (uint32_t)mktime(&yesterday);
 
                 HourlyRecord last_hr{};
-                if (Store.getLastHourly(dep_yesterday, last_hr)) {
+                if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
+                bool got_hr = Store.getLastHourly(dep_yesterday, last_hr);
+                if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
+                if (got_hr) {
                     DailyRecord dr{};
                     dr.day_epoch   = dep_yesterday;
                     dr.pv_10wh     = last_hr.day_pv;
@@ -408,7 +454,9 @@ static void solarmanTask(void* /*pv*/) {
                     dr.soc_start   = s_soc_start_of_day;
                     dr.soc_end     = last_hr.soc_end;
                     dr.flags       = 0x03;
+                    if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
                     Cache.pushDaily(dr);
+                    if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
                 }
 
                 s_soc_start_of_day = (uint8_t)local_e.batt_soc;
@@ -517,7 +565,7 @@ static void solarmanTask(void* /*pv*/) {
 
 // ── Setup ─────────────────────────────────────────────────────────────────
 void setup() {
-    Serial0.begin(115200);
+    DBGSERIAL.begin(115200);
     g_uptime_start = millis();
 
     // ── Tu código de display/touch aquí (ya configurado) ─────────────────
@@ -532,10 +580,17 @@ void setup() {
 
     screenWidth = gfx->width();
     screenHeight = gfx->height();
+    // ESP32-P4 (Guition JC1060P470): buffer completo en PSRAM. LVGL renderiza aquí y
+    // esp_lcd_panel_draw_bitmap lo copia al buffer trasero DSI via DMA2D + swap en vsync.
+    // ESP32-S3 (esp32s3box): buffer parcial en SRAM para DMA.
+#if defined(BOARD_GUITION_JC1060P470)
+    disp_draw_buf = (lv_color_t *)heap_caps_malloc(screenWidth * screenHeight * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
     disp_draw_buf = (lv_color_t *)heap_caps_malloc(2 * screenWidth * screenHeight / 4, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#endif
     if (!disp_draw_buf)
     {
-        Serial0.println("LVGL disp_draw_buf allocate failed!");
+        DBGSERIAL.println("LVGL disp_draw_buf allocate failed!");
         while (true)
             delay(1);
     }
@@ -543,8 +598,16 @@ void setup() {
     /* Initialize the display */
     disp_drv = lv_display_create(screenWidth, screenHeight);
     lv_display_set_flush_cb(disp_drv, my_disp_flush);
-    /* Change the following line to your display resolution */
+#if defined(BOARD_GUITION_JC1060P470)
+    // FULL mode: LVGL acumula el frame completo en disp_draw_buf.
+    // flush_cb llama a esp_lcd_panel_draw_bitmap → DMA2D copia al buffer trasero DSI
+    // y el swap se hace en el siguiente vsync → sin tearing.
+    lv_display_set_buffers(disp_drv, disp_draw_buf, NULL,
+                           screenWidth * screenHeight * sizeof(lv_color_t),
+                           LV_DISPLAY_RENDER_MODE_FULL);
+#else
     lv_display_set_buffers(disp_drv, disp_draw_buf, NULL, 2 * screenWidth * screenHeight / 4, LV_DISPLAY_RENDER_MODE_PARTIAL);
+#endif
 
     /* Initialize the (dummy) input device driver */
     lv_indev_t * indev = lv_indev_create();
@@ -559,7 +622,22 @@ void setup() {
 
         // ── LittleFS ──────────────────────────────────────────────────────────
     splash_update(SplashStep::LITTLEFS, SplashState::RUNNING);
-    if (!LittleFS.begin(true, "/littlefs", 10, "spiffs")) {
+    if (!LittleFS.begin(false, "/littlefs", 10, "spiffs")) {
+        // Primer arranque o partición corrupta → formatear en Core 0 para que
+        // LVGL siga corriendo en Core 1 y la pantalla no parpadee.
+        splash_update(SplashStep::LITTLEFS, SplashState::WARN, "Formateando flash...");
+        static volatile bool s_fmt_done = false;
+        xTaskCreatePinnedToCore([](void*) {
+            LittleFS.begin(true, "/littlefs", 10, "spiffs");
+            s_fmt_done = true;
+            vTaskDelete(nullptr);
+        }, "lfs_fmt", 4096, nullptr, 1, nullptr, 0);
+        while (!s_fmt_done) {
+            lv_timer_handler();
+            delay(10);
+        }
+    }
+    if (!LittleFS.begin(false, "/littlefs", 10, "spiffs")) {
         splash_update(SplashStep::LITTLEFS, SplashState::ERROR, "Error montando LittleFS");
         delay(3000);
     } else {
@@ -662,10 +740,13 @@ void setup() {
     splash_update(SplashStep::WEBSERVER, SplashState::RUNNING);
     g_mutex = xSemaphoreCreateMutex();
     if (!g_mutex) {
-        Serial0.println("[Setup] ERROR: fallo al crear mutex — reiniciando");
+        DBGSERIAL.println("[Setup] ERROR: fallo al crear mutex — reiniciando");
         delay(500);
         ESP.restart();
     }
+#if defined(BOARD_GUITION_JC1060P470)
+    s_flash_display_mutex = xSemaphoreCreateMutex();
+#endif
     webserver_set_data(g_mutex, &g_energy, &g_daily);
     webserver_begin();
     splash_update(SplashStep::WEBSERVER, SplashState::OK);
@@ -691,7 +772,7 @@ void setup() {
     lv_timer_handler();
     splash_finish();
 
-    Serial0.println("[Setup] Completado");
+    DBGSERIAL.println("[Setup] Completado");
     print_mem_stats("setup finalizado");
 }
 

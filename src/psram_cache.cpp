@@ -25,7 +25,7 @@ bool PsramCache::begin() {
                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
     if (!_raw_buf || !_raw_days || !_hrly_buf || !_hrly_days || !_day_buf) {
-        Serial0.println("[Cache] ERROR: PSRAM insuficiente");
+        DBGSERIAL.println("[Cache] ERROR: PSRAM insuficiente");
         return false;
     }
 
@@ -35,7 +35,7 @@ bool PsramCache::begin() {
     memset(_hrly_days, 0, CACHE_HRLY_DAYS * sizeof(CachedHrlyDay));
     memset(_day_buf,   0, CACHE_DAY_SIZE);
 
-    Serial0.printf("[Cache] PSRAM: raw=%uKB hrly=%uKB day=%uKB total=%uKB libre=%luKB\n",
+    DBGSERIAL.printf("[Cache] PSRAM: raw=%uKB hrly=%uKB day=%uKB total=%uKB libre=%luKB\n",
                   (unsigned)(CACHE_RAW_SIZE/1024),
                   (unsigned)(CACHE_HRLY_SIZE/1024),
                   (unsigned)(CACHE_DAY_SIZE/1024),
@@ -80,7 +80,7 @@ bool PsramCache::begin() {
 
 void PsramCache::_bg_task(void* pv) {
     PsramCache* self = static_cast<PsramCache*>(pv);
-    Serial0.println("[Cache] Background: cargando historia horaria...");
+    DBGSERIAL.println("[Cache] Background: cargando historia horaria...");
 
     uint32_t loaded = 0;
     for (int i = 0; i < CACHE_HRLY_DAYS - 7; i++) {
@@ -99,7 +99,7 @@ void PsramCache::_bg_task(void* pv) {
         if (self->_hrly_days[i].valid) valid++;
     self->unlock();
 
-    Serial0.printf("[Cache] Background completado: %lu/%d días con datos horarios\n",
+    DBGSERIAL.printf("[Cache] Background completado: %lu/%d días con datos horarios\n",
                   (unsigned long)valid, CACHE_HRLY_DAYS);
     vTaskDelete(nullptr);
 }
@@ -109,7 +109,7 @@ void PsramCache::_bg_task(void* pv) {
 // ═══════════════════════════════════════════════════════════════════════════
 void PsramCache::_day_load_all() {
     _day_count = Store.readAllDaily(_day_buf, CACHE_DAY_MAX);
-    Serial0.printf("[Cache] Daily cargado: %lu registros\n",
+    DBGSERIAL.printf("[Cache] Daily cargado: %lu registros\n",
                   (unsigned long)_day_count);
     _has_data_bitmap = (uint8_t*)heap_caps_malloc(
         92, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -333,7 +333,7 @@ void PsramCache::reinitAfterNtp() {
     tm_now.tm_hour = 0; tm_now.tm_min = 0; tm_now.tm_sec = 0; tm_now.tm_isdst = -1;
     uint32_t today = (uint32_t)mktime(&tm_now);
 
-    Serial0.printf("[Cache] reinitAfterNtp: today=%lu\n", (unsigned long)today);
+    DBGSERIAL.printf("[Cache] reinitAfterNtp: today=%lu\n", (unsigned long)today);
 
     // Corregir los slots raw que tienen epochs incorrectos (originados en begin()
     // cuando NTP aún no estaba disponible, lo que provoca overflow de uint32_t).
@@ -430,7 +430,7 @@ bool PsramCache::dayHasData(uint32_t dep) const {
 
 void PsramCache::printStats() {
     uint32_t total_psram = CACHE_RAW_SIZE + CACHE_HRLY_SIZE + CACHE_DAY_SIZE;
-    Serial0.printf("[Cache] PSRAM total: %u KB | Daily: %lu/%d registros\n",
+    DBGSERIAL.printf("[Cache] PSRAM total: %u KB | Daily: %lu/%d registros\n",
                   (unsigned)(total_psram/1024),
                   (unsigned long)_day_count, CACHE_DAY_MAX);
 }

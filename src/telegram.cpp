@@ -333,7 +333,7 @@ String TelegramBot::fmtAlert(const AlertMsg& msg) const {
 void TelegramBot::handleCommand(const String& text, const String& from_id) {
     // Seguridad: solo responder al chat_id configurado
     if (from_id != String(_chat_id)) {
-        Serial0.printf("[Bot] Mensaje de chat_id no autorizado: %s\n",
+        DBGSERIAL.printf("[Bot] Mensaje de chat_id no autorizado: %s\n",
                       from_id.c_str());
         return;
     }
@@ -399,7 +399,7 @@ void TelegramBot::task(void* pv) {
     TelegramBot* self = static_cast<TelegramBot*>(pv);
 
     // Esperar NTP
-    Serial0.println("[Bot] Esperando NTP...");
+    DBGSERIAL.println("[Bot] Esperando NTP...");
     uint32_t t0 = millis();
     while (time(nullptr) < 1700000000UL && millis() - t0 < 30000)
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -424,7 +424,7 @@ void TelegramBot::task(void* pv) {
         "{\"command\":\"ayuda\",\"description\":\"Lista de comandos\"}]"
     );
 
-    Serial0.println("[Bot] Iniciado y escuchando comandos.");
+    DBGSERIAL.println("[Bot] Iniciado y escuchando comandos.");
 
     uint32_t last_poll = 0;
 
@@ -463,7 +463,7 @@ void TelegramBot::task(void* pv) {
                 for (int i = 0; i < n; i++) {
                     String chat_id = bot.messages[i].chat_id;
                     String text    = bot.messages[i].text;
-                    Serial0.printf("[Bot] Cmd de %s: %s\n",
+                    DBGSERIAL.printf("[Bot] Cmd de %s: %s\n",
                                   chat_id.c_str(), text.c_str());
                     self->handleCommand(text, chat_id);
                 }

@@ -1002,31 +1002,31 @@ static void handle_upload() {
         String pw = Storage.loadAdminPassword();
         s_ota_authed = pw.isEmpty() || server.authenticate("admin", pw.c_str());
         if (!s_ota_authed) {
-            Serial0.println("[OTA] Rechazado: acceso denegado");
+            DBGSERIAL.println("[OTA] Rechazado: acceso denegado");
             return;
         }
-        Serial0.printf("[OTA] Inicio: %s (%u bytes)\n",
+        DBGSERIAL.printf("[OTA] Inicio: %s (%u bytes)\n",
                       upload.filename.c_str(), upload.totalSize);
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-            Serial0.print("[OTA] Error al iniciar: ");
-            Update.printError(Serial);
+            DBGSERIAL.print("[OTA] Error al iniciar: ");
+            Update.printError(DBGSERIAL);
         }
 
     } else if (upload.status == UPLOAD_FILE_WRITE) {
         if (!s_ota_authed) return;
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-            Serial0.print("[OTA] Error escribiendo: ");
-            Update.printError(Serial);
+            DBGSERIAL.print("[OTA] Error escribiendo: ");
+            Update.printError(DBGSERIAL);
         }
 
     } else if (upload.status == UPLOAD_FILE_END) {
         if (!s_ota_authed) return;
         if (Update.end(true)) {
-            Serial0.printf("[OTA] Completado: %u bytes. Reiniciando.\n",
+            DBGSERIAL.printf("[OTA] Completado: %u bytes. Reiniciando.\n",
                           upload.totalSize);
         } else {
-            Serial0.print("[OTA] Error al finalizar: ");
-            Update.printError(Serial);
+            DBGSERIAL.print("[OTA] Error al finalizar: ");
+            Update.printError(DBGSERIAL);
             server.send(500, "text/plain",
                         String("Error OTA: ") + Update.errorString());
         }
@@ -1408,7 +1408,7 @@ static void handle_api_data() {
         d.load_kwh, d.batt_charge_kwh, d.batt_discharge_kwh,
         d.valid ? "true" : "false");
 
-    Serial0.printf("[API] daily valid=%d pv=%.2f load=%.2f cache_day=%lu\n",
+    DBGSERIAL.printf("[API] daily valid=%d pv=%.2f load=%.2f cache_day=%lu\n",
           d.valid, d.pv_kwh, d.load_kwh,
           (unsigned long)today_ep);
 
@@ -1695,7 +1695,7 @@ void webserver_begin() {
         server.send(404, "text/plain", "Not found");
     });
     server.begin();
-    Serial0.println("[Web] Servidor en http://" + WiFi.localIP().toString());
+    DBGSERIAL.println("[Web] Servidor en http://" + WiFi.localIP().toString());
 
     xTaskCreatePinnedToCore(webserver_task, "webserver",
                              8192, nullptr, 1, nullptr, 0);

@@ -4,7 +4,7 @@
 #include <LittleFS.h>
 #include "solarman.h"   // DailyStats
 
-static constexpr uint32_t STORE_DAYS = 1461;
+static constexpr uint32_t STORE_DAYS = 730;
 
 // ── Registro de 5 minutos ─────────────────────────────────────────────────
 // 32 bytes exactos — no cambiar orden sin incrementar versión de formato
@@ -162,7 +162,7 @@ private:
 
     static const char* META_FILE;
     static const uint32_t MAGIC   = 0x5A5ADEA2;
-    static const uint8_t  VERSION = 4;           // versión 3: optimizado
+    static const uint8_t  VERSION = 5;           // versión 5: sin pre-alocación de ficheros
 
     bool loadMeta();
     bool saveMeta();

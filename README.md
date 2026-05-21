@@ -700,9 +700,9 @@ Activa el dump de registros temporalmente:
 
 ```cpp
 // En solarman.cpp, fetchDailyStats():
-Serial0.println("[RAW Daily] Dump registros 70-108:");
+DBGSERIAL.println("[RAW Daily] Dump registros 70-108:");
 for (int i = 0; i < REG_DAILY_COUNT; i++)
-    Serial0.printf("  Reg %03d: %5u  (%.1f kWh)\n",
+    DBGSERIAL.printf("  Reg %03d: %5u  (%.1f kWh)\n",
                   REG_DAILY_BASE + i, regs[i], regs[i] * 0.1f);
 ```
 

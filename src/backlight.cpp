@@ -74,7 +74,7 @@ void BacklightManager::begin(uint8_t pin) {
     _apply_immediate(initial);
     _last_touch = millis();
 
-    Serial0.printf("[BL] Iniciado — normal:%d%% reducido:%d%% "
+    DBGSERIAL.printf("[BL] Iniciado — normal:%d%% reducido:%d%% "
                   "inact:%ds noche:%02dh-%02dh\n",
                   _cfg.normal_pct, _cfg.reduced_pct,
                   _cfg.inactivity_div10 * 10,
