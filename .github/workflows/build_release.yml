@@ -198,7 +198,7 @@ jobs:
         with:
           tag_name:      ${{ needs.get-environments.outputs.version }}
           name:          "Deye Monitor ${{ needs.get-environments.outputs.version }}"
-          body_file:     release_notes.md
+          body_path:     release_notes.md
           draft:         false
           prerelease:    ${{ steps.notes.outputs.is_prerelease == 'true' }}
           files:         artifacts/*.bin
