@@ -19,6 +19,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Corregido
 - `web_server.cpp`: la página `/admin` aparecía cortada cuando el token de Telegram no estaba configurado. 
+- Solucionado un problema al registrar las medidas de 5 minutos.
 
 ---
 

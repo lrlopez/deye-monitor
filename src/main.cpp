@@ -31,7 +31,6 @@ static uint32_t screenHeight = 272;
 #if defined(BOARD_GUITION_JC1060P470)
 #define TFT2_BL 23 // Backlight GPIO for Guition JC1060P470
 
-// Constructor: (hsync_pulse_width, hsync_back_porch, hsync_front_porch,
 //               vsync_pulse_width, vsync_back_porch, vsync_front_porch, prefer_speed, lane_bit_rate)
 Arduino_ESP32DSIPanel *dsipanel = new Arduino_ESP32DSIPanel(
     160 /* hsync_pulse_width */, 160 /* hsync_back_porch */, 40 /* hsync_front_porch */,
@@ -275,6 +274,17 @@ static void solarmanTask(void* /*pv*/) {
                     g_daily_ready = true;
                     xSemaphoreGive(g_mutex);
                 }
+                // Inicialización tardía de snaps si el startup ocurrió sin daily data
+                if (s_startup_done && !s_snap_valid) {
+                    s_snap_day_pv   = (uint16_t)(local_d.pv_kwh            * 10.0f + 0.5f);
+                    s_snap_day_exp  = (uint16_t)(local_d.export_kwh         * 10.0f + 0.5f);
+                    s_snap_day_imp  = (uint16_t)(local_d.import_kwh         * 10.0f + 0.5f);
+                    s_snap_day_load = (uint16_t)(local_d.load_kwh           * 10.0f + 0.5f);
+                    s_snap_day_bchg = (uint16_t)(local_d.batt_charge_kwh    * 10.0f + 0.5f);
+                    s_snap_day_bdis = (uint16_t)(local_d.batt_discharge_kwh * 10.0f + 0.5f);
+                    s_snap_valid    = true;
+                    DBGSERIAL.println("[Record] Snaps diarios inicializados tardíamente");
+                }
             }
         }
 
@@ -284,9 +294,11 @@ static void solarmanTask(void* /*pv*/) {
 
         if (now_ep < 1700000000UL) goto end_record;   // NTP no listo
 
-        // Startup: inicializar estado desde la primera lectura válida
+        // Startup: inicializar estado desde la primera lectura válida de energía.
+        // Los datos diarios (local_d) son opcionales aquí; si aún no están disponibles
+        // se inicializarán cuando lleguen (ver bloque fetchDailyStats más arriba).
         if (!s_startup_done) {
-            if (!local_e.valid || !local_d.valid) goto end_record;
+            if (!local_e.valid) goto end_record;
             s_startup_done  = true;
             s_cur_5min_slot = (int32_t)slot_5min;
 
@@ -294,13 +306,15 @@ static void solarmanTask(void* /*pv*/) {
             s_cur_hour = now_tm.tm_hour;
             s_cur_day  = now_tm.tm_mday;
 
-            s_snap_day_pv   = (uint16_t)(local_d.pv_kwh             * 10.0f + 0.5f);
-            s_snap_day_exp  = (uint16_t)(local_d.export_kwh          * 10.0f + 0.5f);
-            s_snap_day_imp  = (uint16_t)(local_d.import_kwh          * 10.0f + 0.5f);
-            s_snap_day_load = (uint16_t)(local_d.load_kwh            * 10.0f + 0.5f);
-            s_snap_day_bchg = (uint16_t)(local_d.batt_charge_kwh     * 10.0f + 0.5f);
-            s_snap_day_bdis = (uint16_t)(local_d.batt_discharge_kwh  * 10.0f + 0.5f);
-            s_snap_valid    = true;
+            if (local_d.valid) {
+                s_snap_day_pv   = (uint16_t)(local_d.pv_kwh             * 10.0f + 0.5f);
+                s_snap_day_exp  = (uint16_t)(local_d.export_kwh          * 10.0f + 0.5f);
+                s_snap_day_imp  = (uint16_t)(local_d.import_kwh          * 10.0f + 0.5f);
+                s_snap_day_load = (uint16_t)(local_d.load_kwh            * 10.0f + 0.5f);
+                s_snap_day_bchg = (uint16_t)(local_d.batt_charge_kwh     * 10.0f + 0.5f);
+                s_snap_day_bdis = (uint16_t)(local_d.batt_discharge_kwh  * 10.0f + 0.5f);
+                s_snap_valid    = true;
+            }
             s_soc_start_of_day = (uint8_t)local_e.batt_soc;
 
             // Publicar en cache el primer valor del día
@@ -349,7 +363,7 @@ static void solarmanTask(void* /*pv*/) {
             goto end_record;
         }
 
-        if (!local_e.valid || !local_d.valid) goto end_record;
+        if (!local_e.valid) goto end_record;
 
         {
             struct tm now_tm; getLocalTime(&now_tm, 500);
@@ -388,7 +402,7 @@ static void solarmanTask(void* /*pv*/) {
 
             // ── Cambio de hora ────────────────────────────────────────────
             if (new_hour != s_cur_hour) {
-                if (s_acc_n > 0 && s_snap_valid) {
+                if (s_acc_n > 0 && s_snap_valid && local_d.valid) {
                     struct tm mid = now_tm;
                     if (new_hour == 0) mid.tm_mday--;
                     mid.tm_hour = s_cur_hour;
@@ -429,8 +443,8 @@ static void solarmanTask(void* /*pv*/) {
                 s_acc_n  = 0;
                 s_cur_hour = new_hour;
 
-                // Actualizar DailyRecord parcial al cambio de hora
-                {
+                // Actualizar DailyRecord parcial al cambio de hora (requiere daily data)
+                if (local_d.valid) {
                     struct tm today_tm = now_tm;
                     today_tm.tm_hour = 0; today_tm.tm_min = 0;
                     today_tm.tm_sec  = 0; today_tm.tm_isdst = -1;
