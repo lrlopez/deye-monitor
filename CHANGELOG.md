@@ -14,7 +14,8 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Añadido
 - **Arcos indicadores en el dashboard:** cada tarjeta muestra ahora un arco estilo gauge que representa visualmente el valor en tiempo real. Solar: arco amarillo de 0 a la potencia máxima del inversor. Red: arco bipolar verde (exportando) / rojo (importando) centrado en cero. Batería: arco verde (cargando) / rojo (descargando) / gris (reposo) con SOC% y potencia W en el interior. Carga: arco azul de 0 al máximo entre red e inversor. Los valores numéricos se muestran centrados dentro del arco.
-- **Capacidades de la instalación configurables:** tres nuevos parámetros en la sección Inversor de la pantalla táctil y del panel web `/admin`: *Inv. máx. W* (potencia pico del inversor, por defecto 6000 W), *Red máx. W* (potencia máxima de red, por defecto 6000 W) y *Cap. bat. Wh* (capacidad de la batería en Wh, por defecto 16000 Wh). Rango válido 1-65535 para los tres. El comando `/bateria` de Telegram usa ahora el valor real configurado para calcular la estimación de tiempo de carga/descarga en lugar del valor anterior hardcodeado
+- **Capacidades de la instalación configurables:** tres nuevos parámetros en la sección Inversor de la pantalla táctil y del panel web `/admin`: *Inv. máx. W* (potencia pico del inversor, por defecto 6000 W), *Red máx. W* (potencia máxima de red, por defecto 6000 W) y *Cap. bat. Wh* (capacidad de la batería en Wh, por defecto 16000 Wh). Rango válido 1-65535 para los tres. El comando `/bateria` de Telegram usa ahora el valor real configurado para calcular la estimación de tiempo de carga/descarga en lugar del valor fijo anterior.
+- **Eliminación de alertas duplicadas de producción solar:** Ya no se repiten alarmas tras un reinicio cuando no corresponde.
 
 ### Corregido
 - `web_server.cpp`: la página `/admin` aparecía cortada cuando el token de Telegram no estaba configurado. 

@@ -167,6 +167,7 @@ static void solarmanTask(void* /*pv*/) {
     // ── Estado de alertas ─────────────────────────────────────────────────
     static bool     s_solar_active    = false;
     static uint8_t  s_solar_debounce  = 0;
+    static bool     s_solar_restored  = false;  // cargado desde NVS una sola vez
 
     enum class BattState : uint8_t { NORMAL, WARN, CRIT };
     static BattState s_batt_state = BattState::NORMAL;
@@ -324,6 +325,25 @@ static void solarmanTask(void* /*pv*/) {
                 if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
             }
 
+            // Restaurar estado solar desde NVS comparando la fecha guardada con hoy.
+            // Si es de otro día, resetear — la producción solar empieza de cero cada día.
+            if (!s_solar_restored) {
+                s_solar_restored = true;
+                SessionState ss{};
+                if (Storage.loadSessionState(ss) && ss.last_record_epoch > 0) {
+                    struct tm saved_tm{};
+                    time_t t = (time_t)ss.last_record_epoch;
+                    localtime_r(&t, &saved_tm);
+                    bool same_day = (saved_tm.tm_mday == now_tm.tm_mday &&
+                                     saved_tm.tm_mon  == now_tm.tm_mon  &&
+                                     saved_tm.tm_year == now_tm.tm_year);
+                    s_solar_active = same_day ? ss.solar_active : false;
+                    DBGSERIAL.printf("[Solar] Estado %s: %s\n",
+                                     same_day ? "restaurado" : "reseteado (día anterior)",
+                                     s_solar_active ? "activo" : "inactivo");
+                }
+            }
+
             DBGSERIAL.printf("[Record] Startup ok: slot=%lu h=%d d=%d\n",
                 (unsigned long)slot_5min, s_cur_hour, s_cur_day);
             goto end_record;
@@ -361,7 +381,7 @@ static void solarmanTask(void* /*pv*/) {
                 // Serializar con el flush del display en Core 1 (ver s_flash_display_mutex)
                 if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
                 bool push_ok = Store.push(r);
-                Storage.saveSessionState({record_ts, true});
+                Storage.saveSessionState({record_ts, true, s_solar_active});
                 if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
                 if (push_ok) Cache.pushRaw(r);
             }
@@ -463,6 +483,9 @@ static void solarmanTask(void* /*pv*/) {
 
                 s_soc_start_of_day = (uint8_t)local_e.batt_soc;
                 s_cur_day = new_day;
+                // Resetear estado solar al cambiar de día — de noche no hay producción
+                s_solar_active   = false;
+                s_solar_debounce = 0;
             }
         }
 
@@ -486,12 +509,14 @@ static void solarmanTask(void* /*pv*/) {
                         s_solar_debounce = 0;
                         Telegram.enqueueAlert(AlertType::SOLAR_START,
                                               (int32_t)local_e.pv_power);
+                        Storage.saveSessionState({now_ep, true, true});
                     }
                 } else if (s_solar_active && local_e.pv_power < 20.0f) {
                     if (++s_solar_debounce >= 3) {
                         s_solar_active   = false;
                         s_solar_debounce = 0;
                         Telegram.enqueueAlert(AlertType::SOLAR_STOP);
+                        Storage.saveSessionState({now_ep, true, false});
                     }
                 } else {
                     s_solar_debounce = 0;

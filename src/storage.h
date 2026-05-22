@@ -21,6 +21,7 @@ struct AppConfig {
 struct SessionState {
     uint32_t last_record_epoch;
     bool     valid;
+    bool     solar_active;  // persisted to avoid duplicate alerts after reboot
 };
 
 // ── Config de la gráfica ──────────────────────────────────────────────────

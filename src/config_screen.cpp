@@ -683,7 +683,7 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_add_event_cb(ta_token, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
 
     // Chat ID
-    make_row_label(sec_tg, 62, "Chat ID");
+    make_row_label(sec_tg, SY(62), "Chat ID");
     lv_obj_t* ta_chatid = make_field(sec_tg, CFG_LBL_W, SY(62),
                                       CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), false, "-100123456789");
     lv_textarea_set_text(ta_chatid, tgcfg.chat_id);
