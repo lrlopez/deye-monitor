@@ -37,187 +37,266 @@ void webserver_set_data(SemaphoreHandle_t mutex,
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// Ruta GET /   →  Dashboard HTML con auto-refresco
+// Ruta GET /   →  Dashboard con 4 indicadores de arco SVG (estilo pantalla)
 // ═════════════════════════════════════════════════════════════════════════
 static void handle_root() {
-    String html;
-    html.reserve(5120);
-    html += R"EOF(<!DOCTYPE html><html lang="es"><head>
+    AppConfig cfg{}; Storage.loadConfig(cfg);
+
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.sendHeader("Content-Type", "text/html; charset=utf-8");
+    server.send(200);
+
+    // ── HEAD + CSS ────────────────────────────────────────────────────────
+    server.sendContent(R"=EOF=(<!DOCTYPE html><html lang="es"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Deye Monitor</title>
 <style>
-  :root{--bg:#0d1117;--card:#161b22;--accent:#4a9eff;--ok:#2ecc71;
-        --warn:#f5c518;--err:#e74c3c;--muted:#6e7681;--white:#eaeaea}
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--white);
-       font-family:system-ui,sans-serif;padding:16px}
-  h1{font-size:1.1rem;color:var(--muted);margin-bottom:16px;text-align:center}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
-  .card{background:var(--card);border:1px solid #21262d;
-        border-radius:10px;padding:14px;transition:border-color .3s}
-  .card h2{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;
-            color:var(--muted);margin-bottom:8px}
-  .val{font-size:1.6rem;font-weight:700;line-height:1.1;
-       transition:color .4s}
-  .sub{font-size:.75rem;color:var(--muted);margin-top:4px}
-  .solar{border-color:#f5c518}
-  .grid-card{border-color:#4a9eff}
-  .batt{border-color:#2ecc71}
-  .load{border-color:#bb6bd9}
-  .bar-wrap{background:#21262d;border-radius:6px;height:10px;margin:8px 0}
-  .bar{height:10px;border-radius:6px;transition:width .6s ease,background .4s}
-  hr{border:none;border-top:1px solid #21262d;margin:20px 0}
-  .daily-grid{display:grid;
-              grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
-  .daily-card{background:var(--card);border:1px solid #21262d;
-              border-radius:8px;padding:10px;text-align:center;
-              transition:opacity .4s}
-  .daily-card h3{font-size:.65rem;color:var(--muted);
-                 margin-bottom:4px;text-transform:uppercase}
-  .daily-card .kwh{font-size:1.2rem;font-weight:700;transition:color .4s}
-  /* Donut SVG */
-  .donut-wrap{display:flex;flex-direction:column;align-items:center;margin:16px 0}
-  .donut-row{display:flex;gap:32px;justify-content:center;flex-wrap:wrap}
-  .donut-box{display:flex;flex-direction:column;align-items:center;gap:6px}
-  .donut-box h3{font-size:.7rem;text-transform:uppercase;
-                letter-spacing:.08em;color:var(--muted)}
-  .leg{display:grid;grid-template-columns:1fr 1fr;
-       gap:2px 12px;margin-top:6px;font-size:.72rem}
-  .leg-item{display:flex;align-items:center;gap:5px}
-  .leg-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
-  /* Status bar */
-  #status-bar{position:fixed;bottom:0;left:0;right:0;
-              background:#161b22;border-top:1px solid #21262d;
-              padding:4px 12px;font-size:.7rem;color:var(--muted);
-              display:flex;justify-content:space-between}
-  #status-dot{width:8px;height:8px;border-radius:50%;
-              background:var(--muted);display:inline-block;
-              margin-right:5px;transition:background .3s}
-  footer{text-align:center;color:var(--muted);
-         font-size:.7rem;margin:20px 0 28px}
-  a{color:var(--accent);text-decoration:none}
+:root{--bg:#0d1117;--card:#161b22;--bd:#21262d;--accent:#4a9eff;
+      --ok:#2ecc71;--warn:#f5c518;--err:#e74c3c;--muted:#6e7681;--wh:#eaeaea}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--wh);font-family:system-ui,sans-serif;
+     padding-bottom:8px}
+/* Barra superior */
+#topbar{background:var(--card);border-bottom:1px solid var(--bd);
+        padding:5px 12px;display:flex;align-items:center;
+        justify-content:space-between;font-size:.78rem;gap:8px}
+#tb-clock{font-variant-numeric:tabular-nums}
+#tb-ac{font-size:.95rem;font-weight:700}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;
+     background:var(--muted);margin-right:4px;vertical-align:middle;
+     transition:background .3s}
+/* Tarjetas 2×2 */
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px}
+@media(max-width:420px){.cards{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;
+      display:flex;align-items:center;padding:8px 6px;gap:4px;
+      min-width:0;overflow:hidden}
+.ci{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.ct{font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.cv{font-size:1.35rem;font-weight:700;line-height:1.1;transition:color .4s}
+.cs{font-size:.65rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;max-width:100%}
+.aw{flex-shrink:0;width:27vw;height:27vw;max-width:110px;max-height:110px}
+.aw svg{display:block;width:100%;height:100%}
+/* Sección diaria */
+hr{border:none;border-top:1px solid var(--bd);margin:0 8px}
+.dw{padding:10px 8px 4px}
+.dw h2{font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;
+        color:var(--muted);text-align:center;margin-bottom:8px}
+.kpis{display:flex;gap:20px;justify-content:center;margin-bottom:10px}
+.kpi{text-align:center}
+.kpi-v{font-size:1.2rem;font-weight:700}
+.kpi-l{font-size:.58rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.donut-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.donut-box{display:flex;flex-direction:column;align-items:center;gap:4px;
+           flex:1;min-width:150px;max-width:220px}
+.donut-box h3{font-size:.68rem;text-transform:uppercase;
+              letter-spacing:.06em;color:var(--muted)}
+.leg{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;
+     margin-top:4px;font-size:.67rem;width:100%}
+.li{display:flex;align-items:center;gap:4px}
+.ld{width:7px;height:7px;border-radius:2px;flex-shrink:0}
+footer{text-align:center;color:var(--muted);font-size:.7rem;
+       padding:10px 8px;border-top:1px solid var(--bd);margin-top:6px}
+footer a{color:var(--accent);text-decoration:none}
 </style>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0d1117">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="/icon.svg">
-</head><body>
-<h1>&#9889; Deye Monitor <span style="font-size:.7rem;color:var(--muted);font-weight:400" id="h1-ver">v--</span> – )EOF";
-    html += WiFi.localIP().toString();
-    html += R"EOF(</h1>
+</head><body>)=EOF=");
 
-<!-- Live cards -->
-<div class="grid">
-  <div class="card solar">
-    <h2>&#9728; Solar</h2>
-    <div class="val" id="pv-val" style="color:#f5c518">-- W</div>
-    <div class="sub" id="pv-sub">PV1: -- W &nbsp; PV2: -- W</div>
+    // ── BARRA SUPERIOR ────────────────────────────────────────────────────
+    server.sendContent(R"=EOF=(
+<div id="topbar">
+  <span id="tb-clock">--:--:--</span>
+  <span>&#9889;&thinsp;<span id="tb-ac" style="color:var(--muted)">--%</span>
+    <span style="font-size:.62rem;color:var(--muted)">autocon.</span></span>
+  <span><span class="dot" id="tb-dot"></span><span id="tb-txt" style="color:var(--muted)">--</span></span>
+</div>)=EOF=");
+
+    // ── TARJETAS 2×2 ─────────────────────────────────────────────────────
+    // Geometría del arco SVG: r=44, cx=cy=55, viewBox 110×110
+    //   C   = 2π×44  = 276.46   (circunferencia)
+    //   ARC = 270/360 × C = 207.35  (longitud del arco de 270°)
+    //   GAP = C − ARC = 69.11
+    //   transform="rotate(135 55 55)" → el arco empieza a las 7 en punto
+    server.sendContent(R"=EOF=(
+<div class="cards">
+
+<!-- ☀ Solar -->
+<div class="card">
+  <div class="ci">
+    <div class="ct">&#9728; Solar</div>
+    <div class="cv" id="pv-val" style="color:#f5c518">-- W</div>
+    <div class="cs" id="pv-sub">PV1: -- &nbsp;PV2: --</div>
   </div>
-  <div class="card grid-card">
-    <h2>&#8644; Red</h2>
-    <div class="val" id="grid-val">-- W</div>
-    <div class="sub" id="grid-sub">--</div>
-  </div>
-  <div class="card batt">
-    <h2>&#128267; Bateria</h2>
-    <div class="val" id="batt-soc">--%</div>
-    <div class="bar-wrap">
-      <div class="bar" id="batt-bar" style="width:0%"></div>
-    </div>
-    <div class="sub" id="batt-sub">-- W</div>
-  </div>
-  <div class="card load">
-    <h2>&#127968; Carga</h2>
-    <div class="val" id="load-val" style="color:#bb6bd9">-- W</div>
-    <div class="sub">Consumo actual</div>
-  </div>
+  <div class="aw"><svg viewBox="0 0 110 110">
+    <circle cx="55" cy="55" r="44" fill="none" stroke="#21262d" stroke-width="10"
+      stroke-dasharray="207.35 69.11" stroke-linecap="butt" transform="rotate(135 55 55)"/>
+    <circle id="a-pv" cx="55" cy="55" r="44" fill="none" stroke="#f5c518" stroke-width="10"
+      stroke-dasharray="0 276.46" stroke-linecap="butt" transform="rotate(135 55 55)"
+      style="transition:stroke-dasharray .5s"/>
+    <text x="55" y="52" text-anchor="middle" fill="#f5c518" font-size="13" font-weight="700"
+      font-family="system-ui" id="a-pv-t">--</text>
+    <text x="55" y="66" text-anchor="middle" fill="#6e7681" font-size="9"
+      font-family="system-ui">W</text>
+  </svg></div>
 </div>
 
-<hr>
+<!-- ⇄ Red (arco bipolar: azul importar / verde exportar, simétrico desde el centro) -->
+<div class="card">
+  <div class="ci">
+    <div class="ct">&#8644; Red</div>
+    <div class="cv" id="grid-val">-- W</div>
+    <div class="cs" id="grid-sub">--</div>
+  </div>
+  <div class="aw"><svg viewBox="0 0 110 110">
+    <circle cx="55" cy="55" r="44" fill="none" stroke="#21262d" stroke-width="10"
+      stroke-dasharray="207.35 69.11" stroke-linecap="butt" transform="rotate(135 55 55)"/>
+    <circle id="a-gimp" cx="55" cy="55" r="44" fill="none" stroke="#4a9eff" stroke-width="10"
+      stroke-dasharray="0 276.46" stroke-linecap="butt" transform="rotate(135 55 55)"
+      style="transition:stroke-dasharray .5s,stroke-dashoffset .5s"/>
+    <circle id="a-gexp" cx="55" cy="55" r="44" fill="none" stroke="#2ecc71" stroke-width="10"
+      stroke-dasharray="0 276.46" stroke-linecap="butt" transform="rotate(135 55 55)"
+      style="transition:stroke-dasharray .5s,stroke-dashoffset .5s"/>
+    <text x="55" y="52" text-anchor="middle" fill="#eaeaea" font-size="12" font-weight="700"
+      font-family="system-ui" id="a-gv-t">--</text>
+    <text x="55" y="66" text-anchor="middle" fill="#6e7681" font-size="9"
+      font-family="system-ui" id="a-gv-u">W</text>
+  </svg></div>
+</div>
 
-<!-- Daily donuts SVG -->
-<div class="donut-wrap">
-  <h1 style="margin-bottom:8px">Hoy</h1>
-  <div style="display:flex;gap:24px;justify-content:center;margin-bottom:12px">
-    <div style="text-align:center">
-      <div style="font-size:1.4rem;font-weight:700;color:#2ecc71" id="kpi-autosuf">--%</div>
-      <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Autosuficiencia</div>
+<!-- 🔋 Batería (gradiente rojo/amarillo/verde con máscara gris según SOC) -->
+<div class="card">
+  <div class="ci">
+    <div class="ct">&#128267; Bater&iacute;a</div>
+    <div class="cv" id="batt-soc">-- %</div>
+    <div class="cs" id="batt-sub">--</div>
+  </div>
+  <div class="aw"><svg viewBox="0 0 110 110">
+    <!-- Base de gradiente: rojo primer tercio, amarillo segundo, verde tercero -->
+    <circle cx="55" cy="55" r="44" fill="none" stroke="#e74c3c" stroke-width="10"
+      stroke-dasharray="69.12 207.34" stroke-linecap="butt" transform="rotate(135 55 55)"/>
+    <circle cx="55" cy="55" r="44" fill="none" stroke="#f5c518" stroke-width="10"
+      stroke-dasharray="69.12 207.34" stroke-linecap="butt" transform="rotate(135 55 55)"
+      stroke-dashoffset="-69.12"/>
+    <circle cx="55" cy="55" r="44" fill="none" stroke="#2ecc71" stroke-width="10"
+      stroke-dasharray="69.12 207.34" stroke-linecap="butt" transform="rotate(135 55 55)"
+      stroke-dashoffset="-138.24"/>
+    <!-- Máscara gris: cubre la parte no cargada, desplazada por JS según SOC -->
+    <circle id="a-bm" cx="55" cy="55" r="44" fill="none" stroke="#21262d" stroke-width="11"
+      stroke-dasharray="207.35 69.11" stroke-linecap="butt" transform="rotate(135 55 55)"/>
+    <text x="55" y="52" text-anchor="middle" fill="#eaeaea" font-size="13" font-weight="700"
+      font-family="system-ui" id="a-soc-t">--%</text>
+    <text x="55" y="66" text-anchor="middle" fill="#6e7681" font-size="9"
+      font-family="system-ui">SOC</text>
+  </svg></div>
+</div>
+
+<!-- 🏠 Carga -->
+<div class="card">
+  <div class="ci">
+    <div class="ct">&#127968; Carga</div>
+    <div class="cv" id="load-val" style="color:#bb6bd9">-- W</div>
+    <div class="cs">Consumo actual</div>
+  </div>
+  <div class="aw"><svg viewBox="0 0 110 110">
+    <circle cx="55" cy="55" r="44" fill="none" stroke="#21262d" stroke-width="10"
+      stroke-dasharray="207.35 69.11" stroke-linecap="butt" transform="rotate(135 55 55)"/>
+    <circle id="a-ld" cx="55" cy="55" r="44" fill="none" stroke="#bb6bd9" stroke-width="10"
+      stroke-dasharray="0 276.46" stroke-linecap="butt" transform="rotate(135 55 55)"
+      style="transition:stroke-dasharray .5s"/>
+    <text x="55" y="52" text-anchor="middle" fill="#bb6bd9" font-size="13" font-weight="700"
+      font-family="system-ui" id="a-ld-t">--</text>
+    <text x="55" y="66" text-anchor="middle" fill="#6e7681" font-size="9"
+      font-family="system-ui">W</text>
+  </svg></div>
+</div>
+
+</div>)=EOF=");
+
+    // ── SECCIÓN DIARIA (donuts) ───────────────────────────────────────────
+    server.sendContent(R"=EOF=(
+<hr>
+<div class="dw">
+  <h2>Hoy</h2>
+  <div class="kpis">
+    <div class="kpi">
+      <div class="kpi-v" id="kpi-autosuf" style="color:#2ecc71">--%</div>
+      <div class="kpi-l">Autosuficiencia</div>
     </div>
-    <div style="text-align:center">
-      <div style="font-size:1.4rem;font-weight:700;color:#f5c518" id="kpi-autocon">--%</div>
-      <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Autoconsumo</div>
+    <div class="kpi">
+      <div class="kpi-v" id="kpi-autocon" style="color:#f5c518">--%</div>
+      <div class="kpi-l">Autoconsumo</div>
     </div>
   </div>
   <div class="donut-row">
     <div class="donut-box">
       <h3>Consumo</h3>
-      <svg id="donut-con" width="120" height="120" viewBox="0 0 120 120">
-        <circle cx="60" cy="60" r="46" fill="none" stroke="#21262d" stroke-width="18"/>
-        <circle id="dc-pv"  cx="60" cy="60" r="46" fill="none" stroke="#2ecc71"
-                stroke-width="18" stroke-dasharray="0 289" stroke-linecap="butt"
-                transform="rotate(-90 60 60) " style="transition:stroke-dasharray .6s"/>
-        <circle id="dc-dis" cx="60" cy="60" r="46" fill="none" stroke="#4a9eff"
-                stroke-width="18" stroke-dasharray="0 289" stroke-linecap="butt"
-                transform="rotate(-90 60 60) " style="transition:stroke-dasharray .6s"/>
-        <circle id="dc-imp" cx="60" cy="60" r="46" fill="none" stroke="#bb6bd9"
-                stroke-width="18" stroke-dasharray="0 289" stroke-linecap="butt"
-                transform="rotate(-90 60 60) " style="transition:stroke-dasharray .6s"/>
-        <text x="60" y="56" text-anchor="middle" fill="#eaeaea"
-              font-size="13" font-weight="700" font-family="system-ui">
-          <tspan id="dc-total">--</tspan>
-        </text>
-        <text x="60" y="71" text-anchor="middle" fill="#6e7681"
-              font-size="10" font-family="system-ui">kWh</text>
+      <svg width="110" height="110" viewBox="0 0 110 110">
+        <circle cx="55" cy="55" r="42" fill="none" stroke="#21262d" stroke-width="16"/>
+        <circle id="dc-pv"  cx="55" cy="55" r="42" fill="none" stroke="#2ecc71"
+          stroke-width="16" stroke-dasharray="0 264" stroke-linecap="butt"
+          transform="rotate(-90 55 55)" style="transition:stroke-dasharray .6s"/>
+        <circle id="dc-dis" cx="55" cy="55" r="42" fill="none" stroke="#4a9eff"
+          stroke-width="16" stroke-dasharray="0 264" stroke-linecap="butt"
+          transform="rotate(-90 55 55)" style="transition:stroke-dasharray .6s"/>
+        <circle id="dc-imp" cx="55" cy="55" r="42" fill="none" stroke="#bb6bd9"
+          stroke-width="16" stroke-dasharray="0 264" stroke-linecap="butt"
+          transform="rotate(-90 55 55)" style="transition:stroke-dasharray .6s"/>
+        <text x="55" y="51" text-anchor="middle" fill="#eaeaea" font-size="12"
+          font-weight="700" font-family="system-ui"><tspan id="dc-total">--</tspan></text>
+        <text x="55" y="64" text-anchor="middle" fill="#6e7681"
+          font-size="9" font-family="system-ui">kWh</text>
       </svg>
       <div class="leg">
-        <div class="leg-item"><div class="leg-dot" style="background:#2ecc71"></div>
-          <span style="color:#6e7681">Solar</span></div>
-        <div class="leg-item" style="justify-content:flex-end">
+        <div class="li"><div class="ld" style="background:#2ecc71"></div>
+          <span style="color:#6e7681">Solar dir.</span></div>
+        <div class="li" style="justify-content:flex-end">
           <span id="dl-con-pv" style="color:#2ecc71">--</span></div>
-        <div class="leg-item"><div class="leg-dot" style="background:#4a9eff"></div>
+        <div class="li"><div class="ld" style="background:#4a9eff"></div>
           <span style="color:#6e7681">Descarga</span></div>
-        <div class="leg-item" style="justify-content:flex-end">
+        <div class="li" style="justify-content:flex-end">
           <span id="dl-con-dis" style="color:#4a9eff">--</span></div>
-        <div class="leg-item"><div class="leg-dot" style="background:#bb6bd9"></div>
+        <div class="li"><div class="ld" style="background:#bb6bd9"></div>
           <span style="color:#6e7681">Import.</span></div>
-        <div class="leg-item" style="justify-content:flex-end">
+        <div class="li" style="justify-content:flex-end">
           <span id="dl-con-imp" style="color:#bb6bd9">--</span></div>
       </div>
     </div>
     <div class="donut-box">
-      <h3>Produccion</h3>
-      <svg id="donut-pro" width="120" height="120" viewBox="0 0 120 120">
-        <circle cx="60" cy="60" r="46" fill="none" stroke="#21262d" stroke-width="18"/>
-        <circle id="dp-load" cx="60" cy="60" r="46" fill="none" stroke="#f5c518"
-                stroke-width="18" stroke-dasharray="0 289" stroke-linecap="butt"
-                transform="rotate(-90 60 60) " style="transition:stroke-dasharray .6s"/>
-        <circle id="dp-chg"  cx="60" cy="60" r="46" fill="none" stroke="#4a9eff"
-                stroke-width="18" stroke-dasharray="0 289" stroke-linecap="butt"
-                transform="rotate(-90 60 60) " style="transition:stroke-dasharray .6s"/>
-        <circle id="dp-exp"  cx="60" cy="60" r="46" fill="none" stroke="#e88080"
-                stroke-width="18" stroke-dasharray="0 289" stroke-linecap="butt"
-                transform="rotate(-90 60 60) " style="transition:stroke-dasharray .6s"/>
-        <text x="60" y="56" text-anchor="middle" fill="#eaeaea"
-              font-size="13" font-weight="700" font-family="system-ui">
-          <tspan id="dp-total">--</tspan>
-        </text>
-        <text x="60" y="71" text-anchor="middle" fill="#6e7681"
-              font-size="10" font-family="system-ui">kWh</text>
+      <h3>Producci&oacute;n</h3>
+      <svg width="110" height="110" viewBox="0 0 110 110">
+        <circle cx="55" cy="55" r="42" fill="none" stroke="#21262d" stroke-width="16"/>
+        <circle id="dp-lod" cx="55" cy="55" r="42" fill="none" stroke="#f5c518"
+          stroke-width="16" stroke-dasharray="0 264" stroke-linecap="butt"
+          transform="rotate(-90 55 55)" style="transition:stroke-dasharray .6s"/>
+        <circle id="dp-chg" cx="55" cy="55" r="42" fill="none" stroke="#4a9eff"
+          stroke-width="16" stroke-dasharray="0 264" stroke-linecap="butt"
+          transform="rotate(-90 55 55)" style="transition:stroke-dasharray .6s"/>
+        <circle id="dp-exp" cx="55" cy="55" r="42" fill="none" stroke="#e88080"
+          stroke-width="16" stroke-dasharray="0 264" stroke-linecap="butt"
+          transform="rotate(-90 55 55)" style="transition:stroke-dasharray .6s"/>
+        <text x="55" y="51" text-anchor="middle" fill="#eaeaea" font-size="12"
+          font-weight="700" font-family="system-ui"><tspan id="dp-total">--</tspan></text>
+        <text x="55" y="64" text-anchor="middle" fill="#6e7681"
+          font-size="9" font-family="system-ui">kWh</text>
       </svg>
       <div class="leg">
-        <div class="leg-item"><div class="leg-dot" style="background:#f5c518"></div>
+        <div class="li"><div class="ld" style="background:#f5c518"></div>
           <span style="color:#6e7681">Autocon.</span></div>
-        <div class="leg-item" style="justify-content:flex-end">
-          <span id="dl-pro-load" style="color:#f5c518">--</span></div>
-        <div class="leg-item"><div class="leg-dot" style="background:#4a9eff"></div>
+        <div class="li" style="justify-content:flex-end">
+          <span id="dl-pro-lod" style="color:#f5c518">--</span></div>
+        <div class="li"><div class="ld" style="background:#4a9eff"></div>
           <span style="color:#6e7681">Carga bat.</span></div>
-        <div class="leg-item" style="justify-content:flex-end">
+        <div class="li" style="justify-content:flex-end">
           <span id="dl-pro-chg" style="color:#4a9eff">--</span></div>
-        <div class="leg-item"><div class="leg-dot" style="background:#e88080"></div>
+        <div class="li"><div class="ld" style="background:#e88080"></div>
           <span style="color:#6e7681">Export.</span></div>
-        <div class="leg-item" style="justify-content:flex-end">
+        <div class="li" style="justify-content:flex-end">
           <span id="dl-pro-exp" style="color:#e88080">--</span></div>
       </div>
     </div>
@@ -225,153 +304,173 @@ static void handle_root() {
 </div>
 
 <footer>
-  <a href="/chart">&#128200; Gr&aacute;fica diaria</a>
-  &nbsp;|&nbsp;
-  <a href="/admin">&#9881; Admin</a>
-  &nbsp;|&nbsp;
-  <a href="/update">&#8593; Firmware</a>
-  &nbsp;|&nbsp;
+  <a href="/chart">&#128200; Gr&aacute;fica</a> &nbsp;|&nbsp;
+  <a href="/admin">&#9881; Admin</a> &nbsp;|&nbsp;
+  <a href="/update">&#8593; Firmware</a> &nbsp;|&nbsp;
   <span id="app-ver" style="color:var(--muted)">v--</span>
-</footer>
+</footer>)=EOF=");
 
-<!-- Status bar fija -->
-<div id="status-bar">
-  <span><span id="status-dot"></span><span id="status-txt">Conectando...</span></span>
-  <span id="status-time">--:--:--</span>
-</div>
+    // ── JS: constantes desde AppConfig + lógica ───────────────────────────
+    {
+        char buf[96];
+        snprintf(buf, sizeof(buf),
+                 "\n<script>const IM=%u,GM=%u,C=276.46,ARC=207.35,HALF=103.67;\n",
+                 (unsigned)cfg.inv_max_w, (unsigned)cfg.grid_max_w);
+        server.sendContent(buf);
+    }
+    server.sendContent(R"=EOF=(
+const CD=2*Math.PI*42; // circunferencia donut r=42
 
-<script>
-// ── Circumferencia del donut (r=46): 2π×46 ≈ 289.03
-const CIRC = 2 * Math.PI * 46;
+function ip(id){return document.getElementById(id);}
 
-// Calcula stroke-dasharray y stroke-dashoffset para un segmento
-// offset = suma de fracciones anteriores × CIRC
-function segDA(frac) {
-  const len = frac * CIRC;
-  return `${len.toFixed(2)} ${(CIRC - len).toFixed(2)}`;
+// Arco simple (0-1) — Solar y Carga
+function setArc(id,f){
+  const l=Math.max(0,Math.min(ARC,f*ARC));
+  ip(id).setAttribute('stroke-dasharray',l.toFixed(2)+' '+(C-l).toFixed(2));
 }
 
-function setDonut(ids, vals, total) {
-  let offset = 0;
-  ids.forEach((id, i) => {
-    const el = document.getElementById(id);
-    const frac = total > 0 ? Math.max(0, vals[i]) / total : 0;
-    el.style.strokeDasharray = segDA(frac);
-    // Rotar cada segmento para que empiece donde termina el anterior
-    const deg = -90 + offset * 360;
-    el.setAttribute('transform', `rotate(${deg.toFixed(2)} 60 60)`);
-    offset += frac;
+// Batería: la máscara gris cubre desde el nivel de carga hasta el final del arco
+// dashoffset negativo desplaza el inicio de la máscara hasta la posición "filled"
+function setBatt(soc){
+  const filled=(soc/100)*ARC;
+  const rest=ARC-filled;
+  const bm=ip('a-bm');
+  bm.setAttribute('stroke-dasharray',rest.toFixed(2)+' '+(C-rest).toFixed(2));
+  bm.setAttribute('stroke-dashoffset',(-filled).toFixed(2));
+}
+
+// Red bipolar: import llena desde el centro hacia la derecha (azul),
+// export llena desde el centro hacia la izquierda (verde), ambos simétricos
+function setGrid(gw){
+  const imp=ip('a-gimp'), exp=ip('a-gexp');
+  const zero='0 '+C.toFixed(2);
+  if(gw>0){
+    const l=Math.min(HALF,(gw/GM)*HALF);
+    imp.setAttribute('stroke-dasharray',l.toFixed(2)+' '+(C-l).toFixed(2));
+    imp.setAttribute('stroke-dashoffset',(-HALF).toFixed(2));
+    exp.setAttribute('stroke-dasharray',zero);
+  } else if(gw<0){
+    const l=Math.min(HALF,(-gw/GM)*HALF);
+    exp.setAttribute('stroke-dasharray',l.toFixed(2)+' '+(C-l).toFixed(2));
+    exp.setAttribute('stroke-dashoffset',(-(HALF-l)).toFixed(2));
+    imp.setAttribute('stroke-dasharray',zero);
+  } else {
+    imp.setAttribute('stroke-dasharray',zero);
+    exp.setAttribute('stroke-dasharray',zero);
+  }
+}
+
+// Donut de energía diaria
+function setDonut(ids,vals,total){
+  let off=0;
+  ids.forEach((id,i)=>{
+    const el=ip(id);
+    const frac=total>0?Math.max(0,vals[i])/total:0;
+    const len=frac*CD;
+    el.style.strokeDasharray=len.toFixed(2)+' '+(CD-len).toFixed(2);
+    el.setAttribute('transform','rotate('+((-90+off*360).toFixed(1))+' 55 55)');
+    off+=frac;
   });
 }
 
-function fmt(w)  { return (w / 1000).toFixed(2) + ' kWh'; }
-function fmtW(w) { return (w >= 0 ? '+' : '') + w + ' W'; }
+function fmt(v){return v.toFixed(2)+' kWh';}
 
-async function refresh() {
-  try {
-    const res = await fetch('/api/data');
-    if (!res.ok) throw new Error(res.status);
-    const d = await res.json();
-    const l = d.live;
-    const day = d.daily;
+async function refresh(){
+  try{
+    const res=await fetch('/api/data');
+    if(!res.ok) throw new Error(res.status);
+    const d=await res.json();
+    const l=d.live, day=d.daily;
 
-    // ── Live ──────────────────────────────────────────────────────────────
-    document.getElementById('pv-val').textContent  = l.pv_w + ' W';
-    document.getElementById('pv-sub').innerHTML    =
-      'PV1: ' + l.pv1_w + ' W &nbsp; PV2: ' + l.pv2_w + ' W';
+    // ── Solar ─────────────────────────────────────────────────────────────
+    ip('pv-val').textContent=l.pv_w+' W';
+    ip('pv-sub').innerHTML='PV1: '+l.pv1_w+' W &nbsp;PV2: '+l.pv2_w+' W';
+    ip('a-pv-t').textContent=l.pv_w;
+    setArc('a-pv',l.pv_w/IM);
 
-    const gridCol = l.grid_w > 0 ? '#4a9eff' : '#2ecc71';
-    const gridTxt = l.grid_w > 0 ? 'Importando de la red'
-                  : l.grid_w < 0 ? 'Exportando a la red' : 'Sin intercambio';
-    const gv = document.getElementById('grid-val');
-    gv.textContent = fmtW(l.grid_w);
-    gv.style.color = gridCol;
-    document.getElementById('grid-sub').textContent = gridTxt;
+    // ── Red ───────────────────────────────────────────────────────────────
+    const gw=l.grid_w;
+    const gcol=gw>0?'#4a9eff':gw<0?'#2ecc71':'#6e7681';
+    const gtxt=gw>0?'Importando':gw<0?'Exportando':'En reposo';
+    ip('grid-val').textContent=(gw>0?'+':'')+gw+' W';
+    ip('grid-val').style.color=gcol;
+    ip('grid-sub').textContent=gtxt;
+    ip('a-gv-t').textContent=Math.abs(gw);
+    ip('a-gv-t').setAttribute('fill',gcol);
+    setGrid(gw);
 
-    const battCol = l.batt_w > 0 ? '#e74c3c' : '#2ecc71';
-    const battTxt = l.batt_w < 0  ? 'Cargando'
-                  : l.batt_w > 0  ? 'Descargando' : 'En reposo';
-    document.getElementById('batt-soc').textContent = l.batt_soc + '%';
-    const bar = document.getElementById('batt-bar');
-    bar.style.width      = l.batt_soc + '%';
-    bar.style.background = battCol;
-    document.getElementById('batt-sub').textContent =
-      fmtW(l.batt_w) + ' – ' + battTxt;
+    // ── Batería ───────────────────────────────────────────────────────────
+    const soc=l.batt_soc, bw=l.batt_w;
+    const scol=soc<20?'#e74c3c':soc<50?'#f5c518':'#2ecc71';
+    ip('batt-soc').textContent=soc+'%';
+    ip('batt-soc').style.color=scol;
+    ip('batt-sub').textContent=(bw<0?'Cargando ':bw>0?'Descargando ':'')+
+                                Math.abs(bw)+' W';
+    ip('a-soc-t').textContent=soc+'%';
+    setBatt(soc);
 
-    document.getElementById('load-val').textContent = l.load_w + ' W';
+    // ── Carga ─────────────────────────────────────────────────────────────
+    ip('load-val').textContent=l.load_w+' W';
+    ip('a-ld-t').textContent=l.load_w;
+    setArc('a-ld',l.load_w/IM);
 
-    // ── Daily donuts ───────────────────────────────────────────────────────
-    if (day && day.valid) {
-      const pvDirect = Math.max(0,
-        day.load_kwh - day.batt_discharge_kwh - day.import_kwh);
-      const pvToLoad = Math.max(0,
-        day.pv_kwh - day.export_kwh - day.batt_charge_kwh);
-
-      const conVals = [pvDirect * 1000,
-                      day.batt_discharge_kwh * 1000,
-                      day.import_kwh * 1000];
-      const proVals = [pvToLoad * 1000,
-                      day.batt_charge_kwh * 1000,
-                      day.export_kwh * 1000];
-
-      setDonut(['dc-pv','dc-dis','dc-imp'], conVals, day.load_kwh * 1000);
-      setDonut(['dp-load','dp-chg','dp-exp'], proVals, day.pv_kwh * 1000);
-
-      document.getElementById('dc-total').textContent = day.load_kwh.toFixed(1);
-      document.getElementById('dp-total').textContent = day.pv_kwh.toFixed(1);
-
-      document.getElementById('dl-con-pv').textContent  = fmt(pvDirect * 1000);
-      document.getElementById('dl-con-dis').textContent = fmt(day.batt_discharge_kwh * 1000);
-      document.getElementById('dl-con-imp').textContent = fmt(day.import_kwh * 1000);
-      document.getElementById('dl-pro-load').textContent = fmt(pvToLoad * 1000);
-      document.getElementById('dl-pro-chg').textContent  = fmt(day.batt_charge_kwh * 1000);
-      document.getElementById('dl-pro-exp').textContent  = fmt(day.export_kwh * 1000);
-
-      const autosuf = day.load_kwh > 0.01
-        ? Math.max(0, Math.min(100, (day.load_kwh - day.import_kwh) / day.load_kwh * 100))
-        : 0;
-      const autocon = day.pv_kwh > 0.01
-        ? Math.max(0, Math.min(100, (day.pv_kwh - day.export_kwh) / day.pv_kwh * 100))
-        : 0;
-      document.getElementById('kpi-autosuf').textContent = autosuf.toFixed(0) + '%';
-      document.getElementById('kpi-autocon').textContent = autocon.toFixed(0) + '%';
-    } else if (day && !day.valid) {
-      // Datos aún no disponibles — mostrar estado de espera
-      document.getElementById('dc-total').textContent = '...';
-      document.getElementById('dp-total').textContent = '...';
+    // ── Autoconsumo instantáneo (barra superior) ───────────────────────────
+    const pv=l.pv_w;
+    if(pv>10){
+      const ex=gw<0?-gw:0;
+      const ac=Math.min(100,Math.round((pv-ex)/pv*100));
+      const ae=ip('tb-ac');
+      ae.textContent=ac+'%';
+      ae.style.color=ac>=80?'#2ecc71':ac>=50?'#f5c518':'#e74c3c';
+    } else {
+      ip('tb-ac').textContent='--%';
+      ip('tb-ac').style.color='var(--muted)';
     }
 
-    // ── Status bar ────────────────────────────────────────────────────────
-    document.getElementById('status-dot').style.background = '#2ecc71';
-    document.getElementById('status-txt').textContent =
-      'Actualizado ' + new Date().toLocaleTimeString('es-ES');
+    // ── Donuts diarios ────────────────────────────────────────────────────
+    if(day&&day.valid){
+      const pvDir=Math.max(0,day.load_kwh-day.batt_discharge_kwh-day.import_kwh);
+      const pvLd=Math.max(0,day.pv_kwh-day.export_kwh-day.batt_charge_kwh);
+      setDonut(['dc-pv','dc-dis','dc-imp'],
+               [pvDir,day.batt_discharge_kwh,day.import_kwh],day.load_kwh);
+      setDonut(['dp-lod','dp-chg','dp-exp'],
+               [pvLd,day.batt_charge_kwh,day.export_kwh],day.pv_kwh);
+      ip('dc-total').textContent=day.load_kwh.toFixed(1);
+      ip('dp-total').textContent=day.pv_kwh.toFixed(1);
+      ip('dl-con-pv').textContent=fmt(pvDir);
+      ip('dl-con-dis').textContent=fmt(day.batt_discharge_kwh);
+      ip('dl-con-imp').textContent=fmt(day.import_kwh);
+      ip('dl-pro-lod').textContent=fmt(pvLd);
+      ip('dl-pro-chg').textContent=fmt(day.batt_charge_kwh);
+      ip('dl-pro-exp').textContent=fmt(day.export_kwh);
+      const asuf=day.load_kwh>0.01?
+        Math.max(0,Math.min(100,(day.load_kwh-day.import_kwh)/day.load_kwh*100)):0;
+      const acon=day.pv_kwh>0.01?
+        Math.max(0,Math.min(100,(day.pv_kwh-day.export_kwh)/day.pv_kwh*100)):0;
+      ip('kpi-autosuf').textContent=asuf.toFixed(0)+'%';
+      ip('kpi-autocon').textContent=acon.toFixed(0)+'%';
+    }
 
-  } catch (err) {
-    document.getElementById('status-dot').style.background = '#e74c3c';
-    document.getElementById('status-txt').textContent = 'Error: ' + err.message;
+    ip('tb-dot').style.background='#2ecc71';
+    ip('tb-txt').textContent='Actualizado '+new Date().toLocaleTimeString('es-ES');
+
+  }catch(err){
+    ip('tb-dot').style.background='#e74c3c';
+    ip('tb-txt').textContent='Error';
   }
 }
 
-// Reloj en la status bar (independiente del refresco de datos)
-function clock() {
-  document.getElementById('status-time').textContent =
-    new Date().toLocaleTimeString('es-ES');
+function clock(){
+  ip('tb-clock').textContent=new Date().toLocaleTimeString('es-ES');
 }
 
-refresh();                          // carga inicial inmediata
+refresh();
 fetch('/api/status').then(r=>r.json()).then(s=>{
-  if(s.version){
-    const v='v'+s.version;
-    document.getElementById('app-ver').textContent=v;
-    document.getElementById('h1-ver').textContent=v;
-  }
+  if(s.version) ip('app-ver').textContent='v'+s.version;
 }).catch(()=>{});
-setInterval(refresh, 5000);         // refresco de datos cada 5 s
-setInterval(clock,   1000);         // reloj cada 1 s
-</script>
-</body></html>)EOF";
-
-    server.send(200, "text/html; charset=utf-8", html);
+setInterval(refresh,5000);
+setInterval(clock,1000);
+</script></body></html>)=EOF=");
 }
 
 // ═════════════════════════════════════════════════════════════════════════
