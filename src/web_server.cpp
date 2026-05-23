@@ -77,6 +77,10 @@ body{background:var(--bg);color:var(--wh);font-family:system-ui,sans-serif;
 .aw svg{display:block;width:100%;height:100%}
 .csub{font-size:.65rem;color:var(--muted);text-align:center;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
+@media(min-width:700px){
+  .cards{grid-template-columns:repeat(4,1fr)}
+  .aw{width:calc(25vw - 28px);height:calc(25vw - 28px);max-width:220px;max-height:220px}
+}
 /* Sección diaria */
 hr{border:none;border-top:1px solid var(--bd);margin:0 8px}
 .dw{padding:10px 8px 4px}
