@@ -7,6 +7,15 @@
 #include "psram_cache.h"
 #include "calendar_popup.h"
 
+// ── Layout: SOC superpuesto al chart de potencias ─────────────────────────
+// El área del chart de potencias absorbe el espacio de leyenda + SOC chart.
+#define MERGED_H      (CHART_PWR_H + CHART_LEG_H + CHART_SOC_H)
+#define MERGED_XLAB_Y (CHART_PWR_Y + MERGED_H)
+#define MERGED_LEG_Y  (MERGED_XLAB_Y + FONT_SMALL_SIZE + SY(2))
+#define MERGED_PAD_R  CH_PAD_L  // padding derecho simétrico al izquierdo
+#define MERGED_CW     (SCREEN_WIDTH - CH_PAD_L - MERGED_PAD_R)
+#define CHART_HOUR_X_M(h) (CH_PAD_L + (int)((h) * MERGED_CW / 23.0f + 0.5f))
+
 // ── Paleta ────────────────────────────────────────────────────────────────
 #define C_PV    lv_color_hex(0xF5C518)
 #define C_GRID  lv_color_hex(0x4A9EFF)
@@ -30,9 +39,10 @@ static uint32_t s_day_epoch_loaded = 0;
 // ── Widgets ───────────────────────────────────────────────────────────────
 static lv_obj_t           *s_lbl_date;
 static lv_obj_t           *s_btn_prev, *s_btn_next;
-static lv_obj_t           *s_chart_pwr, *s_chart_soc;
+static lv_obj_t           *s_chart_pwr;
 static lv_chart_series_t  *s_spv, *s_sgrid, *s_sbatt, *s_sload, *s_ssoc;
 static lv_obj_t           *s_ylabels_container = nullptr;
+static lv_obj_t           *s_ylabels_right     = nullptr;
 static lv_obj_t           *s_no_data;
 
 // Popup y línea vertical
@@ -83,7 +93,7 @@ static void update_date_label() {
 // Devuelve la coordenada X absoluta (en pantalla) del punto de hora h
 // dentro del área de contenido del chart.
 static int hour_to_screen_x(int h) {
-    return CHART_HOUR_X(h);
+    return CHART_HOUR_X_M(h);
 }
 
 // ── Etiquetas eje Y izquierda ─────────────────────────────────────────────
@@ -137,13 +147,13 @@ static void apply_range() {
         lv_chart_set_range(s_chart_pwr, LV_CHART_AXIS_PRIMARY_Y,
                            mn - margin, mx + margin);
         lv_obj_clean(s_ylabels_container);
-        add_y_labels(s_ylabels_container, 0, CHART_PWR_H,
+        add_y_labels(s_ylabels_container, 0, MERGED_H,
                      (int)(mn - margin), (int)(mx + margin), 4, "k");
     } else {
         int32_t m = (int32_t)cfg.max_kw * 1000;
         lv_chart_set_range(s_chart_pwr, LV_CHART_AXIS_PRIMARY_Y, -m, m);
         lv_obj_clean(s_ylabels_container);
-        add_y_labels(s_ylabels_container, 0, CHART_PWR_H, (int)-m, (int)m, 4, "k");
+        add_y_labels(s_ylabels_container, 0, MERGED_H, (int)-m, (int)m, 4, "k");
     }
 }
 
@@ -167,7 +177,7 @@ static void update_charts() {
             lv_chart_set_value_by_id(s_chart_pwr, s_sgrid, h, LV_CHART_POINT_NONE);
             lv_chart_set_value_by_id(s_chart_pwr, s_sbatt, h, LV_CHART_POINT_NONE);
             lv_chart_set_value_by_id(s_chart_pwr, s_sload, h, LV_CHART_POINT_NONE);
-            lv_chart_set_value_by_id(s_chart_soc, s_ssoc,  h, LV_CHART_POINT_NONE);
+            lv_chart_set_value_by_id(s_chart_pwr, s_ssoc,  h, LV_CHART_POINT_NONE);
         } else {
             has_any = true;
             // Valores en W (medias del periodo)
@@ -175,7 +185,7 @@ static void update_charts() {
             lv_chart_set_value_by_id(s_chart_pwr, s_sgrid, h, (int32_t)a.grid_w);
             lv_chart_set_value_by_id(s_chart_pwr, s_sbatt, h, (int32_t)a.batt_w);
             lv_chart_set_value_by_id(s_chart_pwr, s_sload, h, (int32_t)a.load_w);
-            lv_chart_set_value_by_id(s_chart_soc, s_ssoc,  h, (int32_t)a.soc);
+            lv_chart_set_value_by_id(s_chart_pwr, s_ssoc,  h, (int32_t)a.soc);
         }
     }
 
@@ -239,7 +249,7 @@ static void show_popup(int32_t h) {
     // Línea vertical
     int line_x = hour_to_screen_x((int)h);
     lv_obj_set_pos(s_vline, line_x, CHART_PWR_Y);
-    lv_obj_set_size(s_vline, 1, CHART_SOC_Y + CHART_SOC_H - CHART_PWR_Y);
+    lv_obj_set_size(s_vline, 1, MERGED_H);
     lv_obj_remove_flag(s_vline, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_vline);
 
@@ -292,10 +302,7 @@ static void chart_click_cb(lv_event_t* e) {
     if (!indev) return;
     if (lv_indev_get_state(indev) != LV_INDEV_STATE_PRESSED) return;
 
-    // lv_chart_get_pressed_point necesita el chart correcto
-    lv_obj_t* target = (lv_obj_t*)lv_event_get_target(e);
-    lv_obj_t* chart  = (target == s_chart_soc) ? s_chart_soc : s_chart_pwr;
-    uint32_t  idx    = lv_chart_get_pressed_point(chart);
+    uint32_t idx = lv_chart_get_pressed_point(s_chart_pwr);
 
     if (idx == LV_CHART_POINT_NONE) return;
     show_popup((int32_t)idx);
@@ -372,6 +379,7 @@ static lv_obj_t* make_chart(lv_obj_t* parent, int y, int h, int y_lo, int y_hi, 
 void chart_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_bg_color(parent, C_BG, 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
+    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_OFF);
 
     // ── Barra de navegación ───────────────────────────────────────────────
     s_btn_prev = nav_btn(parent, SX(2), SY(2), NAV_BTN_W, NAV_BTN_H,
@@ -413,73 +421,89 @@ void chart_screen_init(lv_obj_t* parent) {
         load_day();
     }, LV_EVENT_CLICKED, nullptr);
 
-    // ── Chart de potencias ────────────────────────────────────────────────
-    s_chart_pwr = make_chart(parent, PWR_Y, PWR_H, -6000, 6000, 5);
+    // ── Chart de potencias (altura ampliada, SOC en eje secundario) ──────────
+    s_chart_pwr = make_chart(parent, CHART_PWR_Y, MERGED_H, -6000, 6000, 5);
+    lv_obj_set_style_pad_right(s_chart_pwr, MERGED_PAD_R, 0);
+    lv_chart_set_range(s_chart_pwr, LV_CHART_AXIS_SECONDARY_Y, 0, 100);
+
+    // Etiquetas eje Y izquierda (potencias)
     s_ylabels_container = lv_obj_create(parent);
-    lv_obj_set_pos(s_ylabels_container, 0, PWR_Y);
-    lv_obj_set_size(s_ylabels_container, CH_PAD_L, PWR_H);
+    lv_obj_set_pos(s_ylabels_container, 0, CHART_PWR_Y);
+    lv_obj_set_size(s_ylabels_container, CH_PAD_L, MERGED_H);
     lv_obj_set_style_bg_opa(s_ylabels_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_ylabels_container, 0, 0);
-    lv_obj_set_style_pad_all(s_ylabels_container, 0, 0);         
-    lv_obj_set_style_clip_corner(s_ylabels_container, false, 0); 
+    lv_obj_set_style_pad_all(s_ylabels_container, 0, 0);
+    lv_obj_set_style_clip_corner(s_ylabels_container, false, 0);
     lv_obj_set_scrollbar_mode(s_ylabels_container, LV_SCROLLBAR_MODE_OFF);
     lv_obj_remove_flag(s_ylabels_container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_ylabels_container, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-    add_y_labels(s_ylabels_container, 0, PWR_H, -6000, 6000, 4, YAXIS_UNIT_PWR);
- 
+    add_y_labels(s_ylabels_container, 0, MERGED_H, -6000, 6000, 4, YAXIS_UNIT_PWR);
+
+    // Etiquetas eje Y derecha (SOC %)
+    s_ylabels_right = lv_obj_create(parent);
+    lv_obj_set_pos(s_ylabels_right, SCREEN_WIDTH - CH_PAD_L, CHART_PWR_Y);
+    lv_obj_set_size(s_ylabels_right, CH_PAD_L, MERGED_H);
+    lv_obj_set_style_bg_opa(s_ylabels_right, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_ylabels_right, 0, 0);
+    lv_obj_set_style_pad_all(s_ylabels_right, 0, 0);
+    lv_obj_set_style_clip_corner(s_ylabels_right, false, 0);
+    lv_obj_set_scrollbar_mode(s_ylabels_right, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(s_ylabels_right, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_ylabels_right, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    for (int i = 0; i <= 4; i++) {
+        int val = i * 25;
+        int py = (int)((float)(4 - i) / 4 * (MERGED_H - 2 * CH_PAD_TV))
+                 + CH_PAD_TV - FONT_SMALL_SIZE / 2;
+        char buf[8]; snprintf(buf, sizeof(buf), "%d%%", val);
+        lv_obj_t* lbl = lv_label_create(s_ylabels_right);
+        lv_obj_set_pos(lbl, 0, py);
+        lv_obj_set_width(lbl, CH_PAD_L - 2);
+        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_set_style_text_font(lbl, &FONT_SMALL, 0);
+        lv_obj_set_style_text_color(lbl, C_SOC, 0);
+        lv_label_set_text(lbl, buf);
+    }
+
+    // Series de potencias + SOC en eje secundario
     s_sload = lv_chart_add_series(s_chart_pwr, C_LOAD, LV_CHART_AXIS_PRIMARY_Y);
     s_sbatt = lv_chart_add_series(s_chart_pwr, C_BATT, LV_CHART_AXIS_PRIMARY_Y);
     s_sgrid = lv_chart_add_series(s_chart_pwr, C_GRID, LV_CHART_AXIS_PRIMARY_Y);
     s_spv   = lv_chart_add_series(s_chart_pwr, C_PV,   LV_CHART_AXIS_PRIMARY_Y);
+    s_ssoc  = lv_chart_add_series(s_chart_pwr, C_SOC,  LV_CHART_AXIS_SECONDARY_Y);
 
     lv_obj_add_flag(s_chart_pwr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_chart_pwr, chart_click_cb, LV_EVENT_PRESSED, nullptr);
     lv_obj_remove_flag(s_chart_pwr, LV_OBJ_FLAG_GESTURE_BUBBLE);
-
-    // ── Leyenda ───────────────────────────────────────────────────────────
-    struct LegDef { int x; lv_color_t c; const char* txt; };
-    LegDef ldefs[] = {
-        {SX(5),  C_PV,   "PV"},
-        {SX(65), C_GRID, "Red"},
-        {SX(120),C_BATT, "Bat"},
-        {SX(170),C_LOAD, "Carga"},
-        {SX(240),C_SOC,  "SOC"},
-    };
-    for (auto& ld : ldefs) {
-        legend_dot(parent, ld.x, LEG_Y, ld.c, ld.txt);
-    }
-
-    lv_obj_t* u = lv_label_create(parent);
-    lv_obj_set_pos(u, SCREEN_WIDTH - SX(90), LEG_Y + SY(1));
-    lv_obj_set_style_text_color(u, C_MUTED, 0);
-    lv_obj_set_style_text_font(u, &FONT_SMALL, 0);
-    lv_label_set_text(u, "W | %");
-
-    // ── Chart SOC ─────────────────────────────────────────────────────────
-    s_chart_soc = make_chart(parent, SOC_Y, SOC_H, 0, 100, 2);
-    add_y_labels(parent, SOC_Y, SOC_H, 0, 100, 2, YAXIS_UNIT_SOC);
-    s_ssoc = lv_chart_add_series(s_chart_soc, C_SOC, LV_CHART_AXIS_PRIMARY_Y);
-
-    lv_obj_add_flag(s_chart_soc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_chart_soc, chart_click_cb, LV_EVENT_PRESSED, nullptr);
-    lv_obj_remove_flag(s_chart_soc, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     // ── Etiquetas eje X ───────────────────────────────────────────────────
     const struct { int h; const char* s; } xlabs[] = {
         {0,"00"},{6,"06"},{12,"12"},{18,"18"},{21,"21"}
     };
     for (auto& xl : xlabs) {
-        int px = CHART_HOUR_X(xl.h) - SX(8);
+        int px = CHART_HOUR_X_M(xl.h) - SX(8);
         lv_obj_t* l = lv_label_create(parent);
-        lv_obj_set_pos(l, px, XLAB_Y);
+        lv_obj_set_pos(l, px, MERGED_XLAB_Y);
         lv_obj_set_style_text_font(l, &FONT_SMALL, 0);
         lv_obj_set_style_text_color(l, C_MUTED, 0);
         lv_label_set_text(l, xl.s);
     }
 
+    // ── Leyenda ───────────────────────────────────────────────────────────
+    struct LegDef { int x; lv_color_t c; const char* txt; };
+    LegDef ldefs[] = {
+        {SX(5),  C_PV,   "PV"},
+        {SX(55), C_GRID, "Red"},
+        {SX(105),C_BATT, "Bat"},
+        {SX(155),C_LOAD, "Carga"},
+        {SX(220),C_SOC,  "SOC"},
+    };
+    for (auto& ld : ldefs) {
+        legend_dot(parent, ld.x, MERGED_LEG_Y, ld.c, ld.txt);
+    }
+
     // ── Sin datos ─────────────────────────────────────────────────────────
     s_no_data = lv_label_create(parent);
-    lv_obj_set_pos(s_no_data, 0, PWR_Y + PWR_H/2 - FONT_NORMAL_SIZE/2);
+    lv_obj_set_pos(s_no_data, 0, CHART_PWR_Y + MERGED_H/2 - FONT_NORMAL_SIZE/2);
     lv_obj_set_width(s_no_data, SCREEN_WIDTH);
     lv_obj_set_style_text_align(s_no_data, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(s_no_data, &FONT_NORMAL, 0);

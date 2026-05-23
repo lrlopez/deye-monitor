@@ -54,7 +54,7 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantalla Guit
 - Pantalla de inicio (splash) con progreso de inicialización
 
 ### Servidor web integrado
-- Dashboard HTML con 4 tarjetas de arco SVG que replican el layout de la pantalla táctil (Solar, Red, Batería, Carga), actualizado por AJAX cada 5 segundos sin recargar la página
+- Dashboard HTML con 4 tarjetas de arco SVG que replican el layout de la pantalla táctil (Solar, Red, Batería, Carga), actualizado por AJAX cada 5 segundos sin recargar la página; en pantallas anchas (≥ 700 px) las 4 tarjetas se muestran en una sola fila
 - Donuts SVG animados de autoconsumo/producción con totales del día
 - Gráfica interactiva diaria con **Chart.js** y actualización incremental
 - Navegación día a día en el navegador
@@ -238,15 +238,17 @@ Donuts de distribución de energía con navegación día a día y selector de ca
 
 ### Pantalla 2 — Gráfica diaria
 
-Gráfica de líneas con 5 series temporales por hora:
+Gráfica de líneas con 5 series temporales por hora en una sola vista unificada:
 
-| Serie | Color | Descripción |
-|---|---|---|
-| PV | Amarillo | Producción solar media |
-| Red | Azul | Intercambio con la red (+import/-export) |
-| Batería | Verde | Potencia de la batería (+desc/-carga) |
-| Carga | Violeta | Consumo del hogar |
-| SOC | Azul oscuro | Estado de carga batería (%) |
+| Serie | Color | Eje | Descripción |
+|---|---|---|---|
+| PV | Amarillo | Izquierdo (W) | Producción solar media |
+| Red | Azul | Izquierdo (W) | Intercambio con la red (+import/-export) |
+| Batería | Verde | Izquierdo (W) | Potencia de la batería (+desc/-carga) |
+| Carga | Violeta | Izquierdo (W) | Consumo del hogar |
+| SOC | Azul oscuro | Derecho (%) | Estado de carga batería |
+
+El SOC se superpone a las series de potencia con su propio eje de porcentaje a la derecha, aprovechando toda la altura disponible de la pantalla.
 
 - Tap en la gráfica → popup con valores de esa hora
 - Línea vertical indicadora

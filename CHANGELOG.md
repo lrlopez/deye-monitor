@@ -6,7 +6,17 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ---
 
-## [Unreleased]
+## [v2.0.5] - 2026-05-23
+
+### Modificado
+
+- **Dashboard web en escritorio:** en pantallas ≥ 700 px las 4 tarjetas se muestran en una sola fila.
+- **Pantalla de gráfica:** el SOC de la batería ya no se muestra en una gráfica separada; se superpone a la gráfica de potencias como serie secundaria con eje Y de porcentaje a la derecha. La zona aprovecha toda la altura liberada por la gráfica de SOC anterior.
+- **Gráfica:** el eje horario aparece inmediatamente debajo de la gráfica y la leyenda va al final, dejando espacio para los puntos de navegación.
+
+### Corregido
+
+- **Pantalla de gráfica:** ya no aparece una barra de desplazamiento horizontal debajo de los puntos de navegación.
 
 ---
 
