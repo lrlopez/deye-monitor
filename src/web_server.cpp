@@ -166,19 +166,45 @@ footer a{color:var(--accent);text-decoration:none}
   <div class="csub" id="grid-sub">--</div>
 </div>
 
-<!-- 🔋 Batería (gradiente rojo/amarillo/verde + máscara gris) -->
+<!-- 🔋 Batería (degradado multi-segmento rojo→amarillo→verde + máscara gris) -->
 <div class="card">
   <div class="ct">&#128267; Bater&iacute;a</div>
   <div class="aw"><svg viewBox="0 0 120 120">
-    <circle cx="60" cy="60" r="52" fill="none" stroke="#e74c3c" stroke-width="10"
-      stroke-dasharray="81.68 245.05" stroke-linecap="butt" transform="rotate(135 60 60)"/>
-    <circle cx="60" cy="60" r="52" fill="none" stroke="#f5c518" stroke-width="10"
-      stroke-dasharray="81.68 245.05" stroke-linecap="butt" transform="rotate(135 60 60)"
-      stroke-dashoffset="-81.68"/>
-    <circle cx="60" cy="60" r="52" fill="none" stroke="#2ecc71" stroke-width="10"
-      stroke-dasharray="81.68 245.05" stroke-linecap="butt" transform="rotate(135 60 60)"
-      stroke-dashoffset="-163.36"/>
-    <circle id="a-bm" cx="60" cy="60" r="52" fill="none" stroke="#21262d" stroke-width="11"
+)=EOF=");
+
+    // ── Degradado batería: 24 segmentos rojo→amarillo→verde ──────────────────
+    // Un linearGradient SVG no funciona en arcos de 270° (no monótono en 2D).
+    // Se generan N segmentos de arco, cada uno con su color interpolado.
+    {
+        static const int   N       = 24;
+        static const float SEG_LEN = 245.05f / N;   // ~10.21 px por segmento
+        static const float GAP     = 326.73f - SEG_LEN;
+        char sb[220];
+        for (int i = 0; i < N; i++) {
+            float t = (float)i / (N - 1);           // 0.0 → 1.0 a lo largo del arco
+            uint8_t r, g, b;
+            if (t <= 0.5f) {
+                float u = t * 2.0f;                 // rojo → amarillo
+                r = (uint8_t)(231 + (245 - 231) * u + 0.5f);
+                g = (uint8_t)( 76 + (197 -  76) * u + 0.5f);
+                b = (uint8_t)( 60 - ( 60 -  24) * u + 0.5f);
+            } else {
+                float u = (t - 0.5f) * 2.0f;       // amarillo → verde
+                r = (uint8_t)(245 - (245 -  46) * u + 0.5f);
+                g = (uint8_t)(197 + (204 - 197) * u + 0.5f);
+                b = (uint8_t)( 24 + (113 -  24) * u + 0.5f);
+            }
+            snprintf(sb, sizeof(sb),
+                "    <circle cx=\"60\" cy=\"60\" r=\"52\" fill=\"none\" stroke=\"#%02x%02x%02x\""
+                " stroke-width=\"10\" stroke-dasharray=\"%.2f %.2f\""
+                " stroke-linecap=\"butt\" transform=\"rotate(135 60 60)\""
+                " stroke-dashoffset=\"%.2f\"/>\n",
+                r, g, b, SEG_LEN, GAP, -i * SEG_LEN);
+            server.sendContent(sb);
+        }
+    }
+
+    server.sendContent(R"=EOF=(    <circle id="a-bm" cx="60" cy="60" r="52" fill="none" stroke="#21262d" stroke-width="11"
       stroke-dasharray="245.05 81.68" stroke-linecap="butt" transform="rotate(135 60 60)"/>
     <text x="60" y="60" text-anchor="middle" dominant-baseline="middle" fill="#eaeaea"
       font-size="24" font-weight="700" font-family="system-ui" id="a-soc-t">--%</text>
@@ -379,7 +405,6 @@ async function refresh(){
 
     // Batería
     const soc=l.batt_soc, bw=l.batt_w;
-    const scol=soc<20?'#e74c3c':soc<50?'#f5c518':'#2ecc71';
     ip('a-soc-t').textContent=soc+'%';
     ip('batt-sub').textContent=Math.abs(bw)+' W \xb7 '+(bw<0?'Cargando':bw>0?'Descargando':'En reposo');
     setBatt(soc);

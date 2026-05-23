@@ -233,10 +233,28 @@ void dashboard_init(lv_obj_t* parent)
 
         lbl_batt_status = make_info(c, INFO_Y1, "--");
 
-        // Arcos de fondo del gradiente — tres tercios iguales de 90° cada uno
-        make_bg_arc(c, 135, 225, C_ERR);    // rojo    — primer tercio  (0%→33%)
-        make_bg_arc(c, 225, 315, C_WARN);   // amarillo — segundo tercio (33%→67%)
-        make_bg_arc(c, 315,  45, C_OK);     // verde   — tercer tercio  (67%→100%)
+        // Arcos de fondo del degradado — 24 segmentos rojo→amarillo→verde.
+        // Cada segmento (excepto el último) se extiende 1° sobre el siguiente para
+        // eliminar las costuras producidas por el anti-aliasing del renderer de LVGL.
+        // El segmento siguiente, dibujado encima, tapa el solapamiento con su color.
+        for (int i = 0; i < 24; i++) {
+            float t = (float)i / 23.0f;
+            uint8_t r, g, b;
+            if (t <= 0.5f) {
+                float u = t * 2.0f;
+                r = (uint8_t)(231 + (245 - 231) * u + 0.5f);
+                g = (uint8_t)( 76 + (197 -  76) * u + 0.5f);
+                b = (uint8_t)( 60 - ( 60 -  24) * u + 0.5f);
+            } else {
+                float u = (t - 0.5f) * 2.0f;
+                r = (uint8_t)(245 - (245 -  46) * u + 0.5f);
+                g = (uint8_t)(197 + (204 - 197) * u + 0.5f);
+                b = (uint8_t)( 24 + (113 -  24) * u + 0.5f);
+            }
+            uint16_t a0 = (uint16_t)(135 + (int)(i       * 270.0f / 24));
+            uint16_t a1 = (uint16_t)(135 + (int)((i + 1) * 270.0f / 24) + (i < 23 ? 1 : 0));
+            make_bg_arc(c, a0, a1, lv_color_make(r, g, b));
+        }
 
         // Máscara dinámica (REVERSE): cubre la parte no rellena con gris oscuro.
         // MAIN transparente → gradiente de fondo visible; INDICATOR (gris) tapa lo vacío.
