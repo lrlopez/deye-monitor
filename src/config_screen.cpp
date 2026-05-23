@@ -112,10 +112,10 @@ static lv_obj_t* make_field(lv_obj_t* parent, int x, int y, int w,
     // sobre estilos base locales → cursor invisible con foco, visible sin él.
     // Solución: ocultar en base y definir el estilo también con LV_STATE_FOCUSED.
     lv_obj_set_style_border_width(ta, 0, LV_PART_CURSOR);
-    lv_obj_set_style_bg_opa(ta, LV_OPA_TRANSP, LV_PART_CURSOR | LV_STATE_FOCUSED);
-    lv_obj_set_style_border_side(ta, LV_BORDER_SIDE_LEFT, LV_PART_CURSOR | LV_STATE_FOCUSED);
-    lv_obj_set_style_border_color(ta, C_WHITE, LV_PART_CURSOR | LV_STATE_FOCUSED);
-    lv_obj_set_style_border_width(ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_opa(ta, LV_OPA_TRANSP, (lv_style_selector_t)LV_PART_CURSOR | LV_STATE_FOCUSED);
+    lv_obj_set_style_border_side(ta, LV_BORDER_SIDE_LEFT, (lv_style_selector_t)LV_PART_CURSOR | LV_STATE_FOCUSED);
+    lv_obj_set_style_border_color(ta, C_WHITE, (lv_style_selector_t)LV_PART_CURSOR | LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(ta, 2, (lv_style_selector_t)LV_PART_CURSOR | LV_STATE_FOCUSED);
     return ta;
 }
 

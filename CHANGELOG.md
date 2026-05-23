@@ -6,6 +6,19 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ---
 
+## [v2.0.6] - 2026-05-23
+
+### Modificado
+
+- **Arco de batería (pantalla táctil y web):** el indicador de carga pasa de 3 segmentos de color fijo a 24 segmentos con degradado continuo rojo → amarillo → verde. El inicio del arco (0 %) es siempre rojo puro y el extremo (100 %) es verde puro.
+
+### Corregido
+
+- **Arco de batería (pantalla táctil):** eliminadas las discontinuidades visibles entre segmentos debidas al anti-aliasing del renderer de LVGL; cada segmento se extiende 1° para que el siguiente lo tape con su color sólido.
+- **Pantalla de configuración:** eliminado el warning de compilación por conversión entre `lv_part_t` y `lv_state_t` en el estilo del cursor del área de texto.
+
+---
+
 ## [v2.0.5] - 2026-05-23
 
 ### Modificado
