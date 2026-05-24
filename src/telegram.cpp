@@ -203,24 +203,27 @@ String TelegramBot::cmdDia(const String& date_str) const {
 
 String TelegramBot::cmdSemana() const {
     uint32_t today = today_midnight();
-    String msg = "📊 *Resumen semanal*\n\n";
-
     static const char* DIAS[] = {"Dom","Lun","Mar","Mié","Jue","Vie","Sáb"};
 
     float total_pv = 0, total_exp = 0, total_imp = 0, total_load = 0;
 
-    for (int i = 6; i >= 0; i--) {
+    // Formatear a buffer único para evitar fragmentación SRAM por String += iterativo
+    char buf[768];
+    int pos = snprintf(buf, sizeof(buf), "📊 *Resumen semanal*\n\n");
+
+    for (int i = 6; i >= 0 && pos < (int)sizeof(buf) - 2; i--) {
         uint32_t dep = today - (uint32_t)i * 86400;
         DailyRecord dr{};
         DailyStats d{};
         if (Cache.getDaily(dep, dr)) d = daily_record_to_stats(dr);
 
         time_t t = (time_t)dep;
-        struct tm tm; localtime_r(&t, &tm);
-        const char* dia = DIAS[tm.tm_wday];
+        struct tm tm_d; localtime_r(&t, &tm_d);
+        const char* dia = DIAS[tm_d.tm_wday];
 
         if (!d.valid) {
-            msg += String(dia) + " " + String(tm.tm_mday) + ": _sin datos_\n";
+            pos += snprintf(buf + pos, sizeof(buf) - pos,
+                            "%s %d: _sin datos_\n", dia, tm_d.tm_mday);
             continue;
         }
 
@@ -228,14 +231,12 @@ String TelegramBot::cmdSemana() const {
                         ? (d.load_kwh - d.import_kwh) / d.load_kwh * 100.0f : 0;
         if (autosuf < 0) autosuf = 0;
 
-        char line[80];
-        snprintf(line, sizeof(line),
+        pos += snprintf(buf + pos, sizeof(buf) - pos,
             "%s %d: ☀️%.1f 🏠%.1f 🔌%+.1f (%0.f%%)\n",
-            dia, tm.tm_mday,
+            dia, tm_d.tm_mday,
             d.pv_kwh, d.load_kwh,
             d.export_kwh - d.import_kwh,
             autosuf);
-        msg += line;
 
         total_pv   += d.pv_kwh;
         total_exp  += d.export_kwh;
@@ -245,14 +246,14 @@ String TelegramBot::cmdSemana() const {
 
     float autosuf_total = (total_load > 0.01f)
                           ? (total_load - total_imp) / total_load * 100.0f : 0;
-    char total[120];
-    snprintf(total, sizeof(total),
-        "\n*Total:* ☀️%.1f kWh  🏠%.1f kWh\n"
-        "Export: %.1f  Import: %.1f\n"
-        "Autosuficiencia: *%.0f%%*",
-        total_pv, total_load, total_exp, total_imp, autosuf_total);
-    msg += total;
-    return msg;
+    if (pos < (int)sizeof(buf) - 1)
+        snprintf(buf + pos, sizeof(buf) - pos,
+            "\n*Total:* ☀️%.1f kWh  🏠%.1f kWh\n"
+            "Export: %.1f  Import: %.1f\n"
+            "Autosuficiencia: *%.0f%%*",
+            total_pv, total_load, total_exp, total_imp, autosuf_total);
+
+    return String(buf);
 }
 
 String TelegramBot::cmdSistema() const {
