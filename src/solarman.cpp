@@ -91,6 +91,8 @@ bool SolarmanClient::readRegisters(uint16_t startReg, uint16_t count, uint16_t* 
     const int DATA_OFFSET = 28;
     const int expectedLen = DATA_OFFSET + count * 2 + 4; // +2 CRC Modbus +1 checksum +1 0x15
 
+    static_assert(28 + REG_DAILY_COUNT * 2 + 4 <= 256,
+                  "resp[] demasiado pequeño para REG_DAILY_COUNT");
     uint8_t resp[256];
     int received = 0;
     uint32_t t0 = millis();
