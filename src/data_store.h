@@ -116,6 +116,7 @@ public:
     bool     readDaily(uint32_t day_epoch, DailyRecord& out);
     // Todos los registros diarios ordenados de más antiguo a más reciente
     uint32_t readAllDaily(DailyRecord* out, uint32_t max);
+    DailyRecord getCurrentDaily();
 
     // ── Capacidad ─────────────────────────────────────────────────────────
     uint32_t getRawCount()       const { return _raw_count;       }
@@ -163,6 +164,8 @@ private:
     static const char* META_FILE;
     static const uint32_t MAGIC   = 0x5A5ADEA2;
     static const uint8_t  VERSION = 5;           // versión 5: sin pre-alocación de ficheros
+
+    DailyRecord currentDaily;
 
     bool loadMeta();
     bool saveMeta();

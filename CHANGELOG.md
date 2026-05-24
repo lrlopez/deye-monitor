@@ -13,6 +13,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 ### Corregido
 
 - **Etiquetas negativas en perfil de energía:** Se muestran correctamente las etiquetas de la parte negativa.
+- **Actualización permanente del perfil de energía:** Si la pantalla está activa, actualizar la pantalla cuando haya nuevos datos.
 
 ---
 

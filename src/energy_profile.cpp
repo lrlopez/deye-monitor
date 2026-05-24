@@ -436,6 +436,13 @@ void energy_profile_init(lv_obj_t* tile) {
 }
 
 void energy_profile_tick() {
+    static uint32_t last_day_epoch;
+
+    if (Store.getCurrentDaily().day_epoch != last_day_epoch) {
+        last_day_epoch = Store.getCurrentDaily().day_epoch;
+        s_needs_reload = true;
+    }
+    
     if (s_needs_reload && s_active) {
         s_needs_reload = false;
         ep_reload();

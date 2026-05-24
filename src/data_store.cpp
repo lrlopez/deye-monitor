@@ -368,6 +368,7 @@ bool DataStore::pushDaily(const DailyRecord& r) {
     }
     bool ok = writeAt(_day, phys, &r, sizeof(r));
     if (ok) saveMeta();
+    currentDaily = r;
     xSemaphoreGive(_mutex);
 
     DBGSERIAL.printf("[Daily] %08lu guardado: pv=%.1f exp=%.1f imp=%.1f load=%.1f kWh\n",
@@ -468,4 +469,8 @@ uint32_t DataStore::readAllDaily(DailyRecord* out, uint32_t max) {
         readAt(_day, physIdx(_day, i), &out[i], sizeof(out[i]));
     xSemaphoreGive(_mutex);
     return n;
+}
+
+DailyRecord DataStore::getCurrentDaily() {
+    return currentDaily;
 }

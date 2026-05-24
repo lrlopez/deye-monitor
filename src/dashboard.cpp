@@ -305,7 +305,7 @@ void dashboard_update(const EnergyData& d)
         struct tm ti;
         if (getLocalTime(&ti, 0)) {
             char buf[20];
-            snprintf(buf, sizeof(buf), "Actualizado %02d:%02d:%02d",
+            snprintf(buf, sizeof(buf), "Act. %02d:%02d:%02d",
                      ti.tm_hour, ti.tm_min, ti.tm_sec);
             lv_label_set_text(lbl_sample_time, buf);
         }
