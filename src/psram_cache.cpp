@@ -111,10 +111,11 @@ void PsramCache::_day_load_all() {
     _day_count = Store.readAllDaily(_day_buf, CACHE_DAY_MAX);
     DBGSERIAL.printf("[Cache] Daily cargado: %lu registros\n",
                   (unsigned long)_day_count);
+    constexpr size_t BITMAP_BYTES = (BITMAP_DAYS + 7) / 8;
     _has_data_bitmap = (uint8_t*)heap_caps_malloc(
-        92, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        BITMAP_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (_has_data_bitmap) {
-        memset(_has_data_bitmap, 0, 92);
+        memset(_has_data_bitmap, 0, BITMAP_BYTES);
         _bitmap_build();
     }
 }
