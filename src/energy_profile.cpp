@@ -380,9 +380,8 @@ static void ep_reload() {
 // ── Popup de detalle ──────────────────────────────────────────────────────
 static void show_popup_ep(int day) {
     if (day < 0 || day >= s_ndays || !s_popup || !s_vline) return;
-    if (!s_bars[day].valid) return;
 
-    if (day == s_selected_day) {
+    if (!s_bars[day].valid || day == s_selected_day) {
         s_selected_day = -1;
         lv_obj_add_flag(s_popup, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_vline, LV_OBJ_FLAG_HIDDEN);
