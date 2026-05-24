@@ -31,9 +31,9 @@ static lv_obj_t *s_no_data;
 // ── Helpers de tiempo ─────────────────────────────────────────────────────
 static uint32_t day_epoch_from_offset(int off) {
     time_t now; time(&now);
-    now += (time_t)off * 86400;
     struct tm t; localtime_r(&now, &t);
     t.tm_hour = 0; t.tm_min = 0; t.tm_sec = 0; t.tm_isdst = -1;
+    t.tm_mday += off;   // mktime normaliza correctamente días negativos y cambio de hora DST
     return (uint32_t)mktime(&t);
 }
 
