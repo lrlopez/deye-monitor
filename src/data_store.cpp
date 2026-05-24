@@ -317,7 +317,10 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
 
 // ── Hourly push ───────────────────────────────────────────────────────────
 bool DataStore::pushHourly(const HourlyRecord& r) {
-    if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return false;
+    if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(500)) != pdTRUE) {
+        DBGSERIAL.println("[Store] pushHourly: mutex timeout — registro horario perdido");
+        return false;
+    }
 
     uint32_t phys;
     if (_hrly.count < _hrly.capacity) {
@@ -339,7 +342,10 @@ bool DataStore::pushHourly(const HourlyRecord& r) {
 
 // ── Daily push ────────────────────────────────────────────────────────────
 bool DataStore::pushDaily(const DailyRecord& r) {
-    if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return false;
+    if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(500)) != pdTRUE) {
+        DBGSERIAL.println("[Store] pushDaily: mutex timeout — registro diario perdido");
+        return false;
+    }
 
     // Buscar si ya existe un registro para ese día (actualizar en lugar de duplicar)
     for (uint32_t i = 0; i < _day.count; i++) {
