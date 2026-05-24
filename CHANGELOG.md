@@ -6,14 +6,18 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+---
+
+## [v2.0.8] - 2026-05-24
+
 ### Añadido
 
-- **Aviso de actualización remota del firmware:** Mostrar mensaje en la pantalla táctil mientras se realiza una actualización remota del firmware.
+- **Aviso de actualización remota del firmware:** Muestra un mensaje en la pantalla táctil mientras se realiza una actualización OTA desde la web.
 
 ### Corregido
 
-- **Etiquetas negativas en perfil de energía:** Se muestran correctamente las etiquetas de la parte negativa.
-- **Actualización permanente del perfil de energía:** Si la pantalla está activa, actualizar la pantalla cuando haya nuevos datos.
+- **Etiquetas negativas en perfil de energía:** Se muestran correctamente las etiquetas del eje inferior.
+- **Actualización del perfil de energía:** La pantalla se refresca automáticamente con los nuevos datos cuando está activa.
 
 ---
 
