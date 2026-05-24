@@ -13,6 +13,7 @@
 #include "stats_screen.h"
 #include "chart_screen.h"
 #include "config_screen.h"
+#include "energy_profile.h"
 #include "splash_screen.h"
 #include "web_server.h"
 #include "telegram.h"
@@ -130,8 +131,9 @@ SemaphoreHandle_t        g_mutex;
 static volatile bool     g_energy_ready = false;
 static volatile bool     g_daily_ready  = false;
 static lv_obj_t*         g_tile_dash    = nullptr;
-static lv_obj_t*         g_tile_stats   = nullptr;
 static lv_obj_t*         g_tile_chart   = nullptr;
+static lv_obj_t*         g_tile_stats   = nullptr;
+static lv_obj_t*         g_tile_energy  = nullptr;
 static lv_obj_t*         g_tile_config  = nullptr;
 
 // Config en RAM cargada desde NVS al arrancar
@@ -756,32 +758,35 @@ void setup() {
     lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_style_bg_color(tv, lv_color_hex(0x0D1117), 0);
 
+    // Dashboard(0) → Chart(1) → Stats(2) → Perfil energía(3) → Config(4)
     g_tile_dash    = lv_tileview_add_tile(tv, 0, 0, LV_DIR_RIGHT);
-    g_tile_stats   = lv_tileview_add_tile(tv, 1, 0, LV_DIR_HOR);
-    g_tile_chart   = lv_tileview_add_tile(tv, 2, 0, LV_DIR_HOR);
-    g_tile_config  = lv_tileview_add_tile(tv, 3, 0, LV_DIR_LEFT);
+    g_tile_chart   = lv_tileview_add_tile(tv, 1, 0, LV_DIR_HOR);
+    g_tile_stats   = lv_tileview_add_tile(tv, 2, 0, LV_DIR_HOR);
+    g_tile_energy  = lv_tileview_add_tile(tv, 3, 0, LV_DIR_HOR);
+    g_tile_config  = lv_tileview_add_tile(tv, 4, 0, LV_DIR_LEFT);
 
     dashboard_init(g_tile_dash);
-    stats_screen_init(g_tile_stats);
     chart_screen_init(g_tile_chart);
+    stats_screen_init(g_tile_stats);
+    energy_profile_init(g_tile_energy);
     config_screen_init(g_tile_config);
-    
-    pagination_dots_init(g_main_screen, 4);
+
+    pagination_dots_init(g_main_screen, 5);
 
     lv_obj_add_event_cb(tv, [](lv_event_t* e) {
         lv_obj_t* tile = lv_tileview_get_tile_active(lv_event_get_target_obj(e));
-       
-        // Alternativa si lv_tileview_get_tile_act no compila:
+
         int idx = 0;
-        lv_obj_t* tiles[] = {g_tile_dash, g_tile_stats,
-                             g_tile_chart, g_tile_config};
-        for (int i = 0; i < 4; i++) {
+        lv_obj_t* tiles[] = {g_tile_dash, g_tile_chart,
+                             g_tile_stats, g_tile_energy, g_tile_config};
+        for (int i = 0; i < 5; i++) {
             if (tiles[i] == tile) { idx = i; break; }
         }
         pagination_dots_set(idx);
 
         chart_screen_set_active(tile == g_tile_chart);
         stats_screen_set_active(tile == g_tile_stats);
+        energy_profile_set_active(tile == g_tile_energy);
     }, LV_EVENT_VALUE_CHANGED, nullptr);
 
     // ── Servidor web ──────────────────────────────────────────────────────
@@ -853,6 +858,7 @@ void loop() {
 
     dashboard_tick();
     chart_screen_tick();
+    energy_profile_tick();
     config_screen_tick();
 
     delay(5);

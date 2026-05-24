@@ -44,10 +44,11 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantalla Guit
 - Caché en **PSRAM** de toda la historia horaria y diaria para acceso sin latencia
 
 ### Interfaz táctil (LVGL 9)
-- 4 pantallas deslizables horizontalmente con indicador de posición
+- **5 pantallas** deslizables horizontalmente con indicador de posición
 - Dashboard de tiempo real con 4 tarjetas
-- Estadísticas diarias con donuts de consumo/producción, navegable día a día
 - Gráfica diaria con líneas temporales de 5 variables
+- Estadísticas diarias con donuts de consumo/producción, navegable día a día
+- **Perfil de energía mensual:** gráfica de barras apiladas con balance diario FV/Red/Batería, navegable mes a mes
 - Pantalla de configuración con scroll y teclado virtual
 - Calendario mensual para selección directa de fecha
 - Modo nocturno con brillo configurable y horario automático

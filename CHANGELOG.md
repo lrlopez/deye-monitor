@@ -6,6 +6,18 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ---
 
+## [v2.0.7] - 2026-05-24
+
+### Añadido
+
+- **Pantalla "Perfil de energía":** nueva pantalla con gráfica de barras mensual. Cada día muestra dos barras apiladas simétricas: la superior acumula FV + Importación + Descarga batería; la inferior acumula Consumo + Exportación + Carga batería. Escala automática cada 20 kWh a partir de 60 kWh. Navegación mes a mes.
+
+### Modificado
+
+- **Orden de pantallas:** la gráfica diaria pasa a la segunda posición (justo después del dashboard), seguida de las estadísticas diarias y el nuevo perfil de energía.
+
+---
+
 ## [v2.0.6] - 2026-05-23
 
 ### Modificado
