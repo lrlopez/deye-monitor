@@ -72,7 +72,7 @@ bool DataStore::begin() {
     if (!_day_idx) {
         DBGSERIAL.println("[Store] Sin PSRAM para índice de días"); return false;
     }
-    memset(_day_idx, 0, STORE_DAYS * sizeof(DayIdx));
+    memset(_day_idx, 0, DAY_IDX_MAX * sizeof(DayIdx));
 
     // Cargar meta; si falla (primer arranque, magia incorrecta o versión
     // incompatible) borrar los ficheros binarios para empezar desde cero.
