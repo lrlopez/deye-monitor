@@ -99,8 +99,8 @@ void BacklightManager::tick() {
     _last_tick = now;
 
     bool dim = false;
-    if (_cfg.night_enabled && _in_night_schedule())    dim = true;
-    if (_cfg.inactivity_enabled)                       dim = _inactivity_exceeded();
+    if (_cfg.night_enabled && _in_night_schedule())              dim = true;
+    if (_cfg.inactivity_enabled && _inactivity_exceeded())       dim = true;
 
     uint8_t target = _pct_to_duty(dim ? _cfg.reduced_pct : _cfg.normal_pct);
     _apply_smooth(target);
