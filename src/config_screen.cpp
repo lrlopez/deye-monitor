@@ -668,6 +668,7 @@ void config_screen_init(lv_obj_t* parent) {
     make_row_label(sec_tg, SY(18), "Bot Token");
     lv_obj_t* ta_token = make_field(sec_tg, CFG_LBL_W, SY(18),
                                      CFG_SECTION_W - CFG_LBL_W - CFG_SEC_PAD, false, "123456:ABC...");
+    lv_textarea_set_max_length(ta_token, sizeof(tgcfg.token) - 1);
     lv_textarea_set_text(ta_token, tgcfg.token);
     lv_obj_add_event_cb(ta_token, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_token, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
@@ -676,6 +677,7 @@ void config_screen_init(lv_obj_t* parent) {
     make_row_label(sec_tg, SY(62), "Chat ID");
     lv_obj_t* ta_chatid = make_field(sec_tg, CFG_LBL_W, SY(62),
                                       CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), false, "-100123456789");
+    lv_textarea_set_max_length(ta_chatid, sizeof(tgcfg.chat_id) - 1);
     lv_textarea_set_text(ta_chatid, tgcfg.chat_id);
     lv_obj_add_event_cb(ta_chatid, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_chatid, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);

@@ -10,6 +10,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 - **Estabilidad interna del almacenamiento:** Corregida una inconsistencia en la inicialización del índice de días en memoria que podría haber causado un fallo al inicio si se hubiera ampliado la capacidad de historial.
 - **Protección de concurrencia en la caché:** Eliminada una ventana de tiempo en la lectura del historial de 5 minutos donde un escritor concurrente podría haber corrompido los datos en uso.
+- **Credenciales de Telegram:** La pantalla de configuración ya no permite introducir un token o chat ID más largo de lo que el sistema puede almacenar; antes se guardaba silenciosamente truncado.
 
 ---
 

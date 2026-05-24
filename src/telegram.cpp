@@ -487,6 +487,9 @@ void TelegramBot::begin(const char* token, const char* chat_id) {
 }
 
 void TelegramBot::setCredentials(const char* token, const char* chat_id) {
+    if (strlen(token) >= sizeof(_token))
+        DBGSERIAL.printf("[Telegram] token demasiado largo (%u chars, max %u) — truncado\n",
+                         strlen(token), sizeof(_token) - 1);
     strncpy(_token,   token,   sizeof(_token)   - 1);
     strncpy(_chat_id, chat_id, sizeof(_chat_id) - 1);
 }
