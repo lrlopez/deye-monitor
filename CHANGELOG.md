@@ -4,6 +4,12 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+### Corregido
+
+- **Etiquetas negativas en perfil de energía:** Se muestran correctamente las etiquetas de la parte negativa.
+
 ---
 
 ## [v2.0.7] - 2026-05-24

@@ -200,6 +200,11 @@ static void chart_draw_cb(lv_event_t* e) {
         lv_area_t la = { box.x1, gy_pos - FONT_SMALL_SIZE / 2 - 1,
                          bar_x0 - SX(3), gy_pos + FONT_SMALL_SIZE / 2 + 1 };
         lv_draw_label(layer, &ydsc, &la);
+
+        snprintf(lbuf, sizeof(lbuf), "-%d", (int)val);
+        la = { box.x1, gy_neg - FONT_SMALL_SIZE / 2 - 1,
+                         bar_x0 - SX(3), gy_neg + FONT_SMALL_SIZE / 2 + 1 };
+        lv_draw_label(layer, &ydsc, &la);
     }
 
     // Etiqueta unidad
@@ -294,10 +299,10 @@ static void chart_draw_cb(lv_event_t* e) {
     // ── Leyenda 2 filas (positivo fila 0, negativo fila 1) ────────────────
     struct { const char* lbl; lv_color_t col; } legs[6] = {
         { "FV",           EP_CC_PV   },
-        { "Importación",  EP_CC_IMP  },
+        { "Importacion",  EP_CC_IMP  },
         { "Bat. desc.",   EP_CC_DIS  },
         { "Consumo",      EP_CN_LOAD },
-        { "Exportación",  EP_CN_EXP  },
+        { "Exportacion",  EP_CN_EXP  },
         { "Carga bat.",   EP_CN_CHG  },
     };
 
