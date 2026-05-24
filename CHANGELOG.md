@@ -13,6 +13,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 - **Reducción del consumo de memoria RAM:** Se eliminó un bloque de datos reservado en memoria que nunca se utilizaba, liberando aproximadamente 550 KB de RAM adicional para el resto de la aplicación.
 - **Selección de red WiFi con nombre exacto:** Al pulsar una red en la lista de redes disponibles, el campo SSID se rellena ahora con el nombre exacto de la red, sin truncarlo aunque contenga paréntesis u otros caracteres especiales.
 - **Número de serie del datalogger:** Se corrigió un error por el que números de serie mayores de 2.147.483.647 se guardaban incorrectamente; ahora se admiten todos los valores válidos (hasta 4.294.967.295).
+- **Menor latencia al grabar el historial:** Los ficheros de historial horario y diario se mantienen abiertos permanentemente, igual que ya hacía el historial de 5 minutos, reduciendo el tiempo de escritura en cada registro.
 
 ---
 

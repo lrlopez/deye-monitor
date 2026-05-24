@@ -147,8 +147,10 @@ private:
     uint32_t& _hrly_count = _hrly.count;
     uint32_t& _day_count  = _day.count;
     
-    // File handle del buffer raw (abierto permanentemente para rendimiento)
+    // File handles abiertos permanentemente para rendimiento
     File _f_raw;
+    File _f_hrly;
+    File _f_day;
 
     // Índice de días en PSRAM — guarda posición FÍSICA (inmutable) en lugar de
     // lógica, para que no se desfase cuando head avanza al envolver el anillo.
@@ -170,8 +172,8 @@ private:
     bool loadMeta();
     bool saveMeta();
 
-    bool writeAt(const CircBuf& cb, uint32_t phys, const void* data, size_t sz);
-    bool readAt (const CircBuf& cb, uint32_t phys, void* data,       size_t sz);
+    bool writeFile(File& f, uint32_t phys, const void* data, size_t sz);
+    bool readFile (File& f, uint32_t phys,       void* data, size_t sz);
 
     bool writeRaw(uint32_t phys, const Record5Min& r);
     bool readRaw (uint32_t phys, Record5Min& r);

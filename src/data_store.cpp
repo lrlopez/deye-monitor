@@ -45,24 +45,16 @@ uint32_t DataStore::physIdx(const CircBuf& cb, uint32_t logical) const {
     return (cb.head + logical) % cb.capacity;
 }
 
-bool DataStore::writeAt(const CircBuf& cb, uint32_t phys,
-                         const void* data, size_t sz) {
-    File f = LittleFS.open(cb.path, LittleFS.exists(cb.path) ? "r+" : "w");
-    if (!f) return false;
-    bool ok = f.seek((uint32_t)phys * sz) &&
-              f.write((const uint8_t*)data, sz) == sz;
-    f.close();
-    return ok;
+bool DataStore::writeFile(File& f, uint32_t phys, const void* data, size_t sz) {
+    if (!f.seek(phys * sz)) return false;
+    if (f.write((const uint8_t*)data, sz) != sz) return false;
+    f.flush();
+    return true;
 }
 
-bool DataStore::readAt(const CircBuf& cb, uint32_t phys,
-                        void* data, size_t sz) {
-    File f = LittleFS.open(cb.path, "r");
-    if (!f) return false;
-    bool ok = f.seek((uint32_t)phys * sz) &&
-              f.read((uint8_t*)data, sz) == sz;
-    f.close();
-    return ok;
+bool DataStore::readFile(File& f, uint32_t phys, void* data, size_t sz) {
+    if (!f.seek(phys * sz)) return false;
+    return f.read((uint8_t*)data, sz) == sz;
 }
 
 // ── Inicialización ────────────────────────────────────────────────────────
@@ -116,9 +108,11 @@ bool DataStore::begin() {
         DBGSERIAL.println("[Store] Error creando ficheros");
         return false;
     }
-    _f_raw = LittleFS.open("/raw.bin", "r+");
-    if (!_f_raw) {
-        DBGSERIAL.println("[Store] Error abriendo raw.bin");
+    _f_raw  = LittleFS.open("/raw.bin",  "r+");
+    _f_hrly = LittleFS.open("/hrly.bin", "r+");
+    _f_day  = LittleFS.open("/day.bin",  "r+");
+    if (!_f_raw || !_f_hrly || !_f_day) {
+        DBGSERIAL.println("[Store] Error abriendo ficheros de datos");
         return false;
     }
 
@@ -331,7 +325,7 @@ bool DataStore::pushHourly(const HourlyRecord& r) {
         phys = _hrly.head;
         _hrly.head = (_hrly.head + 1) % _hrly.capacity;
     }
-    bool ok = writeAt(_hrly, phys, &r, sizeof(r));
+    bool ok = writeFile(_f_hrly, phys, &r, sizeof(r));
     if (ok) saveMeta();
     xSemaphoreGive(_mutex);
 
@@ -350,9 +344,9 @@ bool DataStore::pushDaily(const DailyRecord& r) {
     for (uint32_t i = 0; i < _day.count; i++) {
         uint32_t pi = physIdx(_day, i);
         DailyRecord existing{};
-        if (readAt(_day, pi, &existing, sizeof(existing)) &&
+        if (readFile(_f_day, pi, &existing, sizeof(existing)) &&
             existing.day_epoch == r.day_epoch) {
-            writeAt(_day, pi, &r, sizeof(r));
+            writeFile(_f_day, pi, &r, sizeof(r));
             saveMeta();
             xSemaphoreGive(_mutex);
             return true;
@@ -366,7 +360,7 @@ bool DataStore::pushDaily(const DailyRecord& r) {
         phys = _day.head;
         _day.head = (_day.head + 1) % _day.capacity;
     }
-    bool ok = writeAt(_day, phys, &r, sizeof(r));
+    bool ok = writeFile(_f_day, phys, &r, sizeof(r));
     if (ok) saveMeta();
     currentDaily = r;
     xSemaphoreGive(_mutex);
@@ -398,7 +392,7 @@ uint32_t DataStore::lowerBoundHrly(uint32_t ts) {
     while (lo < hi) {
         uint32_t mid = (lo + hi) / 2;
         HourlyRecord r{};
-        if (readAt(_hrly, physIdx(_hrly, mid), &r, sizeof(r)) && r.hour_epoch < ts)
+        if (readFile(_f_hrly, physIdx(_hrly, mid), &r, sizeof(r)) && r.hour_epoch < ts)
             lo = mid + 1;
         else hi = mid;
     }
@@ -420,7 +414,7 @@ uint8_t DataStore::readHourly(uint32_t dep, HourlyRecord out[24]) {
 
     for (uint32_t i = start; i < _hrly.count; i++) {
         HourlyRecord r{};
-        if (!readAt(_hrly, physIdx(_hrly, i), &r, sizeof(r))) continue;
+        if (!readFile(_f_hrly, physIdx(_hrly, i), &r, sizeof(r))) continue;
         if (r.hour_epoch >= next) break;
         if (!(r.flags & 0x01)) continue;
         // Calcular índice de hora
@@ -439,7 +433,7 @@ bool DataStore::getLastHourly(uint32_t dep, HourlyRecord& out) {
     uint32_t start = lowerBoundHrly(dep);
     for (uint32_t i = start; i < _hrly.count; i++) {
         HourlyRecord r{};
-        if (!readAt(_hrly, physIdx(_hrly, i), &r, sizeof(r))) continue;
+        if (!readFile(_f_hrly, physIdx(_hrly, i), &r, sizeof(r))) continue;
         if (r.hour_epoch >= next) break;
         if (r.flags & 0x01) { out = r; found = true; }
     }
@@ -453,7 +447,7 @@ bool DataStore::readDaily(uint32_t dep, DailyRecord& out) {
     bool found = false;
     for (uint32_t i = 0; i < _day.count; i++) {
         DailyRecord r{};
-        if (readAt(_day, physIdx(_day, i), &r, sizeof(r)) &&
+        if (readFile(_f_day, physIdx(_day, i), &r, sizeof(r)) &&
             r.day_epoch == dep && (r.flags & 0x01)) {
             out = r; found = true; break;
         }
@@ -466,7 +460,7 @@ uint32_t DataStore::readAllDaily(DailyRecord* out, uint32_t max) {
     if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(2000)) != pdTRUE) return 0;
     uint32_t n = (_day.count < max) ? _day.count : max;
     for (uint32_t i = 0; i < n; i++)
-        readAt(_day, physIdx(_day, i), &out[i], sizeof(out[i]));
+        readFile(_f_day, physIdx(_day, i), &out[i], sizeof(out[i]));
     xSemaphoreGive(_mutex);
     return n;
 }
