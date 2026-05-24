@@ -333,7 +333,7 @@ String TelegramBot::fmtAlert(const AlertMsg& msg) const {
 // ── Procesado de comandos entrantes ───────────────────────────────────────
 void TelegramBot::handleCommand(const String& text, const String& from_id) {
     // Seguridad: solo responder al chat_id configurado
-    if (from_id != String(_chat_id)) {
+    if (strcmp(from_id.c_str(), _chat_id) != 0) {
         DBGSERIAL.printf("[Bot] Mensaje de chat_id no autorizado: %s\n",
                       from_id.c_str());
         return;
