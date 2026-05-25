@@ -6,6 +6,17 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+---
+
+## [v3.0.0] - 2026-05-25
+
+### Añadido
+
+- **Fuentes personalizadas con caracteres españoles e iconos FA5:** Las fuentes Montserrat de la UI se han sustituido por versiones generadas a medida que incluyen tildes, eñes y caracteres especiales del español (á, é, í, ó, ú, Á, É, Í, Ó, Ú, ñ, Ñ, ç, ¿, ¡, º, ª…) además de los 23 codepoints de FontAwesome 5 Free utilizados en la interfaz. Las fuentes se compilan directamente en el firmware (`src/fonts/`), sin depender del subconjunto integrado en LVGL.
+- **Indicador de cobertura WiFi en el dashboard:** Icono de señal WiFi en el extremo izquierdo de la barra superior del dashboard con código de color en tiempo real: gris (sin conexión), rojo (señal muy débil, ≤ −75 dBm), naranja (señal débil, −75…−60 dBm) y verde (buena señal, > −60 dBm). Se actualiza cada 5 segundos sin cargar la CPU.
+- **Botón «Reiniciar sin guardar» en configuración:** Permite reiniciar el dispositivo de forma ordenada descartando los cambios pendientes del formulario. Antes de apagar llama a `Store.flush()` para persistir los metadatos del historial, garantizando que no se pierden registros de medición.
+- **Horario nocturno con selector de rango:** El horario de brillo reducido nocturno se configura ahora con un único slider de rango en lugar de dos sliders independientes. El extremo izquierdo marca el fin de la noche (amanecer) y el derecho el inicio (tarde); la franja iluminada entre los dos knobs representa visualmente el período diurno. Los knobs son naranjos, el fondo es azul oscuro (noche) y el indicador central es gris claro (día).
+
 ### Mejorado
 
 - **Iconos más descriptivos en la pantalla principal:** La tarjeta Solar muestra ahora un icono de sol en lugar del rayo de carga, y la tarjeta de Red usa un enchufe en lugar del símbolo WiFi, haciendo más intuitivo de un vistazo qué representa cada valor. El botón de calendario en las pantallas de estadísticas y gráfica muestra ahora un icono de calendario en lugar de una lista. La sección de gráfica en configuración usa un icono de gráfico de barras. La opción de horario nocturno incluye un icono de luna.

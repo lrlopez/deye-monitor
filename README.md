@@ -35,6 +35,7 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantalla Guit
 - SOC de la batería con barra de progreso
 - Indicador de autoconsumo instantáneo con código de colores
 - Reloj en tiempo real sincronizado por NTP
+- **Indicador de cobertura WiFi** en la barra superior del dashboard: verde/naranja/rojo/gris según calidad de señal, actualizado cada 5 segundos
 
 ### Historial y estadísticas
 - Registro de medidas cada **5 minutos** alineado a intervalos exactos (XX:00, XX:05…)
@@ -45,13 +46,14 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantalla Guit
 
 ### Interfaz táctil (LVGL 9)
 - **5 pantallas** deslizables horizontalmente con indicador de posición
-- Dashboard de tiempo real con 4 tarjetas
+- Dashboard de tiempo real con 4 tarjetas e indicador WiFi coloreado
 - Gráfica diaria con líneas temporales de 5 variables
 - Estadísticas diarias con donuts de consumo/producción, navegable día a día
 - **Perfil de energía mensual:** gráfica de barras apiladas con balance diario FV/Red/Batería, navegable mes a mes; popup con valores exactos en kWh al tocar un día; tap en el título para volver al mes actual
-- Pantalla de configuración con scroll y teclado virtual
+- Pantalla de configuración con scroll, teclado virtual y botón «Reiniciar sin guardar»
 - Calendario mensual para selección directa de fecha
-- Modo nocturno con brillo configurable y horario automático
+- Modo nocturno con **slider de rango** para definir el intervalo horario visualmente
+- **Fuentes personalizadas** con tildes, eñes y caracteres especiales del español, compiladas en el firmware
 - Pantalla de inicio (splash) con progreso de inicialización
 
 ### Servidor web integrado
@@ -209,18 +211,18 @@ deye-monitor/
 
 ### Pantalla 0 — Dashboard
 
-Vista principal con datos en tiempo real actualizados cada 5 segundos.
+Vista principal con datos en tiempo real actualizados cada 5 segundos. La barra superior muestra el icono WiFi con código de color en el extremo izquierdo.
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ 10 May · 14:32:07              Autoconsumo 87% 🟢    │
+│ 📶 10 May · 14:32:07   Act. 14:32:05   Autocons. 87%│
 ├─────────────────────┬────────────────────────────────┤
-│  ⚡ SOLAR           │  📶 RED                        │
+│  ☀ SOLAR            │  🔌 RED                        │
 │                     │                                │
 │   2.340 W           │   -914 W                       │
 │ PV1:2340  PV2:0     │   Exportando a la red          │
 ├─────────────────────┼────────────────────────────────┤
-│  🔋 BATERIA         │  🏠 CARGA                      │
+│  🔋 BATERÍA         │  🏠 CARGA                      │
 │                     │                                │
 │   99%               │   Consumo actual               │
 │  ████████████░░     │                                │
@@ -228,6 +230,8 @@ Vista principal con datos en tiempo real actualizados cada 5 segundos.
 └─────────────────────┴────────────────────────────────┘
                     ● ○ ○ ○ ○
 ```
+
+El icono WiFi (📶) cambia de color según la señal: **verde** > −60 dBm · **naranja** −75…−60 dBm · **rojo** ≤ −75 dBm · **gris** sin conexión.
 
 ### Pantalla 1 — Gráfica diaria
 
@@ -278,12 +282,14 @@ Formulario scrollable con teclado virtual:
 | RED WiFi | SSID (con escáner de redes) + contraseña |
 | INVERSOR | IP del datalogger + número de serie |
 | GRÁFICA | Autoescalado / máximo kW |
-| PANTALLA | Brillo normal/reducido, inactividad, horario nocturno |
+| PANTALLA | Brillo normal/reducido, inactividad, horario nocturno con **slider de rango** visual |
 | TELEGRAM | Bot token, chat ID, umbral de aviso (amarillo) y crítico (rojo) de batería, tipos de alerta |
 | ESTADO RED | IP del ESP32, señal WiFi, nombre mDNS |
 | ACCESO WEB | Contraseña para el panel de administración web y OTA |
 
 Los cambios de WiFi/logger requieren reinicio. Los de brillo y Telegram se aplican en caliente.
+
+El botón **«Reiniciar sin guardar»** permite volver al último estado guardado descartando los cambios del formulario; guarda el historial antes de apagar para no perder registros.
 
 ---
 
@@ -476,13 +482,23 @@ pio run -e sunton_4827s043 --target upload
 pio run -e guition_jc1060p470 --target upload
 ```
 
-### 4. Configurar `lv_conf.h`
+### 4. Fuentes personalizadas y `lv_conf.h`
+
+Las fuentes Montserrat están en `src/fonts/` como ficheros `.c` generados con `lv_font_conv`. Incluyen el rango ASCII, caracteres españoles y los 23 codepoints de FontAwesome 5 Free usados en la UI. **No** se usan las fuentes integradas en LVGL.
+
+En `lv_conf.h`, los tamaños con fuente propia **no se definen** (el guard `#ifndef` del `.c` generado los activa automáticamente). Los tamaños no usados se fijan a `0` para no compilar el built-in:
 
 ```c
-// Fuentes necesarias
-#define LV_FONT_MONTSERRAT_12  1
-#define LV_FONT_MONTSERRAT_14  1
-#define LV_FONT_MONTSERRAT_28  1
+// Tamaños con fuente propia en src/fonts/ → sin #define aquí
+// /* 12: src/fonts/lv_font_montserrat_12.c */
+// /* 14: src/fonts/lv_font_montserrat_14.c */
+// ...
+
+// Declarar los extern para que el código pueda referenciarlos
+#define LV_FONT_CUSTOM_DECLARE \
+    LV_FONT_DECLARE(lv_font_montserrat_12) \
+    LV_FONT_DECLARE(lv_font_montserrat_14) \
+    LV_FONT_DECLARE(lv_font_montserrat_28) // ...
 
 // Heap en PSRAM
 #define LV_USE_STDLIB_MALLOC   LV_STDLIB_CUSTOM
@@ -490,6 +506,18 @@ pio run -e guition_jc1060p470 --target upload
 #define LV_MEM_CUSTOM_ALLOC    psram_malloc
 #define LV_MEM_CUSTOM_FREE     psram_free
 #define LV_MEM_CUSTOM_REALLOC  psram_realloc
+```
+
+Los ficheros de fuente se generan con `lv_font_conv`:
+
+```bash
+lv_font_conv --bpp 4 --size 14 --no-compress \
+  --font Montserrat-Regular.ttf \
+  --symbols "ºªáéíóúÁÉÍÓÚñÑàèìòùÀÈÌÒÙ¿¡çÇ" --range 32-127 \
+  --font FontAwesome5-Solid+Brands+Regular.woff \
+  --range 61452,61453,61459,61473,61536,61537,61544,61550,61553,\
+61555,61561,61568,61639,61671,61683,61732,61829,61830,61926,61931,62016,62212 \
+  --format lvgl -o src/fonts/lv_font_montserrat_14.c
 ```
 
 ### 5. Añadir tu driver de pantalla
