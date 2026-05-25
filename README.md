@@ -36,6 +36,10 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantalla Guit
 - Indicador de autoconsumo instantáneo con código de colores
 - Reloj en tiempo real sincronizado por NTP
 - **Indicador de cobertura WiFi** en la barra superior del dashboard: verde/naranja/rojo/gris según calidad de señal, actualizado cada 5 segundos
+- **Indicador de frescura de datos:** la hora de última muestra cambia de color (verde/amarillo/rojo) según la antigüedad del dato recibido
+- **Flechas de tendencia** en las tarjetas de Batería y Red: muestran ↑ o ↓ cuando la potencia varía más de 150 W entre lecturas
+- **Banner de alertas en pantalla:** las alertas proactivas (batería, solar, red, logger) aparecen como franja temporal sobre cualquier pantalla, sincronizadas con las notificaciones Telegram
+- **Doble tap** desde cualquier pantalla para volver al dashboard con animación
 
 ### Historial y estadísticas
 - Registro de medidas cada **5 minutos** alineado a intervalos exactos (XX:00, XX:05…)
@@ -46,9 +50,9 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantalla Guit
 
 ### Interfaz táctil (LVGL 9)
 - **5 pantallas** deslizables horizontalmente con indicador de posición
-- Dashboard de tiempo real con 4 tarjetas e indicador WiFi coloreado
+- Dashboard de tiempo real con 4 tarjetas, indicador WiFi coloreado, frescura de datos y flechas de tendencia
 - Gráfica diaria con líneas temporales de 5 variables
-- Estadísticas diarias con donuts de consumo/producción, navegable día a día
+- Estadísticas diarias con donuts de consumo/producción, comparativa semana anterior y navegación día a día
 - **Perfil de energía mensual:** gráfica de barras apiladas con balance diario FV/Red/Batería, navegable mes a mes; popup con valores exactos en kWh al tocar un día; tap en el título para volver al mes actual
 - Pantalla de configuración con scroll, teclado virtual y botón «Reiniciar sin guardar»
 - Calendario mensual para selección directa de fecha
@@ -216,22 +220,27 @@ Vista principal con datos en tiempo real actualizados cada 5 segundos. La barra 
 ```
 ┌──────────────────────────────────────────────────────┐
 │ 📶 10 May · 14:32:07   Act. 14:32:05   Autocons. 87%│
+│                        (verde/amarillo/rojo)          │
 ├─────────────────────┬────────────────────────────────┤
 │  ☀ SOLAR            │  🔌 RED                        │
 │                     │                                │
 │   2.340 W           │   -914 W                       │
-│ PV1:2340  PV2:0     │   Exportando a la red          │
+│ PV1:2340  PV2:0     │   Exportando a la red ↑        │
 ├─────────────────────┼────────────────────────────────┤
 │  🔋 BATERÍA         │  🏠 CARGA                      │
 │                     │                                │
 │   99%               │   Consumo actual               │
 │  ████████████░░     │                                │
-│  -37 W · Cargando   │   360 W                        │
+│  -37 W · Cargando ↓ │   360 W                        │
 └─────────────────────┴────────────────────────────────┘
                     ● ○ ○ ○ ○
 ```
 
 El icono WiFi (📶) cambia de color según la señal: **verde** > −60 dBm · **naranja** −75…−60 dBm · **rojo** ≤ −75 dBm · **gris** sin conexión.
+
+La hora «Act.» cambia de color según la antigüedad: **verde** < 10 s · **amarillo** 10–30 s · **rojo** > 30 s.
+
+Las flechas ↑ / ↓ en Batería y Red indican si la potencia ha subido o bajado más de 150 W respecto a la lectura anterior.
 
 ### Pantalla 1 — Gráfica diaria
 
@@ -258,6 +267,7 @@ Donuts de distribución de energía con navegación día a día y selector de ca
 
 - **CONSUMO:** Solar directo | Descarga batería | Importación
 - **PRODUCCIÓN:** Autoconsumo | Carga batería | Exportación
+- **Comparativa semanal:** bajo cada donut aparece la diferencia en % respecto al mismo día de la semana anterior (verde si mejora, rojo si empeora, gris si la variación es < 5 %)
 - Tap en el título de fecha → volver a hoy
 - Botón 📅 → calendario mensual con días coloreados según disponibilidad de datos
 
@@ -301,7 +311,7 @@ Accesible en `http://<ip-del-esp32>/` o, si mDNS está activo, en `http://invers
 
 | Ruta | Descripción |
 |---|---|
-| `/` | Dashboard con valores live y donuts SVG animados |
+| `/` | Dashboard con valores live y donuts SVG animados; incluye enlace CSV en el pie |
 | `/chart` | Gráfica diaria interactiva con Chart.js, navegable |
 | `/update` | Actualización de firmware OTA (protegida por contraseña si está configurada) |
 | `/admin` | Panel de administración: inversor, gráfica, Telegram, pantalla (protegido por contraseña) |
@@ -648,6 +658,7 @@ ci_skip = true   # Este entorno no se compilará en GitHub Actions
 | `GET` | `/api/history` | Histórico (5min / horario / diario) |
 | `GET` | `/api/latest_date` | Último día con datos de 5 min en flash |
 | `GET` | `/api/status` | Estado del almacenamiento y sistema |
+| `GET` | `/api/export` | Exportación CSV de totales diarios (`?from=YYYYMMDD&to=YYYYMMDD`, máx. 366 días) |
 | `POST` | `/api/restart` | Reinicia el ESP32 (usado desde el panel de administración) |
 
 ---
@@ -716,6 +727,24 @@ Si no hay ningún registro persistido aún:
 ```json
 { "date": null }
 ```
+
+---
+
+#### `GET /api/export`
+Descarga un CSV con los totales diarios de un rango de fechas.
+
+| Parámetro | Formato | Descripción |
+|---|---|---|
+| `from` | `YYYYMMDD` | Fecha de inicio (incluida) |
+| `to` | `YYYYMMDD` | Fecha de fin (incluida, máx. 366 días desde `from`) |
+
+```
+fecha,pv_kwh,export_kwh,import_kwh,load_kwh,bchg_kwh,bdis_kwh,soc_inicio,soc_fin
+2026-05-01,28.40,8.30,0.40,12.60,8.20,1.10,45,99
+2026-05-02,31.10,10.50,0.00,14.30,9.10,0.80,99,98
+```
+
+El enlace **CSV** del pie de página del dashboard descarga por defecto los últimos 30 días.
 
 ---
 

@@ -32,6 +32,11 @@ static uint16_t s_inv_max_w  = INV_MAX_W_DEF;
 static uint16_t s_grid_max_w = GRID_MAX_W_DEF;
 static uint16_t s_load_max_w = INV_MAX_W_DEF;
 
+// ── Estado para indicadores ───────────────────────────────────────────────
+static uint32_t s_last_update_ms  = 0;
+static int32_t  s_prev_batt_power = INT32_MIN;
+static int32_t  s_prev_grid_power = INT32_MIN;
+
 // ── Punteros a widgets actualizables ─────────────────────────────────────
 static lv_obj_t *lbl_clock, *lbl_selfcon, *lbl_sample_time, *lbl_wifi;
 
@@ -353,7 +358,15 @@ void dashboard_update(const EnergyData& d)
         }
         lv_obj_set_style_arc_color(arc_grid, arc_col, LV_PART_INDICATOR);
         lv_obj_set_style_text_color(lbl_grid_val, txt_col, 0);
-        lv_label_set_text(lbl_grid_status, status);
+        {
+            const char* tr = "";
+            if (s_prev_grid_power != INT32_MIN) {
+                int32_t da = abs(d.grid_power) - abs(s_prev_grid_power);
+                tr = da > 150 ? " " LV_SYMBOL_UP : da < -150 ? " " LV_SYMBOL_DOWN : "";
+            }
+            char buf[32]; snprintf(buf, sizeof(buf), "%s%s", status, tr);
+            lv_label_set_text(lbl_grid_status, buf);
+        }
     }
 
     // ── Batería ───────────────────────────────────────────────────────────
@@ -375,7 +388,15 @@ void dashboard_update(const EnergyData& d)
         }
         lv_obj_set_style_text_color(lbl_batt_pwr, pwr_col, 0);
         lv_label_set_text_fmt(lbl_batt_pwr, "%d W", (int)d.batt_power);
-        lv_label_set_text(lbl_batt_status, status);
+        {
+            const char* tr = "";
+            if (s_prev_batt_power != INT32_MIN) {
+                int32_t da = abs(d.batt_power) - abs(s_prev_batt_power);
+                tr = da > 150 ? " " LV_SYMBOL_UP : da < -150 ? " " LV_SYMBOL_DOWN : "";
+            }
+            char buf[32]; snprintf(buf, sizeof(buf), "%s%s", status, tr);
+            lv_label_set_text(lbl_batt_status, buf);
+        }
     }
 
     // ── Carga ─────────────────────────────────────────────────────────────
@@ -401,6 +422,10 @@ void dashboard_update(const EnergyData& d)
         lv_label_set_text(lbl_selfcon, "Sin producci\xC3\xB3n");
         lv_obj_set_style_text_color(lbl_selfcon, C_MUTED, 0);
     }
+
+    s_last_update_ms  = millis();
+    s_prev_batt_power = d.batt_power;
+    s_prev_grid_power = d.grid_power;
 }
 
 // ── Reloj + icono WiFi ────────────────────────────────────────────────────
@@ -422,6 +447,12 @@ void dashboard_tick()
                      ti.tm_mday, MESES[ti.tm_mon],
                      ti.tm_hour, ti.tm_min, ti.tm_sec);
             lv_label_set_text(lbl_clock, buf);
+
+        // Indicador de frescura de datos — color de "Act. HH:MM:SS"
+        lv_color_t lc = (s_last_update_ms == 0)                       ? C_MUTED :
+                        (millis() - s_last_update_ms < 10000)          ? C_OK    :
+                        (millis() - s_last_update_ms < 30000)          ? C_WARN  : C_ERR;
+        lv_obj_set_style_text_color(lbl_sample_time, lc, 0);
         }
     }
 

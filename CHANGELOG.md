@@ -8,6 +8,28 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ---
 
+## [v3.1.0] - 2026-05-25
+
+### Añadido
+
+- **Banner de alertas en pantalla:** las mismas alertas que se envían por Telegram (batería baja/crítica/recuperada, solar arranca/para, corte/restauración de red y fallo del logger) se muestran ahora también en pantalla como una franja temporal sobre `lv_layer_top()`, visible desde cualquier pantalla. El banner desaparece automáticamente a los 5 segundos. Thread-safe: `solarmanTask` lo encola desde Core 0 y el hilo LVGL lo procesa en Core 1.
+- **Doble tap para volver al dashboard:** dos toques rápidos (< 400 ms entre tap y tap) desde cualquier pantalla navegan de vuelta al dashboard con animación de deslizamiento.
+- **Indicador de frescura de datos:** la etiqueta de hora de última muestra en la barra superior del dashboard cambia de color según la antigüedad del dato: **verde** (< 10 s), **amarillo** (10–30 s) y **rojo** (> 30 s o sin datos aún).
+- **Flechas de tendencia en batería y red:** las tarjetas de Batería y Red del dashboard muestran una flecha ↑ o ↓ junto al estado cuando la potencia varía más de 150 W respecto a la lectura anterior.
+- **Comparativa semana anterior en estadísticas:** bajo cada donut de la pantalla de estadísticas diarias aparece la diferencia en porcentaje respecto al mismo día de la semana anterior (p.ej. `+12% sem.ant.`). Verde si mejora, rojo si empeora, gris si la variación es menor del 5 %.
+- **Exportación de histórico a CSV:** nuevo endpoint `GET /api/export?from=YYYYMMDD&to=YYYYMMDD` que devuelve los totales diarios en formato CSV (fecha, PV, exportación, importación, consumo, carga y descarga de batería, SOC inicio/fin). Máximo 366 días por petición. El dashboard web incluye un enlace «CSV» en el pie de página que descarga por defecto los últimos 30 días.
+
+### Mejorado
+
+- **Botones de navegación unificados:** los botones anterior/siguiente de las pantallas de gráfica diaria y perfil de energía mensual tienen ahora el mismo tamaño, radio, fuente y colores que los de la pantalla de estadísticas, usando la constante compartida `C_GBTN` de `ui_constants.h`.
+
+### Corregido
+
+- **SafeSerial compatible con ESP32-P4:** `SafeSerial::begin()` era incompatible con `HWCDC` (la clase USB CDC que usa `Serial` en ESP32-P4), que hereda de `Stream` pero no de `HardwareSerial`. Se ha hecho el método genérico con un template `begin<T>(T& hw, ...)` que acepta cualquier tipo derivado de `Stream`.
+- **Tabla de firmware en las notas de release:** el script de GitHub Actions generaba la cabecera de la tabla de firmwares tantas veces como entornos se compilaban; ahora se escribe una sola vez antes del bucle.
+
+---
+
 ## [v3.0.0] - 2026-05-25
 
 ### Añadido

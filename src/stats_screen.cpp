@@ -26,6 +26,7 @@ static lv_obj_t *s_btn_prev, *s_btn_next, *s_lbl_date;
 static lv_obj_t *con_arcs[3], *con_total_lbl, *con_leg_val[3], *con_leg_pct[3];
 static lv_obj_t *pro_arcs[3], *pro_total_lbl, *pro_leg_val[3], *pro_leg_pct[3];
 static lv_obj_t *s_no_data;
+static lv_obj_t *s_lbl_con_vs, *s_lbl_pro_vs;   // comparativa semana anterior
 
 // ── Helpers de tiempo ─────────────────────────────────────────────────────
 static uint32_t day_epoch_from_offset(int off) {
@@ -186,30 +187,61 @@ static void render_stats(float pv, float exp_k, float imp,
     lv_obj_add_flag(s_no_data, LV_OBJ_FLAG_HIDDEN);
 }
 
+static void update_vs_labels(float load_cur, float pv_cur, int offset) {
+    uint32_t dep_prev = day_epoch_from_offset(offset - 7);
+    DailyRecord dr_prev{};
+    if (Cache.getDaily(dep_prev, dr_prev)) {
+        DailyStats prev = daily_record_to_stats(dr_prev);
+        char buf[20];
+        if (prev.load_kwh > 0.01f) {
+            float pct = (load_cur - prev.load_kwh) / prev.load_kwh * 100.0f;
+            lv_color_t c = pct < -5.0f ? C_OK : pct > 5.0f ? C_ERR : C_MUTED;
+            snprintf(buf, sizeof(buf), "%+.0f%% sem.ant.", pct);
+            lv_label_set_text(s_lbl_con_vs, buf);
+            lv_obj_set_style_text_color(s_lbl_con_vs, c, 0);
+        } else { lv_label_set_text(s_lbl_con_vs, ""); }
+        if (prev.pv_kwh > 0.01f) {
+            float pct = (pv_cur - prev.pv_kwh) / prev.pv_kwh * 100.0f;
+            lv_color_t c = pct > 5.0f ? C_OK : pct < -5.0f ? C_ERR : C_MUTED;
+            snprintf(buf, sizeof(buf), "%+.0f%% sem.ant.", pct);
+            lv_label_set_text(s_lbl_pro_vs, buf);
+            lv_obj_set_style_text_color(s_lbl_pro_vs, c, 0);
+        } else { lv_label_set_text(s_lbl_pro_vs, ""); }
+    } else {
+        lv_label_set_text(s_lbl_con_vs, "");
+        lv_label_set_text(s_lbl_pro_vs, "");
+    }
+}
+
 static void load_and_render(int offset) {
     update_nav_label();
 
     if (offset == 0) {
-        // Día actual: usar datos live
-        if (s_live.valid)
+        if (s_live.valid) {
             render_stats(s_live.pv_kwh, s_live.export_kwh, s_live.import_kwh,
                          s_live.load_kwh, s_live.batt_charge_kwh,
                          s_live.batt_discharge_kwh);
-        else
+            update_vs_labels(s_live.load_kwh, s_live.pv_kwh, 0);
+        } else {
             lv_obj_remove_flag(s_no_data, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(s_lbl_con_vs, "");
+            lv_label_set_text(s_lbl_pro_vs, "");
+        }
         return;
     }
 
     // Días anteriores: último registro del día en DataStore
     uint32_t dep = day_epoch_from_offset(offset);
-    Record5Min rec{};
     DailyRecord dr{};
     if (Cache.getDaily(dep, dr)) {
         DailyStats d = daily_record_to_stats(dr);
         render_stats(d.pv_kwh, d.export_kwh, d.import_kwh,
                     d.load_kwh, d.batt_charge_kwh, d.batt_discharge_kwh);
+        update_vs_labels(d.load_kwh, d.pv_kwh, offset);
     } else {
         lv_obj_remove_flag(s_no_data, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(s_lbl_con_vs, "");
+        lv_label_set_text(s_lbl_pro_vs, "");
     }
 }
 
@@ -341,6 +373,20 @@ void stats_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_color(pro_total_lbl, C_WHITE, 0);
     lv_label_set_text(pro_total_lbl, "--\nkWh");
 
+    // ── Comparativa semana anterior ───────────────────────────────────────
+    auto make_vs_label = [&](lv_obj_t* p, int x) -> lv_obj_t* {
+        lv_obj_t* lbl = lv_label_create(p);
+        lv_obj_set_pos(lbl, x, STATS_DONUT_CY + DONUT_R + SY(3));
+        lv_obj_set_width(lbl, STATS_COL_W);
+        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_font(lbl, &FONT_SMALL, 0);
+        lv_obj_set_style_text_color(lbl, C_MUTED, 0);
+        lv_label_set_text(lbl, "");
+        return lbl;
+    };
+    s_lbl_con_vs = make_vs_label(parent, 0);
+    s_lbl_pro_vs = make_vs_label(parent, STATS_COL_W);
+
     // ── Leyendas ──────────────────────────────────────────────────────────
     const char* cn[3] = {"Solar directo", "Descarga bat.", "Importacion"};
     const char* pn[3] = {"Autoconsumo",   "Carga bat.",   "Exportaci\xC3\xB3n"};
@@ -369,9 +415,11 @@ void stats_screen_init(lv_obj_t* parent) {
 // ── API pública ───────────────────────────────────────────────────────────
 void stats_screen_update(const DailyStats& d) {
     s_live = d;
-    if (s_offset == 0 && d.valid)
+    if (s_offset == 0 && d.valid) {
         render_stats(d.pv_kwh, d.export_kwh, d.import_kwh,
                      d.load_kwh, d.batt_charge_kwh, d.batt_discharge_kwh);
+        update_vs_labels(d.load_kwh, d.pv_kwh, 0);
+    }
 }
 
 void stats_screen_set_active(bool active) {

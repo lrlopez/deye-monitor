@@ -22,6 +22,7 @@
 #include "psram_cache.h"
 #include "backlight.h"
 #include "pagination_dots.h"
+#include "screen_banner.h"
 
 
 /* Change to your screen resolution */
@@ -268,6 +269,7 @@ static void solarmanTask(void* /*pv*/) {
                 }
                 if (s_tgcfg.notify_logger)
                     Telegram.enqueueAlert(AlertType::LOGGER_FAIL);
+                screen_banner_enqueue(AlertType::LOGGER_FAIL);
                 s_logger_notified = true;
             }
         }
@@ -532,6 +534,8 @@ static void solarmanTask(void* /*pv*/) {
                         s_solar_debounce = 0;
                         Telegram.enqueueAlert(AlertType::SOLAR_START,
                                               (int32_t)local_e.pv_power);
+                        screen_banner_enqueue(AlertType::SOLAR_START,
+                                              (int32_t)local_e.pv_power);
                         Storage.saveSessionState({now_ep, true, true});
                     }
                 } else if (s_solar_active && local_e.pv_power < 20.0f) {
@@ -539,6 +543,7 @@ static void solarmanTask(void* /*pv*/) {
                         s_solar_active   = false;
                         s_solar_debounce = 0;
                         Telegram.enqueueAlert(AlertType::SOLAR_STOP);
+                        screen_banner_enqueue(AlertType::SOLAR_STOP);
                         Storage.saveSessionState({now_ep, true, false});
                     }
                 } else {
@@ -559,24 +564,29 @@ static void solarmanTask(void* /*pv*/) {
                     if (crit > 0 && soc < crit) {
                         s_batt_state = BattState::CRIT;
                         Telegram.enqueueAlert(AlertType::BATT_CRITICAL, (int32_t)soc);
+                        screen_banner_enqueue(AlertType::BATT_CRITICAL, (int32_t)soc);
                     } else if (warn > 0 && soc < warn) {
                         s_batt_state = BattState::WARN;
                         Telegram.enqueueAlert(AlertType::BATT_LOW, (int32_t)soc);
+                        screen_banner_enqueue(AlertType::BATT_LOW, (int32_t)soc);
                     }
                     break;
                 case BattState::WARN:
                     if (crit > 0 && soc < crit) {
                         s_batt_state = BattState::CRIT;
                         Telegram.enqueueAlert(AlertType::BATT_CRITICAL, (int32_t)soc);
+                        screen_banner_enqueue(AlertType::BATT_CRITICAL, (int32_t)soc);
                     } else if (soc >= rec) {
                         s_batt_state = BattState::NORMAL;
                         Telegram.enqueueAlert(AlertType::BATT_RECOVERED, (int32_t)soc);
+                        screen_banner_enqueue(AlertType::BATT_RECOVERED, (int32_t)soc);
                     }
                     break;
                 case BattState::CRIT:
                     if (soc >= rec) {
                         s_batt_state = BattState::NORMAL;
                         Telegram.enqueueAlert(AlertType::BATT_RECOVERED, (int32_t)soc);
+                        screen_banner_enqueue(AlertType::BATT_RECOVERED, (int32_t)soc);
                     } else if (warn > 0 && soc >= (uint8_t)min((int)crit + 5, 100)) {
                         s_batt_state = BattState::WARN;
                         // transición silenciosa de crítico a aviso
@@ -598,11 +608,13 @@ static void solarmanTask(void* /*pv*/) {
                         s_grid_debounce = 0;
                         Telegram.enqueueAlert(AlertType::GRID_OUTAGE,
                                               (int32_t)local_e.grid_power);
+                        screen_banner_enqueue(AlertType::GRID_OUTAGE);
                     }
                 } else if (s_grid_outage && grid_active) {
                     s_grid_outage   = false;
                     s_grid_debounce = 0;
                     Telegram.enqueueAlert(AlertType::GRID_RESTORED);
+                    screen_banner_enqueue(AlertType::GRID_RESTORED);
                 } else if (grid_active) {
                     s_grid_debounce = 0;
                 }
@@ -824,6 +836,7 @@ void setup() {
     }
 
     // ── Tarea Solarman ────────────────────────────────────────────────────
+    screen_banner_init();
     xTaskCreatePinnedToCore(solarmanTask, "solarman",
                              8192, nullptr, 1, nullptr, 0);
 
@@ -913,16 +926,35 @@ void loop() {
 
     lv_timer_handler();
 
-    // ── Detectar toque para resetear inactividad ──────────────────────────
+    // ── Detectar toque: inactividad + doble-tap para volver al dashboard ──
+    static bool     s_last_touch  = false;
+    static uint32_t s_last_tap_ms = 0;
+
     lv_indev_t* indev = lv_indev_get_next(nullptr);
     while (indev) {
-        if (lv_indev_get_type(indev)  == LV_INDEV_TYPE_POINTER &&
-            lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
-            Backlight.onTouch();
+        if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER) {
+            bool pressed = (lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED);
+            if (pressed) Backlight.onTouch();
+            if (!pressed && s_last_touch) {   // flanco de bajada = tap completo
+                uint32_t now = millis();
+                if (s_last_tap_ms && now - s_last_tap_ms < 400) {
+                    lv_obj_t* tv = lv_obj_get_child(g_main_screen, 0);
+                    if (tv) {
+                        lv_obj_t* cur = lv_tileview_get_tile_active(tv);
+                        if (cur && cur != g_tile_dash)
+                            lv_tileview_set_tile(tv, g_tile_dash, LV_ANIM_ON);
+                    }
+                    s_last_tap_ms = 0;
+                } else {
+                    s_last_tap_ms = now;
+                }
+            }
+            s_last_touch = pressed;
             break;
         }
         indev = lv_indev_get_next(indev);
     }
+    screen_banner_tick();
     Backlight.tick();
 
     // Resto del loop igual

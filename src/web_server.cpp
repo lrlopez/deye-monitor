@@ -320,6 +320,7 @@ footer a{color:var(--accent);text-decoration:none}
   <a href="/chart">&#128200; Gr&aacute;fica</a> &nbsp;|&nbsp;
   <a href="/admin">&#9881; Admin</a> &nbsp;|&nbsp;
   <a href="/update">&#8593; Firmware</a> &nbsp;|&nbsp;
+  <a href="#" id="csv-link">&#128229; CSV</a> &nbsp;|&nbsp;
   <span id="app-ver" style="color:var(--muted)">v--</span>
 </footer>)=EOF=");
 
@@ -469,6 +470,14 @@ fetch('/api/status').then(r=>r.json()).then(s=>{
 }).catch(()=>{});
 setInterval(refresh,5000);
 setInterval(clock,1000);
+(function(){
+  var to=new Date(),from=new Date(to);
+  from.setDate(from.getDate()-29);
+  function fmt(d){return d.getFullYear().toString()+
+    String(d.getMonth()+1).padStart(2,'0')+
+    String(d.getDate()).padStart(2,'0');}
+  ip('csv-link').href='/api/export?from='+fmt(from)+'&to='+fmt(to);
+})();
 </script></body></html>)=EOF=");
 }
 
@@ -1793,6 +1802,52 @@ void webserver_task(void* /*pv*/) {
 // ═════════════════════════════════════════════════════════════════════════
 // PWA: manifest.json e icono SVG
 // ═════════════════════════════════════════════════════════════════════════
+// ── GET /api/export?from=YYYYMMDD&to=YYYYMMDD ─────────────────────────────
+// Descarga un CSV con los totales diarios del rango solicitado (máx 366 días)
+static void handle_export_csv() {
+    String from_s = server.arg("from");
+    String to_s   = server.arg("to");
+
+    uint32_t from_ep = parse_date(from_s);
+    uint32_t to_ep   = parse_date(to_s);
+
+    if (!from_ep || !to_ep || to_ep < from_ep) {
+        server.send(400, "text/plain", "Parametros invalidos (from/to YYYYMMDD)");
+        return;
+    }
+    if ((to_ep - from_ep) > 366u * 86400u) {
+        server.send(400, "text/plain", "Rango maximo 366 dias");
+        return;
+    }
+
+    String fname = "deye_" + from_s + "_" + to_s + ".csv";
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.sendHeader("Content-Type", "text/csv");
+    server.sendHeader("Content-Disposition",
+                      "attachment; filename=\"" + fname + "\"");
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200);
+
+    server.sendContent(
+        "fecha,pv_kwh,export_kwh,import_kwh,"
+        "load_kwh,bchg_kwh,bdis_kwh,soc_inicio,soc_fin\r\n");
+
+    for (uint32_t d = from_ep; d <= to_ep; d += 86400) {
+        DailyRecord dr{};
+        if (!Cache.getDaily(d, dr)) continue;
+        DailyStats ds = daily_record_to_stats(dr);
+        char row[128];
+        snprintf(row, sizeof(row),
+                 "%s,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%d\r\n",
+                 epoch_to_date(d).c_str(),
+                 ds.pv_kwh, ds.export_kwh, ds.import_kwh,
+                 ds.load_kwh, ds.batt_charge_kwh, ds.batt_discharge_kwh,
+                 dr.soc_start, dr.soc_end);
+        server.sendContent(row);
+    }
+    server.sendContent("");
+}
+
 static void handle_manifest() {
     server.send(200, "application/manifest+json",
         R"({"name":"Deye Monitor","short_name":"Deye","start_url":"/",)"
@@ -1823,6 +1878,7 @@ void webserver_begin() {
     server.on("/admin",           HTTP_GET,  handle_admin_get);
     server.on("/admin",           HTTP_POST, handle_admin_post);
     server.on("/api/restart",     HTTP_POST, handle_restart);
+    server.on("/api/export",      HTTP_GET,  handle_export_csv);
     server.onNotFound([]() {
         server.send(404, "text/plain", "Not found");
     });
