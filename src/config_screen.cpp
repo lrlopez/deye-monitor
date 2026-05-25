@@ -870,9 +870,9 @@ void config_screen_init(lv_obj_t* parent) {
         snprintf(nbuf, sizeof(nbuf), "%02dh a %02dh", ns, ne);
         lv_label_set_text(s_lbl_bl_night, nbuf);
 
-        int night_w = CFG_SECTION_W - CFG_SEC_PAD * 2 - SX(16);
+        int night_w = CFG_SECTION_W - CFG_SEC_PAD * 2 - SX(22);
         s_slider_bl_night = lv_slider_create(sec_bl);
-        lv_obj_set_pos(s_slider_bl_night, 0, R5 + SY(18));
+        lv_obj_set_pos(s_slider_bl_night, SX(8), R5 + SY(24));
         lv_obj_set_size(s_slider_bl_night, night_w, SS(16));
         lv_slider_set_mode(s_slider_bl_night, LV_SLIDER_MODE_RANGE);
         lv_slider_set_range(s_slider_bl_night, 0, 23);

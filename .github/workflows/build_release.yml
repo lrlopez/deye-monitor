@@ -152,6 +152,8 @@ jobs:
           echo "### 📦 Firmwares incluidos" >> release_notes.md
           echo "" >> release_notes.md
           if ls artifacts/*.bin 1>/dev/null 2>&1; then
+            echo "| Fichero | Tamaño | Entorno |" >> release_notes.md
+            echo "|---------|--------|---------|" >> release_notes.md
             for f in artifacts/*.bin; do
               name=$(basename "$f")
               size=$(du -sh "$f" | cut -f1)
@@ -159,8 +161,6 @@ jobs:
               env=$(echo "$name" | sed 's/deye_monitor_//; s/_v[0-9].*//')
               echo "| \`$name\` | $size | \`$env\` |" >> release_notes.md
             done
-            # Añadir cabecera de tabla antes de las filas (insertar al inicio de la tabla)
-            sed -i '/^| `deye_monitor/i | Fichero | Tamaño | Entorno |\n|---------|--------|---------|' release_notes.md
           else
             echo "> ⚠️ Ningún firmware fue generado correctamente." >> release_notes.md
           fi

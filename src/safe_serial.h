@@ -5,14 +5,15 @@
 #include <stdio.h>
 
 // ── SafeSerial ────────────────────────────────────────────────────────────
-// Envoltorio thread-safe sobre HardwareSerial.
+// Envoltorio thread-safe sobre cualquier Stream serial (HardwareSerial, HWCDC…).
 // Cada llamada a printf() o write() adquiere un mutex, garantizando que la
 // salida de una sola llamada no se entrelaza con la de otras tareas.
 //
 // Uso: llamar a begin(hw, baud) una vez en setup() antes de usar DBGSERIAL.
 class SafeSerial : public Print {
 public:
-    void begin(HardwareSerial& hw, unsigned long baud) {
+    template<typename T>
+    void begin(T& hw, unsigned long baud) {
         _hw = &hw;
         hw.begin(baud);
         if (!_mutex) _mutex = xSemaphoreCreateMutex();
@@ -46,7 +47,7 @@ public:
     operator bool() const { return _hw != nullptr; }
 
 private:
-    HardwareSerial*   _hw   = nullptr;
+    Stream*           _hw   = nullptr;
     SemaphoreHandle_t _mutex = nullptr;
     void _lock()   { if (_mutex) xSemaphoreTake(_mutex, pdMS_TO_TICKS(100)); }
     void _unlock() { if (_mutex) xSemaphoreGive(_mutex); }
