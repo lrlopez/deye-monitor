@@ -9,6 +9,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 ### Corregido
 
 - **Doble tap para volver al dashboard:** Ahora funciona en todos los casos.
+- **Fuentes:** La fuente más grande no se mostraba correctamente en todos los dispositivos.
 
 ---
 
