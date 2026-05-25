@@ -40,10 +40,8 @@ static lv_obj_t* s_cb_bl_inact       = nullptr;
 static lv_obj_t* s_slider_bl_inact   = nullptr;
 static lv_obj_t* s_lbl_bl_inact      = nullptr;
 static lv_obj_t* s_cb_bl_night       = nullptr;
-static lv_obj_t* s_slider_bl_nstart  = nullptr;
-static lv_obj_t* s_lbl_bl_nstart     = nullptr;
-static lv_obj_t* s_slider_bl_nend    = nullptr;
-static lv_obj_t* s_lbl_bl_nend       = nullptr;
+static lv_obj_t* s_slider_bl_night   = nullptr;   // LV_SLIDER_MODE_RANGE
+static lv_obj_t* s_lbl_bl_night      = nullptr;
 
 static lv_obj_t* s_ta_admin_pass     = nullptr;
 static lv_obj_t* s_ta_mdns          = nullptr;
@@ -365,15 +363,14 @@ static void bl_inact_cb(lv_event_t* e) {
     char buf[8]; snprintf(buf, sizeof(buf), "%ds", v * 10);
     lv_label_set_text((lv_obj_t*)lv_event_get_user_data(e), buf);
 }
-static void bl_nstart_cb(lv_event_t* e) {
-    int v = lv_slider_get_value((lv_obj_t*)lv_event_get_target(e));
-    char buf[8]; snprintf(buf, sizeof(buf), "%02dh", v);
-    lv_label_set_text((lv_obj_t*)lv_event_get_user_data(e), buf);
-}
-static void bl_nend_cb(lv_event_t* e) {
-    int v = lv_slider_get_value((lv_obj_t*)lv_event_get_target(e));
-    char buf[8]; snprintf(buf, sizeof(buf), "%02dh", v);
-    lv_label_set_text((lv_obj_t*)lv_event_get_user_data(e), buf);
+static void bl_night_range_cb(lv_event_t* e) {
+    lv_obj_t* sl  = (lv_obj_t*)lv_event_get_target(e);
+    lv_obj_t* lbl = (lv_obj_t*)lv_event_get_user_data(e);
+    int32_t inicio = lv_slider_get_value(sl);       // knob derecho = inicio noche
+    int32_t fin    = lv_slider_get_left_value(sl);  // knob izquierdo = fin noche
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02dh a %02dh", inicio, fin);
+    lv_label_set_text(lbl, buf);
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -450,9 +447,9 @@ static void save_btn_cb(lv_event_t* /*e*/) {
     blcfg.reduced_pct        = (uint8_t)lv_slider_get_value(s_slider_bl_red);
     blcfg.inactivity_enabled = lv_obj_has_state(s_cb_bl_inact, LV_STATE_CHECKED);
     blcfg.inactivity_div10   = (uint8_t)lv_slider_get_value(s_slider_bl_inact);
-    blcfg.night_enabled      = lv_obj_has_state(s_cb_bl_night, LV_STATE_CHECKED);
-    blcfg.night_start_h      = (uint8_t)lv_slider_get_value(s_slider_bl_nstart);
-    blcfg.night_end_h        = (uint8_t)lv_slider_get_value(s_slider_bl_nend);
+    blcfg.night_enabled  = lv_obj_has_state(s_cb_bl_night, LV_STATE_CHECKED);
+    blcfg.night_start_h  = (uint8_t)lv_slider_get_value(s_slider_bl_night);
+    blcfg.night_end_h    = (uint8_t)lv_slider_get_left_value(s_slider_bl_night);
 
     bool needs_restart = (strcmp(cfg.wifi_ssid,      old_cfg.wifi_ssid)      != 0 ||
                           strcmp(cfg.wifi_pass,      old_cfg.wifi_pass)      != 0 ||
@@ -809,7 +806,7 @@ void config_screen_init(lv_obj_t* parent) {
     // Altura: pad×2(20) + título(14) + 5 filas×(SS16+6) + 4 checkboxes(22×2)
     // = 20 + 14 + 5×22 + 2×22 = 20+14+110+44 = 188 → redondeamos a 190
     const int SEC_BL_Y    = SEC_TG_Y + SEC_TG_H + SY(4);
-    const int SEC_BL_H    = SY(190);
+    const int SEC_BL_H    = SY(202);
     const int SEC_ADMIN_Y = SEC_BL_Y + SEC_BL_H + SY(4);
     const int SEC_ADMIN_H = CFG_FIELD_H + CFG_SEC_PAD*2 + SY(50);
     const int BTN_Y       = SEC_ADMIN_Y + SEC_ADMIN_H + SY(8);
@@ -856,63 +853,41 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_color(s_cb_bl_night, C_WHITE, 0);
     if (blcfg.night_enabled) lv_obj_add_state(s_cb_bl_night, LV_STATE_CHECKED);
 
-    // Fila 5: Inicio y fin del horario
+    // Fila 5: slider de rango para el horario nocturno
+    // knob izquierdo = fin de noche (madrugada), knob derecho = inicio de noche (tarde)
     const int R5 = R4 + SY(22);
 
-    // Inicio
-    lv_obj_t* lbl_ns = lv_label_create(sec_bl);
-    lv_obj_set_pos(lbl_ns, 0, R5 + SY(4));
-    lv_obj_set_style_text_font(lbl_ns, &FONT_SMALL, 0);
-    lv_obj_set_style_text_color(lbl_ns, C_MUTED, 0);
-    lv_label_set_text(lbl_ns, "Inicio:");
+    s_lbl_bl_night = lv_label_create(sec_bl);
+    lv_obj_set_pos(s_lbl_bl_night, 0, R5 + SY(2));
+    lv_obj_set_style_text_font(s_lbl_bl_night, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(s_lbl_bl_night, C_WHITE, 0);
+    {
+        // Garantizar que end_h < start_h para que el range slider sea válido
+        uint8_t ns = blcfg.night_start_h;
+        uint8_t ne = blcfg.night_end_h;
+        if (ne >= ns) { ne = 6; ns = 22; }
+        char nbuf[16];
+        snprintf(nbuf, sizeof(nbuf), "%02dh a %02dh", ns, ne);
+        lv_label_set_text(s_lbl_bl_night, nbuf);
 
-    s_lbl_bl_nstart = lv_label_create(sec_bl);
-    lv_obj_set_pos(s_lbl_bl_nstart, CFG_LBL_W, R5 + SY(4));
-    lv_obj_set_style_text_font(s_lbl_bl_nstart, &FONT_SMALL, 0);
-    lv_obj_set_style_text_color(s_lbl_bl_nstart, C_WHITE, 0);
-    char nsbuf[8]; snprintf(nsbuf, sizeof(nsbuf), "%02dh", blcfg.night_start_h);
-    lv_label_set_text(s_lbl_bl_nstart, nsbuf);
-
-    const int HALF_W = (CFG_SECTION_W - CFG_SEC_PAD*2 - CFG_LBL_W - SX(8)) / 2;
-    s_slider_bl_nstart = lv_slider_create(sec_bl);
-    lv_obj_set_pos(s_slider_bl_nstart, CFG_LBL_W + SX(44), R5 + SY(2));
-    lv_obj_set_size(s_slider_bl_nstart, HALF_W - SX(4), SS(16));
-    lv_slider_set_range(s_slider_bl_nstart, 0, 23);
-    lv_slider_set_value(s_slider_bl_nstart, blcfg.night_start_h, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_slider_bl_nstart, C_BTN,                  LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(s_slider_bl_nstart, lv_color_hex(0x21262D), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_slider_bl_nstart, C_WHITE,                LV_PART_KNOB);
-    lv_obj_set_style_pad_all(s_slider_bl_nstart, SX(4),                   LV_PART_KNOB);
-    lv_obj_add_event_cb(s_slider_bl_nstart, bl_nstart_cb,
-                         LV_EVENT_VALUE_CHANGED, s_lbl_bl_nstart);
-
-    // Fin
-    int x_fin = CFG_LBL_W + SX(44) + HALF_W + SX(4);
-
-    lv_obj_t* lbl_ne = lv_label_create(sec_bl);
-    lv_obj_set_pos(lbl_ne, x_fin, R5 + SY(4));
-    lv_obj_set_style_text_font(lbl_ne, &FONT_SMALL, 0);
-    lv_obj_set_style_text_color(lbl_ne, C_MUTED, 0);
-    lv_label_set_text(lbl_ne, "Fin:");
-
-    s_lbl_bl_nend = lv_label_create(sec_bl);
-    lv_obj_set_pos(s_lbl_bl_nend, x_fin + SX(28), R5 + SY(4));
-    lv_obj_set_style_text_font(s_lbl_bl_nend, &FONT_SMALL, 0);
-    lv_obj_set_style_text_color(s_lbl_bl_nend, C_WHITE, 0);
-    char nebuf[8]; snprintf(nebuf, sizeof(nebuf), "%02dh", blcfg.night_end_h);
-    lv_label_set_text(s_lbl_bl_nend, nebuf);
-
-    s_slider_bl_nend = lv_slider_create(sec_bl);
-    lv_obj_set_pos(s_slider_bl_nend, x_fin + SX(44), R5 + SY(2));
-    lv_obj_set_size(s_slider_bl_nend, HALF_W - SX(44), SS(16));
-    lv_slider_set_range(s_slider_bl_nend, 0, 23);
-    lv_slider_set_value(s_slider_bl_nend, blcfg.night_end_h, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_slider_bl_nend, C_BTN,                  LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(s_slider_bl_nend, lv_color_hex(0x21262D), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_slider_bl_nend, C_WHITE,                LV_PART_KNOB);
-    lv_obj_set_style_pad_all(s_slider_bl_nend, SX(4),                   LV_PART_KNOB);
-    lv_obj_add_event_cb(s_slider_bl_nend, bl_nend_cb,
-                         LV_EVENT_VALUE_CHANGED, s_lbl_bl_nend);
+        int night_w = CFG_SECTION_W - CFG_SEC_PAD * 2 - SX(16);
+        s_slider_bl_night = lv_slider_create(sec_bl);
+        lv_obj_set_pos(s_slider_bl_night, 0, R5 + SY(18));
+        lv_obj_set_size(s_slider_bl_night, night_w, SS(16));
+        lv_slider_set_mode(s_slider_bl_night, LV_SLIDER_MODE_RANGE);
+        lv_slider_set_range(s_slider_bl_night, 0, 23);
+        lv_slider_set_left_value(s_slider_bl_night, ne, LV_ANIM_OFF);  // fin (izq)
+        lv_slider_set_value(s_slider_bl_night,      ns, LV_ANIM_OFF);  // inicio (der)
+        // Fondo oscuro = noche; indicador claro = franja de día entre los knobs
+        lv_obj_set_style_bg_color(s_slider_bl_night, lv_color_hex(0x1A237E), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(s_slider_bl_night, LV_OPA_COVER,             LV_PART_MAIN);
+        lv_obj_set_style_bg_color(s_slider_bl_night, lv_color_hex(0xB0BEC5), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(s_slider_bl_night, LV_OPA_COVER,             LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(s_slider_bl_night, lv_color_hex(0xFFB300), LV_PART_KNOB);
+        lv_obj_set_style_pad_all(s_slider_bl_night, SX(4),                   LV_PART_KNOB);
+        lv_obj_add_event_cb(s_slider_bl_night, bl_night_range_cb,
+                             LV_EVENT_VALUE_CHANGED, s_lbl_bl_night);
+    }
 
     // ── Sección Acceso Web ────────────────────────────────────────────────────
     {
