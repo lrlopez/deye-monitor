@@ -5,6 +5,7 @@
 #include "ui_constants.h"
 #include "config.h"
 #include "backlight.h"
+#include "data_store.h"
 
 // Posición absoluta del campo SSID en pantalla (para anclar el dropdown)
 // sec_wifi está en y=28, campo SSID en y=18 dentro de la sección
@@ -373,6 +374,18 @@ static void bl_nend_cb(lv_event_t* e) {
     int v = lv_slider_get_value((lv_obj_t*)lv_event_get_target(e));
     char buf[8]; snprintf(buf, sizeof(buf), "%02dh", v);
     lv_label_set_text((lv_obj_t*)lv_event_get_user_data(e), buf);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Botón Reiniciar sin guardar
+// ═════════════════════════════════════════════════════════════════════════
+static void restart_btn_cb(lv_event_t* /*e*/) {
+    lv_label_set_text(lbl_status, LV_SYMBOL_LOOP " Reiniciando...");
+    lv_obj_set_style_text_color(lbl_status, C_WARN, 0);
+    lv_timer_handler();
+    Store.flush();   // persiste meta pendiente del DataStore antes de cortar
+    delay(500);
+    ESP.restart();
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -924,25 +937,35 @@ void config_screen_init(lv_obj_t* parent) {
         lv_obj_add_event_cb(s_ta_admin_pass, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
     }
 
-    // ── Botón Guardar + status  (bajan acordes) ───────────────────────────────
-    lbl_status = lv_label_create(parent);
-    lv_obj_set_pos(lbl_status, SX(10),  BTN_Y + SY(4));
-    lv_obj_set_width(lbl_status, 310);
-    lv_obj_set_style_text_font(lbl_status, &FONT_SMALL, 0);
-    lv_obj_set_style_text_color(lbl_status, C_MUTED, 0);
-    lv_label_set_text(lbl_status, "");
+    // ── Botones acción + status ────────────────────────────────────────────────
+    lv_obj_t* btn_rst = lv_btn_create(parent);
+    lv_obj_set_pos(btn_rst, SX(10), BTN_Y);
+    lv_obj_set_size(btn_rst, SX(200), CFG_FIELD_H);
+    lv_obj_set_style_bg_color(btn_rst, lv_color_hex(0x7D2020), 0);
+    lv_obj_set_style_radius(btn_rst, 6, 0);
+    lv_obj_add_event_cb(btn_rst, restart_btn_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t* rst_lbl = lv_label_create(btn_rst);
+    lv_label_set_text(rst_lbl, LV_SYMBOL_LOOP " Reiniciar sin guardar");
+    lv_obj_set_style_text_font(rst_lbl, &FONT_SMALL, 0);
+    lv_obj_center(rst_lbl);
 
     lv_obj_t* btn = lv_btn_create(parent);
-    lv_obj_set_pos(btn,        SCREEN_WIDTH - SX(140), BTN_Y);
-    lv_obj_set_size(btn,       SX(130), CFG_FIELD_H);
+    lv_obj_set_pos(btn,  SCREEN_WIDTH - SX(140), BTN_Y);
+    lv_obj_set_size(btn, SX(130), CFG_FIELD_H);
     lv_obj_set_style_bg_color(btn, C_BTN, 0);
     lv_obj_set_style_radius(btn, 6, 0);
     lv_obj_add_event_cb(btn, save_btn_cb, LV_EVENT_CLICKED, nullptr);
-
     lv_obj_t* blbl = lv_label_create(btn);
     lv_label_set_text(blbl, LV_SYMBOL_SAVE " Guardar");
     lv_obj_set_style_text_font(blbl, &FONT_NORMAL, 0);
     lv_obj_center(blbl);
+
+    lbl_status = lv_label_create(parent);
+    lv_obj_set_pos(lbl_status, SX(10), BTN_Y + CFG_FIELD_H + SY(4));
+    lv_obj_set_width(lbl_status, SCREEN_WIDTH - SX(20));
+    lv_obj_set_style_text_font(lbl_status, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(lbl_status, C_MUTED, 0);
+    lv_label_set_text(lbl_status, "");
 
     // ── Teclado ────────────────────────────────────────────────────────────
     // El teclado se ancla a la pantalla raíz para no desplazarse con el scroll
