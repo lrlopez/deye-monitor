@@ -597,14 +597,14 @@ static void solarmanTask(void* /*pv*/) {
             }
 
             // ── Red eléctrica ─────────────────────────────────────────────
-            // Corte: |grid_power| = 0 W durante 3 lecturas (15 s)
+            // Corte: |grid_power| = 0 W durante 12 lecturas (60 s)
             // Solo se evalúa tras haber visto red activa al menos una vez
             if (s_tgcfg.notify_grid) {
                 const bool grid_active = fabsf(local_e.grid_power) != 0.0f;
                 if (grid_active) s_had_grid = true;
 
                 if (s_had_grid && !s_grid_outage && !grid_active) {
-                    if (++s_grid_debounce >= 3) {
+                    if (++s_grid_debounce >= 12) {
                         s_grid_outage   = true;
                         s_grid_debounce = 0;
                         Telegram.enqueueAlert(AlertType::GRID_OUTAGE,
