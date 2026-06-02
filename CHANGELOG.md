@@ -8,6 +8,14 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ---
 
+## [v3.2.1] - 2026-06-02
+
+### Corregido
+
+- **Alerta de posible corte de red eléctrica:** El aviso solo se dispara si se detecta 1 minuto sin exportación o importación.
+
+---
+
 ## [v3.2.0] - 2026-05-26
 
 ### Añadido
