@@ -2,6 +2,19 @@
 #include "safe_serial.h"
 #include <time.h>
 
+// Log detallado de cada push()/readDay() — desactivado por defecto porque
+// readDay() se dispara en cada navegación de Stats/Chart y cada printf toma
+// el mutex de DBGSERIAL. Definir DATASTORE_VERBOSE_LOG=1 en build_flags para
+// reactivarlo al depurar sin tener que reintroducir los printf.
+#ifndef DATASTORE_VERBOSE_LOG
+#define DATASTORE_VERBOSE_LOG 0
+#endif
+#if DATASTORE_VERBOSE_LOG
+#define DBG_VERBOSE(...) DBGSERIAL.printf(__VA_ARGS__)
+#else
+#define DBG_VERBOSE(...) do {} while (0)
+#endif
+
 const char* DataStore::META_FILE = "/meta2.bin";
 const char* DataStore::IDX_FILE  = "/day_idx.bin";
 
@@ -309,7 +322,7 @@ bool DataStore::push(const Record5Min& r) {
         _day_idx_insert(dep, phys);
     }
 
-    DBGSERIAL.printf("[Store] push ts=%lu phys=%lu count=%lu\n",
+    DBG_VERBOSE("[Store] push ts=%lu phys=%lu count=%lu\n",
                    (unsigned long)r.timestamp, (unsigned long)phys,
                    (unsigned long)_raw.count);
 
@@ -351,7 +364,7 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
     uint32_t phys_s   = _day_idx[idx_entry].phys_start;
     uint32_t start_li = (phys_s - _raw.head + _raw.capacity) % _raw.capacity;
 
-    DBGSERIAL.printf("[Store] readDay dep=%lu idx=%d phys=%lu start_li=%lu raw_count=%lu\n",
+    DBG_VERBOSE("[Store] readDay dep=%lu idx=%d phys=%lu start_li=%lu raw_count=%lu\n",
                    (unsigned long)dep, idx_entry,
                    (unsigned long)phys_s,
                    (unsigned long)start_li,
@@ -364,7 +377,7 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
         if (r.timestamp >= dep) out[found++] = r;
     }
 
-    DBGSERIAL.printf("[Store] readDay encontrados=%lu\n", (unsigned long)found);
+    DBG_VERBOSE("[Store] readDay encontrados=%lu\n", (unsigned long)found);
     xSemaphoreGive(_mutex);
     return found;
 }
