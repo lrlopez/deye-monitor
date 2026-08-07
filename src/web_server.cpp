@@ -1415,6 +1415,7 @@ input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
      cursor:pointer;flex:1;font-weight:600}
 .btn-save{background:#1f6feb;color:#fff}.btn-save:hover{background:#388bfd}
 .btn-rst{background:#2d1f0e;color:#f5c518;border:1px solid #5a3e10}
+.btn-danger{background:#2d0e0e;color:#e74c3c;border:1px solid #5a1010}
 a.back{color:var(--accent);font-size:.8rem;display:block;text-align:center;
        margin-top:14px;text-decoration:none}
 </style>
@@ -1675,6 +1676,25 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
         "xhr.send(fd);"
         "}"
         "</script>");
+
+    // ── Zona de peligro: borrar todo el historial ───────────────────────────
+    // Permite dejar sitio para importar una copia completa en un dispositivo
+    // que ya tiene datos propios (evita el problema de espacio duplicado que
+    // tendría fusionar dos historiales de 730 días en la misma flash).
+    server.sendContent(
+        "<div class='card'><h2>&#9888; Borrar historial</h2>"
+        "<p class='info'>Elimina TODAS las medidas de 5 min, horarias y diarias "
+        "guardadas en este dispositivo. &Uacute;til para dejar sitio antes de "
+        "importar una copia completa de otro dispositivo. La configuraci&oacute;n "
+        "(WiFi, inversor, Telegram...) no se ve afectada. Esta acci&oacute;n no "
+        "se puede deshacer.</p>"
+        "<form method='post' action='/api/data/wipe' "
+        "onsubmit=\"return confirm('Esto BORRA TODO el historial registrado en "
+        "este dispositivo de forma permanente. ¿Continuar?');\">"
+        "<div class='actions'>"
+        "<button type='submit' class='btn btn-danger'>&#128465; Borrar todo el "
+        "historial</button>"
+        "</div></form></div>");
 
     // ── Reiniciar (formulario independiente, con confirmación) ─────────────
     server.sendContent("<form method='post' action='/api/restart' "
@@ -2153,6 +2173,26 @@ static void handle_data_import_post() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
+// Ruta POST /api/data/wipe  →  Borra todo el histórico y reinicia
+// ═════════════════════════════════════════════════════════════════════════
+// El borrado real se hace en main.cpp ANTES de Store.begin(), igual que la
+// restauración de una copia de seguridad — en ese punto ningún fichero de
+// datos está abierto todavía, así que borrar ahí es seguro.
+static void handle_data_wipe() {
+    if (!check_auth()) return;
+    if (!check_same_origin()) return;
+
+    File marker = LittleFS.open("/data_wipe_pending", "w");
+    if (marker) marker.close();
+
+    DBGSERIAL.println("[DataWipe] Borrado de historial solicitado — reiniciando para aplicarlo");
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/plain", "OK");
+    delay(500);
+    ESP.restart();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
 // Ruta POST /api/restart  →  Reinicia el dispositivo
 // ═════════════════════════════════════════════════════════════════════════
 static void handle_restart() {
@@ -2596,6 +2636,7 @@ void webserver_begin() {
     server.on("/api/config/import", HTTP_POST, handle_config_import);
     server.on("/api/data/export",   HTTP_GET,  handle_data_export);
     server.on("/api/data/import",   HTTP_POST, handle_data_import_post, handle_data_import_upload);
+    server.on("/api/data/wipe",     HTTP_POST, handle_data_wipe);
     server.on("/api/restart",     HTTP_POST, handle_restart);
     server.on("/api/export",      HTTP_GET,  handle_export_csv);
     server.onNotFound([]() {

@@ -405,6 +405,46 @@ static void restart_btn_cb(lv_event_t* /*e*/) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
+// Botón Borrar todo el historial (con confirmación — acción irreversible).
+// El borrado real de los ficheros se hace en main.cpp ANTES de Store.begin(),
+// igual que el resto de firmware — aquí solo se deja marcada la solicitud.
+// ═════════════════════════════════════════════════════════════════════════
+static void do_data_wipe() {
+    lv_label_set_text(lbl_status, LV_SYMBOL_TRASH " Borrando historial...");
+    lv_obj_set_style_text_color(lbl_status, C_ERR, 0);
+    lv_timer_handler();
+    File marker = LittleFS.open("/data_wipe_pending", "w");
+    if (marker) marker.close();
+    Store.flush();
+    delay(500);
+    ESP.restart();
+}
+
+static void data_wipe_confirm_yes_cb(lv_event_t* e) {
+    lv_obj_t* mbox = (lv_obj_t*)lv_event_get_user_data(e);
+    lv_msgbox_close(mbox);
+    do_data_wipe();
+}
+
+static void data_wipe_confirm_no_cb(lv_event_t* e) {
+    lv_obj_t* mbox = (lv_obj_t*)lv_event_get_user_data(e);
+    lv_msgbox_close(mbox);
+}
+
+static void data_wipe_btn_cb(lv_event_t* /*e*/) {
+    lv_obj_t* mbox = lv_msgbox_create(nullptr);   // NULL = modal en layer_top
+    lv_msgbox_add_title(mbox, "Borrar todo el historial");
+    lv_msgbox_add_text(mbox,
+        "Se eliminarán TODAS las medidas guardadas (5 min, horarias y "
+        "diarias) de este dispositivo de forma permanente. El dispositivo "
+        "se reiniciará. Esta acción no se puede deshacer. ¿Continuar?");
+    lv_obj_t* btn_no  = lv_msgbox_add_footer_button(mbox, "Cancelar");
+    lv_obj_t* btn_yes = lv_msgbox_add_footer_button(mbox, "Borrar todo");
+    lv_obj_add_event_cb(btn_no,  data_wipe_confirm_no_cb,  LV_EVENT_CLICKED, mbox);
+    lv_obj_add_event_cb(btn_yes, data_wipe_confirm_yes_cb, LV_EVENT_CLICKED, mbox);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
 // Botón Guardar
 // ═════════════════════════════════════════════════════════════════════════
 static void save_btn_cb(lv_event_t* /*e*/) {
@@ -828,7 +868,9 @@ void config_screen_init(lv_obj_t* parent) {
     const int SEC_BL_H    = SY(228);
     const int SEC_ADMIN_Y = SEC_BL_Y + SEC_BL_H + SY(4);
     const int SEC_ADMIN_H = CFG_FIELD_H + CFG_SEC_PAD*2 + SY(50);
-    const int BTN_Y       = SEC_ADMIN_Y + SEC_ADMIN_H + SY(8);
+    const int SEC_DATA_Y  = SEC_ADMIN_Y + SEC_ADMIN_H + SY(4);
+    const int SEC_DATA_H  = CFG_FIELD_H + CFG_SEC_PAD*2 + SY(50);
+    const int BTN_Y       = SEC_DATA_Y + SEC_DATA_H + SY(8);
 
     lv_obj_t* sec_bl = make_section(parent,
                         LV_SYMBOL_EYE_OPEN " PANTALLA", SEC_BL_Y, SEC_BL_H);
@@ -935,6 +977,30 @@ void config_screen_init(lv_obj_t* parent) {
             CFG_SECTION_W - CFG_LBL_W - CFG_SEC_PAD*2, true, "Nueva contrase\xC3\xB1\x61 web...");
         lv_obj_add_event_cb(s_ta_admin_pass, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
         lv_obj_add_event_cb(s_ta_admin_pass, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    }
+
+    // ── Sección Datos históricos ─────────────────────────────────────────────
+    {
+        lv_obj_t* sec_data = make_section(parent,
+            LV_SYMBOL_TRASH " DATOS HIST\xC3\x93RICOS", SEC_DATA_Y, SEC_DATA_H);
+
+        lv_obj_t* lbl_data_info = lv_label_create(sec_data);
+        lv_obj_set_pos(lbl_data_info, 0, SY(18));
+        lv_obj_set_style_text_font(lbl_data_info, &FONT_SMALL, 0);
+        lv_obj_set_style_text_color(lbl_data_info, C_MUTED2, 0);
+        lv_label_set_text(lbl_data_info,
+            "Borra todas las medidas guardadas (5 min, horarias y diarias).");
+
+        lv_obj_t* btn_wipe = lv_btn_create(sec_data);
+        lv_obj_set_pos(btn_wipe, 0, SY(40));
+        lv_obj_set_size(btn_wipe, CFG_SECTION_W - CFG_SEC_PAD*2, CFG_FIELD_H);
+        lv_obj_set_style_bg_color(btn_wipe, lv_color_hex(0x7D2020), 0);
+        lv_obj_set_style_radius(btn_wipe, 6, 0);
+        lv_obj_add_event_cb(btn_wipe, data_wipe_btn_cb, LV_EVENT_CLICKED, nullptr);
+        lv_obj_t* wipe_lbl = lv_label_create(btn_wipe);
+        lv_label_set_text(wipe_lbl, LV_SYMBOL_TRASH " Borrar todo el historial");
+        lv_obj_set_style_text_font(wipe_lbl, &FONT_SMALL, 0);
+        lv_obj_center(wipe_lbl);
     }
 
     // ── Botones acción + status ────────────────────────────────────────────────

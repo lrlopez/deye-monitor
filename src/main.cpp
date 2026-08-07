@@ -776,6 +776,21 @@ void setup() {
         DBGSERIAL.println("[Setup] Copia de seguridad de datos aplicada");
     }
 
+    // ── Borrar todo el historial si hay una solicitud pendiente ────────────
+    // La deja /api/data/wipe (web_server.cpp) o la opción de borrado de la
+    // pantalla táctil. Debe hacerse ANTES de Store.begin() por el mismo
+    // motivo que la restauración de arriba: ningún fichero está abierto aún.
+    if (LittleFS.exists("/data_wipe_pending")) {
+        DBGSERIAL.println("[Setup] Borrando todo el historial (solicitado)...");
+        const char* paths[DataStore::BACKUP_FILE_COUNT];
+        Store.getBackupPaths(paths);
+        for (uint8_t i = 0; i < DataStore::BACKUP_FILE_COUNT; i++) {
+            LittleFS.remove(paths[i]);
+        }
+        LittleFS.remove("/data_wipe_pending");
+        DBGSERIAL.println("[Setup] Historial borrado");
+    }
+
     // ── Zona horaria — configurar ANTES de Store.begin() ──────────────────
     // _day_idx_load() usa localtime_r sobre los timestamps de flash para calcular
     // los epochs de medianoche. Si la TZ no está configurada aquí, usa UTC y los
