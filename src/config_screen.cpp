@@ -371,15 +371,37 @@ static void bl_night_range_cb(lv_event_t* e) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// Botón Reiniciar sin guardar
+// Botón Reiniciar sin guardar (con confirmación — un toque accidental no
+// debe reiniciar el dispositivo sin avisar)
 // ═════════════════════════════════════════════════════════════════════════
-static void restart_btn_cb(lv_event_t* /*e*/) {
+static void do_restart() {
     lv_label_set_text(lbl_status, LV_SYMBOL_LOOP " Reiniciando...");
     lv_obj_set_style_text_color(lbl_status, C_WARN, 0);
     lv_timer_handler();
     Store.flush();   // persiste meta pendiente del DataStore antes de cortar
     delay(500);
     ESP.restart();
+}
+
+static void restart_confirm_yes_cb(lv_event_t* e) {
+    lv_obj_t* mbox = (lv_obj_t*)lv_event_get_user_data(e);
+    lv_msgbox_close(mbox);
+    do_restart();
+}
+
+static void restart_confirm_no_cb(lv_event_t* e) {
+    lv_obj_t* mbox = (lv_obj_t*)lv_event_get_user_data(e);
+    lv_msgbox_close(mbox);
+}
+
+static void restart_btn_cb(lv_event_t* /*e*/) {
+    lv_obj_t* mbox = lv_msgbox_create(nullptr);   // NULL = modal en layer_top
+    lv_msgbox_add_title(mbox, "Reiniciar dispositivo");
+    lv_msgbox_add_text(mbox, "Se perderán los cambios sin guardar. ¿Continuar?");
+    lv_obj_t* btn_no  = lv_msgbox_add_footer_button(mbox, "Cancelar");
+    lv_obj_t* btn_yes = lv_msgbox_add_footer_button(mbox, "Reiniciar");
+    lv_obj_add_event_cb(btn_no,  restart_confirm_no_cb,  LV_EVENT_CLICKED, mbox);
+    lv_obj_add_event_cb(btn_yes, restart_confirm_yes_cb, LV_EVENT_CLICKED, mbox);
 }
 
 // ═════════════════════════════════════════════════════════════════════════

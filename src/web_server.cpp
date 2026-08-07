@@ -1448,8 +1448,9 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
         "<button type='submit' class='btn btn-save'>&#128190; Guardar cambios</button>"
         "</div></form>");
 
-    // ── Reiniciar (formulario independiente) ──────────────────────────────
-    server.sendContent("<form method='post' action='/api/restart'>"
+    // ── Reiniciar (formulario independiente, con confirmación) ─────────────
+    server.sendContent("<form method='post' action='/api/restart' "
+        "onsubmit=\"return confirm('¿Reiniciar el dispositivo ahora?');\">"
         "<div class='actions'>"
         "<button type='submit' class='btn btn-rst'>&#9851; Reiniciar dispositivo</button>"
         "</div></form>");
