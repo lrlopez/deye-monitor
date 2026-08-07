@@ -16,6 +16,12 @@
 // #define TOUCH_MAP_Y1 0
 // #define TOUCH_MAP_Y2 320
 
+// TOUCH_GT911_CFG_W/H: dimensiones FÍSICAS del panel (tal cual las ve el
+// chip GT911, sin rotación software) — se usan para configurar el propio
+// chip vía TAMC_GT911::setResolution(). TOUCH_MAP_X1/X2/Y1/Y2 son un
+// concepto distinto: el rango de entrada para el mapeo final a coordenadas
+// de pantalla (que sí puede estar rotado/invertido respecto al panel físico).
+
 #if defined(BOARD_GUITION_JC1060P470)
 /* Configuración del GT911 para Guition JC1060P470 (ESP32-P4) */
 #define TOUCH_GT911
@@ -24,10 +30,33 @@
 #define TOUCH_GT911_INT 21
 #define TOUCH_GT911_RST 22
 #define TOUCH_GT911_ROTATION ROTATION_NORMAL
+#define TOUCH_GT911_CFG_W 1024
+#define TOUCH_GT911_CFG_H 600
 #define TOUCH_MAP_X1 1024
 #define TOUCH_MAP_X2 0
 #define TOUCH_MAP_Y1 600
 #define TOUCH_MAP_Y2 0
+#elif defined(BOARD_GUITION_JC4880P443C)
+/* Configuración del GT911 para Guition JC4880P443C (ESP32-P4).
+ * Mismo cableado I2C que JC1060P470. El panel es nativo 480x800 (vertical)
+ * y se rota 90° por software (ver main.cpp, rotation=1). El chip se
+ * configura con sus dimensiones físicas reales (480x800, CFG_W/CFG_H);
+ * el mapeo final usa SWAP_XY con los rangos calibrados empíricamente
+ * (verificado en hardware tocando las esquinas y el centro reales,
+ * confirmado correcto). */
+#define TOUCH_GT911
+#define TOUCH_GT911_SCL 8
+#define TOUCH_GT911_SDA 7
+#define TOUCH_GT911_INT 21
+#define TOUCH_GT911_RST 22
+#define TOUCH_GT911_ROTATION ROTATION_NORMAL
+#define TOUCH_GT911_CFG_W 480
+#define TOUCH_GT911_CFG_H 800
+#define TOUCH_SWAP_XY
+#define TOUCH_MAP_X1 800
+#define TOUCH_MAP_X2 0
+#define TOUCH_MAP_Y1 0
+#define TOUCH_MAP_Y2 480
 #else
 /* Configuración GT911 original (ESP32-S3) */
 #define TOUCH_GT911
@@ -36,6 +65,8 @@
 #define TOUCH_GT911_INT -1
 #define TOUCH_GT911_RST 38
 #define TOUCH_GT911_ROTATION ROTATION_NORMAL
+#define TOUCH_GT911_CFG_W 480
+#define TOUCH_GT911_CFG_H 270
 #define TOUCH_MAP_X1 480
 #define TOUCH_MAP_X2 0
 #define TOUCH_MAP_Y1 270
@@ -66,7 +97,7 @@ bool touch_touched_flag = true, touch_released_flag = true;
 #elif defined(TOUCH_GT911)
 #include <Wire.h>
 #include "TAMC_GT911.h"
-TAMC_GT911 ts = TAMC_GT911(TOUCH_GT911_SDA, TOUCH_GT911_SCL, TOUCH_GT911_INT, TOUCH_GT911_RST, max(TOUCH_MAP_X1, TOUCH_MAP_X2), max(TOUCH_MAP_Y1, TOUCH_MAP_Y2));
+TAMC_GT911 ts = TAMC_GT911(TOUCH_GT911_SDA, TOUCH_GT911_SCL, TOUCH_GT911_INT, TOUCH_GT911_RST, TOUCH_GT911_CFG_W, TOUCH_GT911_CFG_H);
 
 #elif defined(TOUCH_XPT2046)
 #include <XPT2046_Touchscreen.h>

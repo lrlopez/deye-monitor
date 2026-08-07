@@ -2,7 +2,7 @@
 
 Monitor de instalación solar fotovoltaica con inversor híbrido **Deye SUN-6K-SG05** en tiempo real, con pantalla táctil, historial de hasta 2 años, servidor web integrado, notificaciones Telegram, acceso por nombre mDNS (`inversor.local`) y actualización OTA.
 
-Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantalla Guition JC1060P470, 1024×600 px). Desarrollado con **LVGL 9** y **PlatformIO**.
+Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantallas Guition JC1060P470 1024×600 px y JC4880P443C 800×480 px). Desarrollado con **LVGL 9** y **PlatformIO**.
 
 ---
 
@@ -97,6 +97,7 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantalla Guit
 |---|---|---|---|
 | `sunton_4827s043` | Sunton 4827S043 | ESP32-S3 @ 240 MHz, 8 MB PSRAM | 480×272 px RGB, touch GT911 |
 | `guition_jc1060p470` | Guition JC1060P470 | ESP32-P4 @ 360 MHz, 8 MB PSRAM | 1024×600 px MIPI DSI, touch GT911 |
+| `guition_jc4880p443c` | Guition JC4880P443C | ESP32-P4 @ 360 MHz, 32 MB PSRAM | 480×800 px MIPI DSI (panel nativo vertical, rotado a 800×480), touch GT911 |
 
 ### Componentes comunes
 
@@ -481,7 +482,7 @@ cd deye-monitor
 
 ### 3. Elegir entorno en `platformio.ini`
 
-El repositorio incluye dos entornos listos para usar. Selecciona el que corresponda a tu hardware:
+El repositorio incluye tres entornos listos para usar. Selecciona el que corresponda a tu hardware:
 
 **ESP32-S3 (Sunton 4827S043 u otro, 480×272 px):**
 ```bash
@@ -491,6 +492,11 @@ pio run -e sunton_4827s043 --target upload
 **Guition JC1060P470 (ESP32-P4, 1024×600 px MIPI DSI):**
 ```bash
 pio run -e guition_jc1060p470 --target upload
+```
+
+**Guition JC4880P443C (ESP32-P4, 480×800 px MIPI DSI, panel nativo vertical rotado a horizontal):**
+```bash
+pio run -e guition_jc4880p443c --target upload
 ```
 
 ### 4. Fuentes personalizadas y `lv_conf.h`
@@ -632,12 +638,14 @@ Los tags con guión se marcan automáticamente como pre-release en GitHub.
 
 ### Parches de librería para ESP32-P4
 
-El entorno `guition_jc1060p470` requiere dos modificaciones en la `GFX Library for Arduino` que no están en el registro de PlatformIO:
+Los entornos `guition_jc1060p470` y `guition_jc4880p443c` requieren dos modificaciones en la `GFX Library for Arduino` que no están en el registro de PlatformIO:
 
 - `num_fbs=2` y `use_dma2d=true` en `Arduino_ESP32DSIPanel.cpp` para doble buffer con vsync
 - Método `getPanelHandle()` en `Arduino_ESP32DSIPanel.h` para acceder al handle IDF desde el flush callback
 
 Los ficheros parcheados están en `patches/` y el script `scripts/patch_gfx_p4.py` los aplica automáticamente antes de compilar (via `extra_scripts = pre:scripts/patch_gfx_p4.py` en `platformio.ini`). Esto funciona tanto en local como en CI sin necesidad de modificar `.pio/libdeps/` (que está en `.gitignore`).
+
+> **JC4880P443C — panel nativo vertical:** este panel es 480×800 px en orientación vertical; el firmware lo rota 90° por software (`rotation=1` en `Arduino_DSI_Display`) para mostrar 800×480 horizontal. Al usar rotación software, el flush no puede copiar el framebuffer en bruto con `esp_lcd_panel_draw_bitmap()` (stride distinto al del buffer de LVGL) — pasa por `gfx->draw16bitRGBBitmap()`, que sí aplica la rotación correctamente.
 
 ### Saltar un entorno en CI
 
@@ -863,6 +871,12 @@ El proyecto soporta cualquier resolución ≥ 480×270 px mediante defines de co
 -DFONT_SMALL_SIZE=14  -DFONT_SMALL=lv_font_montserrat_14
 -DFONT_NORMAL_SIZE=18 -DFONT_NORMAL=lv_font_montserrat_18
 -DFONT_LARGE_SIZE=36  -DFONT_LARGE=lv_font_montserrat_36
+
+; ESP32-P4 — 800×480 px (entorno guition_jc4880p443c, panel nativo vertical rotado)
+-DSCREEN_WIDTH=800  -DSCREEN_HEIGHT=480
+-DFONT_SMALL_SIZE=22  -DFONT_SMALL=lv_font_montserrat_22
+-DFONT_NORMAL_SIZE=28 -DFONT_NORMAL=lv_font_montserrat_28
+-DFONT_LARGE_SIZE=42  -DFONT_LARGE=lv_font_montserrat_42
 ```
 
 Toda la geometría de la UI se escala automáticamente mediante las macros `SX()`, `SY()` y `SS()` de `ui_constants.h`.

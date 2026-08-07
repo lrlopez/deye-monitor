@@ -648,7 +648,8 @@
  * Los tamaños sin fuente propia se fuerzan a 0 para no compilar la built-in.
  *
  * Sunton  (4827S043): usa tamaños 12, 14, 22, 28
- * Guition (JC1060P470): usa tamaños 14, 28, 32, 42, 48              */
+ * Guition (JC1060P470): usa tamaños 14, 28, 32, 42, 48
+ * Guition (JC4880P443C): usa tamaños 22, 28, 32, 42                */
 
 #if defined(BOARD_GUITION_JC1060P470)
 #define LV_FONT_CUSTOM_DECLARE \
@@ -657,6 +658,12 @@
     LV_FONT_DECLARE(lv_font_montserrat_32) \
     LV_FONT_DECLARE(lv_font_montserrat_42) \
     LV_FONT_DECLARE(lv_font_montserrat_48)
+#elif defined(BOARD_GUITION_JC4880P443C)
+#define LV_FONT_CUSTOM_DECLARE \
+    LV_FONT_DECLARE(lv_font_montserrat_22) \
+    LV_FONT_DECLARE(lv_font_montserrat_28) \
+    LV_FONT_DECLARE(lv_font_montserrat_32) \
+    LV_FONT_DECLARE(lv_font_montserrat_42)
 #else
 #define LV_FONT_CUSTOM_DECLARE \
     LV_FONT_DECLARE(lv_font_montserrat_12) \
@@ -666,7 +673,11 @@
 #endif
 
 /** Always set a default font */
+#if defined(BOARD_GUITION_JC4880P443C)
+#define LV_FONT_DEFAULT &lv_font_montserrat_22
+#else
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
+#endif
 
 /** Enable handling large font and/or fonts with a lot of characters.
  *  The limit depends on the font size, font face and bpp.

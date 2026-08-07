@@ -44,6 +44,27 @@ Arduino_GFX *gfx = new Arduino_DSI_Display(
     1024, 600, dsipanel, 0 /* rotation */, true /* auto_flush */,
     GFX_NOT_DEFINED /* rst */,
     jd9165_init_operations, sizeof(jd9165_init_operations) / sizeof(lcd_init_cmd_t));
+#elif defined(BOARD_GUITION_JC4880P443C)
+#define TFT2_BL 23 // Backlight GPIO for Guition JC4880P443C
+
+// Panel: 480x800 nativo (vertical), controlador ST7701 vía MIPI-DSI, 2 lanes.
+// Timings verificados por la comunidad (ESPHome mipi_dsi/models/guition.py,
+// modelo "JC4880P443") — los del datasheet oficial daban un vsync_front_porch
+// 10x menor y colgaban el panel a mitad de la secuencia de init.
+Arduino_ESP32DSIPanel *dsipanel = new Arduino_ESP32DSIPanel(
+    12 /* hsync_pulse_width */, 42 /* hsync_back_porch */, 42  /* hsync_front_porch */,
+    2  /* vsync_pulse_width */, 8  /* vsync_back_porch */, 166 /* vsync_front_porch */,
+    34000000 /* prefer_speed */, 500 /* lane_bit_rate Mbps */
+);
+// rotation=1 gira el panel nativo (480x800) a horizontal (800x480 lógico).
+// NOTA: sentido de giro sin verificar en hardware — si la imagen aparece al
+// revés o volcada, cambiar a rotation=3 (y ajustar el mapeo táctil de touch.h).
+// rst=GPIO5: pin de reset físico del panel (confirmado por ESPHome), antes
+// se dejaba sin definir y el panel podía arrancar en estado inconsistente.
+Arduino_GFX *gfx = new Arduino_DSI_Display(
+    480, 800, dsipanel, 1 /* rotation */, true /* auto_flush */,
+    5 /* rst = GPIO5 */,
+    st7701_dsi_init_operations, sizeof(st7701_dsi_init_operations) / sizeof(lcd_init_cmd_t));
 #else
 #define GFX_BL DF_GFX_BL // default backlight pin, you may replace DF_GFX_BL to actual backlight pin
 #define TFT2_BL 2
@@ -85,9 +106,24 @@ void my_disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map
     // programa el swap en el siguiente vsync → sin tearing. También bloquea hasta
     // que DMA2D termina, por lo que px_map es libre al salir.
     // El mutex serializa con las escrituras flash de Core 0.
+    // Válido solo con rotation=0: el framebuffer nativo del panel tiene el
+    // mismo stride que el buffer de LVGL (panel nativo ya horizontal).
     if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
     esp_lcd_panel_draw_bitmap(dsipanel->getPanelHandle(),
                               area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
+    if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
+#elif defined(BOARD_GUITION_JC4880P443C)
+    // Panel nativo vertical (480x800) girado 90° por software (rotation=1):
+    // el framebuffer nativo del panel tiene stride de 480px, distinto del
+    // buffer de LVGL (800px). No se puede copiar en bruto con
+    // esp_lcd_panel_draw_bitmap (produce la imagen entrelazada/rota) — hay
+    // que pasar por draw16bitRGBBitmap(), que aplica la rotación correcta.
+    if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
+    {
+        uint32_t w = (area->x2 - area->x1 + 1);
+        uint32_t h = (area->y2 - area->y1 + 1);
+        gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t*) px_map, w, h);
+    }
     if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
 #else
     uint32_t w = (area->x2 - area->x1 + 1);
@@ -643,10 +679,10 @@ void setup() {
 
     screenWidth = gfx->width();
     screenHeight = gfx->height();
-    // ESP32-P4 (Guition JC1060P470): buffer completo en PSRAM. LVGL renderiza aquí y
+    // ESP32-P4 (Guition JC1060P470 / JC4880P443C): buffer completo en PSRAM. LVGL renderiza aquí y
     // esp_lcd_panel_draw_bitmap lo copia al buffer trasero DSI via DMA2D + swap en vsync.
     // ESP32-S3 (esp32s3box): buffer parcial en SRAM para DMA.
-#if defined(BOARD_GUITION_JC1060P470)
+#if defined(BOARD_GUITION_JC1060P470) || defined(BOARD_GUITION_JC4880P443C)
     disp_draw_buf = (lv_color_t *)heap_caps_malloc(screenWidth * screenHeight * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 #else
     disp_draw_buf = (lv_color_t *)heap_caps_malloc(2 * screenWidth * screenHeight, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -661,7 +697,7 @@ void setup() {
     /* Initialize the display */
     disp_drv = lv_display_create(screenWidth, screenHeight);
     lv_display_set_flush_cb(disp_drv, my_disp_flush);
-#if defined(BOARD_GUITION_JC1060P470)
+#if defined(BOARD_GUITION_JC1060P470) || defined(BOARD_GUITION_JC4880P443C)
     // FULL mode: LVGL acumula el frame completo en disp_draw_buf.
     // flush_cb llama a esp_lcd_panel_draw_bitmap → DMA2D copia al buffer trasero DSI
     // y el swap se hace en el siguiente vsync → sin tearing.
@@ -819,7 +855,7 @@ void setup() {
         delay(500);
         ESP.restart();
     }
-#if defined(BOARD_GUITION_JC1060P470)
+#if defined(BOARD_GUITION_JC1060P470) || defined(BOARD_GUITION_JC4880P443C)
     s_flash_display_mutex = xSemaphoreCreateMutex();
 #endif
     webserver_set_data(g_mutex, &g_energy, &g_daily);
