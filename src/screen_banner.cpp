@@ -2,6 +2,7 @@
 #include "ui_constants.h"
 #include "config.h"
 #include "backlight.h"
+#include "web_alerts.h"
 #include <freertos/queue.h>
 
 struct BannerMsg { AlertType type; int32_t value; };
@@ -13,6 +14,7 @@ void screen_banner_init() {
 }
 
 void screen_banner_enqueue(AlertType type, int32_t value) {
+    WebAlerts_push(type, value);   // registro para /api/alerts, independiente del banner
     if (!s_queue) return;
     BannerMsg msg{type, value};
     xQueueSend(s_queue, &msg, 0);

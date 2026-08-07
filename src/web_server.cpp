@@ -9,6 +9,7 @@
 #include "data_store.h"
 #include "psram_cache.h"
 #include "web_assets_chartjs.h"
+#include "web_alerts.h"
 
 static WebServer          server(80);
 static SemaphoreHandle_t  s_mutex   = nullptr;
@@ -192,6 +193,8 @@ footer a{color:var(--accent);text-decoration:none}
   <span id="tb-clock">--:--:--</span>
   <span>&#9889;&thinsp;<span id="tb-ac" style="color:var(--muted)">--%</span>
     <span style="font-size:.62rem;color:var(--muted)">autocon.</span></span>
+  <a href="#" id="tb-notif" title="Notificaciones del navegador" style="display:none;
+     color:var(--muted);text-decoration:none;font-size:.85rem">&#128276;</a>
   <span><span class="dot" id="tb-dot"></span><span id="tb-txt" style="color:var(--muted)">--</span></span>
 </div>)=EOF=");
 
@@ -582,6 +585,48 @@ setInterval(clock,1000);
     var p=ip('csv-panel');
     p.style.display=(p.style.display==='none')?'flex':'none';
   });
+})();
+
+// ── Notificaciones del navegador mientras el dashboard está abierto ───────
+// No es Web Push real (no hace falta service worker ni claves VAPID): solo
+// funciona con esta pestaña abierta (puede estar en segundo plano), pero
+// cubre el caso de uso principal sin criptografía nueva en el firmware.
+(function(){
+  var btn = ip('tb-notif');
+  if (!('Notification' in window)) return;   // navegador sin soporte
+  btn.style.display = 'inline';
+
+  function updateIcon(){
+    var p = Notification.permission;
+    btn.style.color = p==='granted' ? '#2ecc71' : p==='denied' ? '#e74c3c' : 'var(--muted)';
+  }
+  updateIcon();
+
+  btn.addEventListener('click', function(e){
+    e.preventDefault();
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().then(updateIcon);
+    } else if (Notification.permission === 'denied') {
+      alert('Las notificaciones están bloqueadas para este sitio — actívalas desde los ajustes del navegador.');
+    } else {
+      new Notification('Deye Monitor', {body:'Notificaciones activas', icon:'/icon.svg'});
+    }
+  });
+
+  var lastAlertId = null;   // null = aún no se ha hecho el primer sondeo
+  function pollAlerts(){
+    var url = '/api/alerts' + (lastAlertId!==null ? ('?since_id='+lastAlertId) : '');
+    fetch(url).then(function(r){return r.json();}).then(function(d){
+      if (lastAlertId === null) { lastAlertId = d.last_id; return; } // no avisar del histórico al abrir
+      (d.alerts||[]).forEach(function(a){
+        lastAlertId = a.id;
+        if (Notification.permission === 'granted')
+          new Notification('Deye Monitor', {body:a.text, icon:'/icon.svg', tag:'deye-'+a.id});
+      });
+    }).catch(function(){});
+  }
+  pollAlerts();
+  setInterval(pollAlerts, 15000);
 })();
 </script></body></html>)=EOF=");
 }
@@ -1927,6 +1972,35 @@ static void handle_latest_date() {
     server.send(200, "application/json", json);
 }
 
+// ── GET /api/alerts?since_id=N ────────────────────────────────────────────
+// Alertas del sistema (batería, solar, red, logger) desde el id indicado.
+// El dashboard lo sondea para mostrar notificaciones del navegador mientras
+// la pestaña está abierta (ver WebAlerts en web_alerts.h) — no requiere
+// autenticación, mismo nivel de exposición que /api/data.
+static void handle_alerts() {
+    uint32_t since_id = 0;
+    if (server.hasArg("since_id")) since_id = (uint32_t)server.arg("since_id").toInt();
+
+    WebAlertEntry entries[16];
+    uint32_t n = WebAlerts_getSince(since_id, entries, 16);
+
+    JsonDocument doc;
+    doc["last_id"] = WebAlerts_lastId();
+    JsonArray arr = doc["alerts"].to<JsonArray>();
+    char text[48];
+    for (uint32_t i = 0; i < n; i++) {
+        JsonObject o = arr.add<JsonObject>();
+        o["id"]    = entries[i].id;
+        o["ts"]    = entries[i].timestamp;
+        o["level"] = WebAlerts_level(entries[i].type);
+        o["text"]  = WebAlerts_text(entries[i], text, sizeof(text));
+    }
+
+    String out;
+    serializeJson(doc, out);
+    server.send(200, "application/json", out);
+}
+
 // ── GET /api/history ──────────────────────────────────────────────────────
 static void handle_history() {
     String date_s  = server.arg("date");
@@ -2201,6 +2275,7 @@ void webserver_begin() {
     server.on("/update",   HTTP_POST, handle_update_post, handle_upload);
     server.on("/api/history",     HTTP_GET, handle_history);
     server.on("/api/latest_date", HTTP_GET, handle_latest_date);
+    server.on("/api/alerts",      HTTP_GET, handle_alerts);
     server.on("/api/status",      HTTP_GET, handle_status);
     server.on("/chart",           HTTP_GET, handle_chart);
     server.on("/admin",           HTTP_GET,  handle_admin_get);

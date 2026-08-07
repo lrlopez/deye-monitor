@@ -23,6 +23,7 @@
 #include "backlight.h"
 #include "pagination_dots.h"
 #include "screen_banner.h"
+#include "web_alerts.h"
 
 
 /* Change to your screen resolution */
@@ -875,6 +876,7 @@ void setup() {
 
     // ── Tarea Solarman ────────────────────────────────────────────────────
     screen_banner_init();
+    WebAlerts_init();
     xTaskCreatePinnedToCore(solarmanTask, "solarman",
                              8192, nullptr, 1, nullptr, 0);
 
