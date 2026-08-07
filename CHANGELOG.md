@@ -6,6 +6,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+---
+
+## [v3.5.0] - 2026-08-07
+
 ### Añadido
 
 - **Copia de seguridad completa de datos históricos desde `/admin`:** nuevo `GET /api/data/export` (descarga TODO el historial de 5 min, horario y diario en un contenedor binario) y `POST /api/data/import` (lo restaura, con comprobación de compatibilidad de formato y de espacio libre en flash antes de cada sección). Solo funciona entre dispositivos con la misma versión de formato de almacenamiento.
