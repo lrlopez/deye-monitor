@@ -28,6 +28,34 @@ static bool check_auth() {
     return false;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Mitigación CSRF — HTTP Basic Auth no protege por sí solo: el navegador
+// reenvía las credenciales cacheadas también en peticiones disparadas desde
+// OTRA web (p.ej. un <form> oculto apuntando a /update). Si el navegador
+// indica Origin o Referer, deben apuntar a este mismo dispositivo. Las
+// peticiones sin ninguno de los dos (curl, scripts) se permiten — no pueden
+// llevar credenciales cacheadas de un navegador ajenas a quien las envía.
+// ─────────────────────────────────────────────────────────────────────────────
+static bool same_origin_request() {
+    String host = server.hostHeader();
+    if (host.isEmpty()) return true;   // sin Host no podemos comparar
+
+    String origin = server.header("Origin");
+    if (origin.length() > 0) return origin.indexOf(host) >= 0;
+
+    String referer = server.header("Referer");
+    if (referer.length() > 0) return referer.indexOf(host) >= 0;
+
+    return true;
+}
+
+static bool check_same_origin() {
+    if (same_origin_request()) return true;
+    DBGSERIAL.println("[Web] Petición rechazada: Origin/Referer no coincide (posible CSRF)");
+    server.send(403, "text/plain", "Forbidden: cross-origin request");
+    return false;
+}
+
 void webserver_set_data(SemaphoreHandle_t mutex,
                         const EnergyData* energy,
                         const DailyStats* daily) {
@@ -1106,7 +1134,12 @@ static void handle_upload() {
     HTTPUpload& upload = server.upload();
 
     if (upload.status == UPLOAD_FILE_START) {
-        // Verificar autenticación antes de iniciar la actualización
+        // Verificar autenticación y origen antes de iniciar la actualización
+        if (!same_origin_request()) {
+            DBGSERIAL.println("[OTA] Rechazado: Origin/Referer no coincide (posible CSRF)");
+            s_ota_authed = false;
+            return;
+        }
         String pw = Storage.loadAdminPassword();
         s_ota_authed = pw.isEmpty() || server.authenticate("admin", pw.c_str());
         if (!s_ota_authed) {
@@ -1430,6 +1463,7 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
 // ═════════════════════════════════════════════════════════════════════════
 static void handle_admin_post() {
     if (!check_auth()) return;
+    if (!check_same_origin()) return;
 
     // ── Red ───────────────────────────────────────────────────────────────
     AppConfig cfg{}; Storage.loadConfig(cfg);   // preservar WiFi y mDNS
@@ -1493,6 +1527,7 @@ static void handle_admin_post() {
 // ═════════════════════════════════════════════════════════════════════════
 static void handle_restart() {
     if (!check_auth()) return;
+    if (!check_same_origin()) return;
     server.send(200, "text/html; charset=utf-8",
         "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
         "<meta http-equiv='refresh' content='6;url=/'>"
@@ -1862,6 +1897,11 @@ static void handle_icon() {
 }
 
 void webserver_begin() {
+    // Necesario para que server.header("Origin"/"Referer") devuelva algo —
+    // por defecto el WebServer de Arduino no captura cabeceras arbitrarias.
+    static const char* csrf_headers[] = {"Origin", "Referer"};
+    server.collectHeaders(csrf_headers, 2);
+
     server.on("/",              HTTP_GET,  handle_root);
     server.on("/manifest.json", HTTP_GET,  handle_manifest);
     server.on("/icon.svg",      HTTP_GET,  handle_icon);
