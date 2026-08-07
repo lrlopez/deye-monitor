@@ -350,8 +350,18 @@ footer a{color:var(--accent);text-decoration:none}
   <a href="/chart">&#128200; Gr&aacute;fica</a> &nbsp;|&nbsp;
   <a href="/admin">&#9881; Admin</a> &nbsp;|&nbsp;
   <a href="/update">&#8593; Firmware</a> &nbsp;|&nbsp;
-  <a href="#" id="csv-link">&#128229; CSV</a> &nbsp;|&nbsp;
+  <a href="#" id="csv-toggle">&#128229; CSV</a> &nbsp;|&nbsp;
   <span id="app-ver" style="color:var(--muted)">v--</span>
+  <div id="csv-panel" style="display:none;justify-content:center;align-items:center;
+       gap:8px;flex-wrap:wrap;padding-top:10px">
+    <input type="date" id="csv-from" style="background:var(--card);color:var(--wh);
+           border:1px solid var(--bd);border-radius:6px;padding:4px 6px;font-size:.75rem">
+    <span style="color:var(--muted)">&#8594;</span>
+    <input type="date" id="csv-to" style="background:var(--card);color:var(--wh);
+           border:1px solid var(--bd);border-radius:6px;padding:4px 6px;font-size:.75rem">
+    <a href="#" id="csv-download" style="color:var(--accent);text-decoration:none;
+       font-size:.75rem">&#11015; Descargar</a>
+  </div>
 </footer>)=EOF=");
 
     // ── JS: constantes desde AppConfig + lógica ───────────────────────────
@@ -501,12 +511,31 @@ fetch('/api/status').then(r=>r.json()).then(s=>{
 setInterval(refresh,5000);
 setInterval(clock,1000);
 (function(){
+  function fmt(d){return d.getFullYear().toString()+'-'+
+    String(d.getMonth()+1).padStart(2,'0')+'-'+
+    String(d.getDate()).padStart(2,'0');}
+  function fmtCompact(s){return s.replace(/-/g,'');}
+
   var to=new Date(),from=new Date(to);
   from.setDate(from.getDate()-29);
-  function fmt(d){return d.getFullYear().toString()+
-    String(d.getMonth()+1).padStart(2,'0')+
-    String(d.getDate()).padStart(2,'0');}
-  ip('csv-link').href='/api/export?from='+fmt(from)+'&to='+fmt(to);
+  var elFrom=ip('csv-from'), elTo=ip('csv-to');
+  elFrom.value=fmt(from);
+  elTo.value=fmt(to);
+  elFrom.max=elTo.max=fmt(to);
+
+  function updateHref(){
+    ip('csv-download').href='/api/export?from='+fmtCompact(elFrom.value)
+                            +'&to='+fmtCompact(elTo.value);
+  }
+  updateHref();
+  elFrom.addEventListener('change',updateHref);
+  elTo.addEventListener('change',updateHref);
+
+  ip('csv-toggle').addEventListener('click',function(e){
+    e.preventDefault();
+    var p=ip('csv-panel');
+    p.style.display=(p.style.display==='none')?'flex':'none';
+  });
 })();
 </script></body></html>)=EOF=");
 }
