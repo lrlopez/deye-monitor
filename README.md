@@ -64,12 +64,14 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantallas Gui
 ### Servidor web integrado
 - Dashboard HTML con 4 tarjetas de arco SVG que replican el layout de la pantalla táctil (Solar, Red, Batería, Carga), actualizado por AJAX cada 5 segundos sin recargar la página; en pantallas anchas (≥ 700 px) las 4 tarjetas se muestran en una sola fila
 - Donuts SVG animados de autoconsumo/producción con totales del día
-- Gráfica interactiva diaria con **Chart.js** y actualización incremental
+- Gráfica interactiva diaria con **Chart.js** (auto-alojado en el propio firmware, funciona sin conexión a internet) y actualización incremental
 - Navegación día a día en el navegador
+- **Exportación CSV con rango de fechas seleccionable** desde el dashboard (hasta 366 días)
+- **Notificaciones del navegador**: mientras el dashboard está abierto (puede estar en segundo plano), avisa con una notificación del sistema operativo ante cada alerta nueva
 - API REST con soporte de granularidad 5min/horario/diario
 - Actualización de firmware OTA vía navegador (`/update`)
-- **Panel de administración** en `/admin`: configura inversor, gráfica, Telegram, pantalla y nombre mDNS desde el navegador
-- Protección por contraseña del panel de administración y de OTA, configurable desde la pantalla táctil
+- **Panel de administración** en `/admin`: configura inversor, gráfica, Telegram, pantalla y nombre mDNS desde el navegador; incluye **exportar/importar toda la configuración** en un JSON de copia de seguridad
+- Protección por contraseña del panel de administración y de OTA, configurable desde la pantalla táctil, con **protección CSRF** y **rate-limit con backoff exponencial** ante fallos de login
 - **Acceso por nombre mDNS**: el dispositivo es accesible en la red local como `http://inversor.local` (nombre configurable)
 - **PWA (Progressive Web App)**: el dashboard y la gráfica se pueden instalar como aplicación en el móvil con "Añadir a pantalla de inicio"
 
@@ -202,9 +204,13 @@ deye-monitor/
 │   ├── calendar_popup.h / .cpp    # Calendario modal
 │   ├── pagination_dots.h / .cpp   # Indicador de posición
 │   ├── backlight.h / .cpp         # Control PWM de brillo
+│   ├── screen_banner.h / .cpp     # Banner de alertas en pantalla
+│   ├── safe_serial.h / .cpp       # Salida serie thread-safe (DBGSERIAL)
 │   │
 │   ├── web_server.h / .cpp        # Servidor HTTP + OTA
-│   └── telegram.h / .cpp         # Bot Telegram (UniversalTelegramBot)
+│   ├── web_alerts.h / .cpp        # Registro de alertas para /api/alerts
+│   ├── web_assets_chartjs.h       # Chart.js embebido (auto-alojado)
+│   └── telegram.h / .cpp          # Bot Telegram (UniversalTelegramBot)
 │
 ├── partitions.csv                 # Particionado: NVS+OTA+App+LittleFS
 ├── platformio.ini                 # Configuración PlatformIO
@@ -352,7 +358,16 @@ Permite configurar todos los parámetros del sistema desde el navegador, sin nec
 | **Telegram** | Token del bot, chat ID, umbral de aviso (amarillo) y crítico (rojo) de batería, tipos de alerta |
 | **Pantalla** | Brillo operación, diurno y nocturno, tiempo de inactividad, horario nocturno |
 
-El panel incluye un botón **Guardar** que aplica todos los cambios y redirige de vuelta al panel, y un botón **Reiniciar** para aplicar cambios que requieren reinicio (como la IP del datalogger o el nombre mDNS).
+El panel incluye un botón **Guardar** que aplica todos los cambios y redirige de vuelta al panel, un botón **Reiniciar** (con confirmación) para aplicar cambios que requieren reinicio (como la IP del datalogger o el nombre mDNS), y una sección de **copia de seguridad** de la configuración completa.
+
+### Copia de seguridad de la configuración
+
+El panel incluye una sección para descargar y restaurar toda la configuración (WiFi, inversor, gráfica, Telegram y pantalla) como un fichero JSON — útil antes de una actualización arriesgada o al sustituir el dispositivo.
+
+- **Descargar copia**: `GET /api/config/export`, descarga `deye_config_backup.json`
+- **Restaurar copia**: sube el fichero y pulsa **Restaurar copia** (pide confirmación, ya que sobrescribe la configuración actual)
+
+> El fichero contiene credenciales en claro (WiFi, token de Telegram): guárdalo en un sitio seguro. La contraseña del propio panel **no se incluye** — sigue siendo configurable solo desde la pantalla táctil.
 
 ### Protección por contraseña
 
@@ -367,6 +382,11 @@ Flujo de configuración:
 3. A partir de ese momento, el navegador solicitará usuario `admin` y la contraseña elegida al acceder a `/admin` o `/update`
 
 > Si no se ha configurado ninguna contraseña, ambas páginas son accesibles sin autenticación (comportamiento predeterminado para facilitar el primer acceso).
+
+Protecciones adicionales activas siempre que hay contraseña configurada:
+
+- **CSRF**: las peticiones que cambian estado (`/admin`, `/update`, `/api/restart`, `/api/config/import`) se rechazan si la cabecera `Origin`/`Referer` no apunta al propio dispositivo — evita que una web maliciosa use credenciales cacheadas del navegador para actuar en tu nombre.
+- **Rate-limit**: a partir del 3er fallo de contraseña consecutivo, cada fallo adicional dobla la espera obligatoria (hasta 5 minutos, respuesta `429` con `Retry-After`). Se resetea con un login correcto.
 
 ---
 
@@ -668,6 +688,9 @@ ci_skip = true   # Este entorno no se compilará en GitHub Actions
 | `GET` | `/api/latest_date` | Último día con datos de 5 min en flash |
 | `GET` | `/api/status` | Estado del almacenamiento y sistema |
 | `GET` | `/api/export` | Exportación CSV de totales diarios (`?from=YYYYMMDD&to=YYYYMMDD`, máx. 366 días) |
+| `GET` | `/api/alerts` | Alertas del sistema desde un id (`?since_id=N`) — usado por las notificaciones del navegador |
+| `GET` | `/api/config/export` | Descarga toda la configuración en JSON (requiere contraseña si está configurada) |
+| `POST` | `/api/config/import` | Restaura la configuración desde ese JSON (requiere contraseña si está configurada) |
 | `POST` | `/api/restart` | Reinicia el ESP32 (usado desde el panel de administración) |
 
 ---
@@ -753,7 +776,36 @@ fecha,pv_kwh,export_kwh,import_kwh,load_kwh,bchg_kwh,bdis_kwh,soc_inicio,soc_fin
 2026-05-02,31.10,10.50,0.00,14.30,9.10,0.80,99,98
 ```
 
-El enlace **CSV** del pie de página del dashboard descarga por defecto los últimos 30 días.
+El enlace **CSV** del pie de página del dashboard despliega un selector de fechas (por defecto los últimos 30 días) que genera el enlace de descarga.
+
+---
+
+#### `GET /api/alerts`
+Alertas del sistema (batería, solar, red, logger) desde el id indicado, en orden cronológico. No requiere autenticación (mismo nivel de exposición que `/api/data`). Es el endpoint que sondea el dashboard para mostrar notificaciones del navegador.
+
+| Parámetro | Formato | Descripción |
+|---|---|---|
+| `since_id` | entero | Solo alertas con id mayor (por defecto: todas las guardadas, hasta 24) |
+
+```json
+{
+  "last_id": 42,
+  "alerts": [
+    {"id": 41, "ts": 1746870300, "level": "warn", "text": "Batería baja: 22%"},
+    {"id": 42, "ts": 1746871200, "level": "info", "text": "Batería recuperada: 30%"}
+  ]
+}
+```
+
+`level` es `info`, `warn` o `critical`.
+
+---
+
+#### `GET /api/config/export`
+Descarga toda la configuración (WiFi, inversor, gráfica, Telegram y pantalla) en un JSON, protegido por contraseña si hay una configurada. La contraseña del propio panel `/admin` no se incluye.
+
+#### `POST /api/config/import`
+Restaura la configuración desde ese mismo JSON (cuerpo de la petición = el JSON, `Content-Type: application/json`). Requiere contraseña si hay una configurada, y las mismas protecciones CSRF que `/admin`.
 
 ---
 
