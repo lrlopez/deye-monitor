@@ -401,8 +401,12 @@ bool DataStore::pushDaily(const DailyRecord& r) {
         return false;
     }
 
-    // Buscar si ya existe un registro para ese día (actualizar en lugar de duplicar)
-    for (uint32_t i = 0; i < _day.count; i++) {
+    // Buscar si ya existe un registro para ese día (actualizar en lugar de duplicar).
+    // Se recorre desde el más reciente hacia atrás: el día actualizado es casi
+    // siempre "hoy" (el último escrito), así el caso común es O(1) en vez de
+    // hasta STORE_DAYS lecturas de flash bajo el mutex.
+    for (uint32_t k = _day.count; k > 0; k--) {
+        uint32_t i = k - 1;
         uint32_t pi = physIdx(_day, i);
         DailyRecord existing{};
         if (readFile(_f_day, pi, &existing, sizeof(existing)) &&
