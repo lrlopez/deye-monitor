@@ -7,6 +7,7 @@
 #include "storage.h"
 #include "data_store.h"
 #include "psram_cache.h"
+#include "web_assets_chartjs.h"
 
 static WebServer          server(80);
 static SemaphoreHandle_t  s_mutex   = nullptr;
@@ -590,8 +591,8 @@ static void handle_chart() {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Deye – Gráfica diaria</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<script src="/assets/chart.js"></script>
+<script src="/assets/chart-annotation.js"></script>
 <style>
 :root{
   --bg:#0d1117;--card:#161b22;--muted:#6e7681;--white:#eaeaea;
@@ -1897,6 +1898,22 @@ static void handle_icon() {
         R"(</svg>)");
 }
 
+// ═════════════════════════════════════════════════════════════════════════
+// Chart.js y su plugin de anotaciones, servidos desde el propio firmware
+// (ver web_assets_chartjs.h) en vez de cargarlos de un CDN externo — /chart
+// funciona así sin conexión a internet. Cache-Control moderado: el
+// contenido solo cambia con una actualización de firmware.
+// ═════════════════════════════════════════════════════════════════════════
+static void handle_chartjs() {
+    server.sendHeader("Cache-Control", "public, max-age=86400");
+    server.send(200, "application/javascript", CHARTJS_UMD_MIN_JS);
+}
+
+static void handle_chartjs_annotation() {
+    server.sendHeader("Cache-Control", "public, max-age=86400");
+    server.send(200, "application/javascript", CHARTJS_ANNOTATION_MIN_JS);
+}
+
 void webserver_begin() {
     // Necesario para que server.header("Origin"/"Referer") devuelva algo —
     // por defecto el WebServer de Arduino no captura cabeceras arbitrarias.
@@ -1906,6 +1923,8 @@ void webserver_begin() {
     server.on("/",              HTTP_GET,  handle_root);
     server.on("/manifest.json", HTTP_GET,  handle_manifest);
     server.on("/icon.svg",      HTTP_GET,  handle_icon);
+    server.on("/assets/chart.js",            HTTP_GET, handle_chartjs);
+    server.on("/assets/chart-annotation.js", HTTP_GET, handle_chartjs_annotation);
     server.on("/update",        HTTP_GET,  handle_update_get);
     server.on("/api/data", HTTP_GET,  handle_api_data);
     server.on("/update",   HTTP_POST, handle_update_post, handle_upload);
