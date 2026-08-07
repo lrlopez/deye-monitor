@@ -17,6 +17,47 @@ static const DailyStats*  s_daily   = nullptr;
 static bool               s_ota_authed = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Rate-limit de autenticación — contador global (dispositivo de un solo
+// admin en LAN, no hace falta trackear por IP) con backoff exponencial:
+// a partir del 3er fallo consecutivo, cada fallo adicional dobla la espera
+// hasta un máximo de 5 minutos. Se resetea con un login correcto. No
+// persiste entre reinicios — un reinicio ya requiere acceso físico u OTA.
+// ─────────────────────────────────────────────────────────────────────────────
+static uint8_t  s_auth_fail_count    = 0;
+static uint32_t s_auth_lockout_until = 0;
+
+static uint32_t auth_lockout_duration_ms(uint8_t fails) {
+    if (fails < 3) return 0;
+    uint32_t secs = 1UL << min((int)(fails - 3), 8);   // 1,2,4,...,256 s
+    if (secs > 300) secs = 300;                        // tope 5 min
+    return secs * 1000UL;
+}
+
+static bool auth_is_locked_out() {
+    return s_auth_lockout_until != 0 && millis() < s_auth_lockout_until;
+}
+
+static void auth_record_failure() {
+    if (s_auth_fail_count < 255) s_auth_fail_count++;
+    uint32_t dur = auth_lockout_duration_ms(s_auth_fail_count);
+    if (dur > 0) s_auth_lockout_until = millis() + dur;
+}
+
+static void auth_record_success() {
+    s_auth_fail_count    = 0;
+    s_auth_lockout_until = 0;
+}
+
+static bool auth_send_lockout_response() {
+    uint32_t remaining_s = (s_auth_lockout_until - millis() + 999) / 1000;
+    char buf[16]; snprintf(buf, sizeof(buf), "%lu", (unsigned long)remaining_s);
+    server.sendHeader("Retry-After", buf);
+    server.send(429, "text/plain",
+        "Demasiados intentos fallidos. Espera " + String(buf) + " s e inténtalo de nuevo.");
+    return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Auth helper – devuelve true si el acceso está permitido.
 // Si hay contraseña en NVS, exige HTTP Basic Auth con usuario "admin".
 // Si no hay contraseña, el acceso es libre.
@@ -24,7 +65,12 @@ static bool               s_ota_authed = false;
 static bool check_auth() {
     String pw = Storage.loadAdminPassword();
     if (pw.isEmpty()) return true;
-    if (server.authenticate("admin", pw.c_str())) return true;
+    if (auth_is_locked_out()) return auth_send_lockout_response();
+    if (server.authenticate("admin", pw.c_str())) {
+        auth_record_success();
+        return true;
+    }
+    auth_record_failure();
     server.requestAuthentication(BASIC_AUTH, "Deye Admin",
         "Acceso restringido. Configure la contraseña desde la pantalla táctil.");
     return false;
@@ -1172,7 +1218,20 @@ static void handle_upload() {
             return;
         }
         String pw = Storage.loadAdminPassword();
-        s_ota_authed = pw.isEmpty() || server.authenticate("admin", pw.c_str());
+        if (pw.isEmpty()) {
+            s_ota_authed = true;
+        } else if (auth_is_locked_out()) {
+            DBGSERIAL.println("[OTA] Rechazado: demasiados intentos fallidos");
+            s_ota_authed = false;
+            auth_send_lockout_response();
+            return;
+        } else if (server.authenticate("admin", pw.c_str())) {
+            auth_record_success();
+            s_ota_authed = true;
+        } else {
+            auth_record_failure();
+            s_ota_authed = false;
+        }
         if (!s_ota_authed) {
             DBGSERIAL.println("[OTA] Rechazado: acceso denegado");
             return;
