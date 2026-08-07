@@ -51,23 +51,9 @@ La secuencia de comandos de init (`st7701_dsi_init_operations`, ya incluida en l
 
 ---
 
-## Particionado (partitions.csv)
+## Particionado
 
-```
-nvs,      data, nvs,      0x9000,   0x5000
-otadata,  data, ota,      0xe000,   0x2000
-app0,     app,  ota_0,    0x10000,  0x3F0000
-app1,     app,  ota_1,    0x400000, 0x3F0000
-spiffs,   data, spiffs,   0x7F0000, 0x800000   ← LittleFS 8MB
-coredump, data, coredump, 0xFF0000, 0x10000
-```
-
-En `platformio.ini`:
-```ini
-board_build.partitions          = partitions.csv
-board_build.filesystem          = littlefs
-board_build.arduino.memory_type = qio_opi
-```
+Ver `partitions.csv` (NVS + OTA doble + LittleFS 8MB + coredump) y los `board_build.*` de `platformio.ini`.
 
 ---
 
@@ -106,62 +92,13 @@ Reg 108: pv_kwh               (encontrado mediante dump, era calculado)
 
 ## Estructuras de datos
 
-### `EnergyData` (datos instantáneos)
-```cpp
-struct EnergyData {
-    int32_t pv_power, pv1_power, pv2_power;
-    int32_t batt_power;   // positivo=descargando, negativo=cargando
-    int32_t batt_soc;
-    int32_t load_power;
-    int32_t grid_power;   // positivo=importando, negativo=exportando
-    bool valid;
-};
-```
+- `EnergyData` (solarman.h) — instantáneos live
+- `DailyStats` (solarman.h) — totales diarios live
+- `Record5Min` (data_store.h, 16 bytes, `#pragma pack(1)`) — registro cada 5 min en flash
+- `HourlyRecord` (data_store.h, 32 bytes) — agregación horaria
+- `DailyRecord` (data_store.h, 32 bytes) — totales del día
 
-### `DailyStats` (totales diarios live)
-```cpp
-struct DailyStats {
-    float pv_kwh, export_kwh, import_kwh;
-    float load_kwh, batt_charge_kwh, batt_discharge_kwh;
-    bool valid;
-};
-```
-
-### `Record5Min` (16 bytes, flash) — registros cada 5 min
-```cpp
-#pragma pack(push,1)
-struct Record5Min {
-    uint32_t timestamp;    // epoch UTC del inicio del slot
-    int16_t  pv_w, grid_w, batt_w, load_w;
-    uint8_t  soc;
-    uint8_t  flags;        // bit0=válido, bit1=parcial
-    int16_t  extra[1];
-};  // 16 bytes exactos
-#pragma pack(pop)
-```
-
-### `HourlyRecord` (32 bytes, flash) — agregación horaria
-```cpp
-struct HourlyRecord {
-    uint32_t hour_epoch;
-    int16_t  avg_pv_w, avg_grid_w, avg_batt_w, avg_load_w;
-    uint8_t  soc_end, sample_count, flags, _pad1;
-    uint16_t day_pv, day_export, day_import;
-    uint16_t day_load, day_bchg, day_bdis;
-    int16_t  extra[2];
-};  // 32 bytes
-```
-
-### `DailyRecord` (32 bytes, flash) — totales del día
-```cpp
-struct DailyRecord {
-    uint32_t day_epoch;
-    uint16_t pv_10wh, export_10wh, import_10wh;
-    uint16_t load_10wh, bchg_10wh, bdis_10wh;
-    uint8_t  soc_start, soc_end, flags, _pad;
-    int16_t  extra[6];
-};  // 32 bytes
-```
+El signo de `batt_power`/`batt_w` y `grid_power`/`grid_w` sigue la convención de la tabla de bugs resueltos (positivo=descargando/importando).
 
 **Conversión:** `daily_record_to_stats(dr)` → `DailyStats`
 
@@ -212,31 +149,7 @@ La historia horaria completa está en PSRAM → **la gráfica diaria nunca toca 
 
 ## Arquitectura LVGL en PSRAM
 
-En `lv_conf.h`:
-```c
-#define LV_USE_STDLIB_MALLOC   LV_STDLIB_CUSTOM
-#define LV_MEM_CUSTOM_INCLUDE  "psram_alloc.h"
-#define LV_MEM_CUSTOM_ALLOC    psram_malloc
-#define LV_MEM_CUSTOM_FREE     psram_free
-#define LV_MEM_CUSTOM_REALLOC  psram_realloc
-```
-
-En `psram_alloc.cpp` (símbolos requeridos por LVGL 9):
-```cpp
-extern "C" {
-    void  lv_mem_init(void)   { /* PSRAM ya inicializada */ }
-    void  lv_mem_deinit(void) { }
-    void* lv_malloc_core(size_t size)             { return heap_caps_malloc(...SPIRAM) }
-    void  lv_free_core(void* ptr)                 { heap_caps_free(ptr) }
-    void* lv_realloc_core(void* ptr, size_t size) { return heap_caps_realloc(...SPIRAM) }
-}
-```
-
-### Draw buffer (en SRAM para DMA)
-```cpp
-static __attribute__((aligned(4))) lv_color_t draw_buf_1[480 * 136];  // 131 KB
-static __attribute__((aligned(4))) lv_color_t draw_buf_2[480 * 136];  // 131 KB
-```
+`lv_conf.h` configura `LV_USE_STDLIB_MALLOC=LV_STDLIB_CUSTOM` apuntando a `psram_alloc.h/.cpp`, que implementa los 5 símbolos `lv_mem_*`/`lv_malloc_core`/`lv_free_core`/`lv_realloc_core` que LVGL 9 requiere (ver tabla de bugs — LVGL 9 necesita 5 símbolos, no 3). El draw buffer de LVGL se reserva en `main.cpp` (`heap_caps_malloc`, tamaño según `screenWidth`/`screenHeight`).
 
 ---
 
@@ -395,39 +308,9 @@ Encoladas via `xQueueSend` desde `solarmanTask`, procesadas en la tarea del bot:
 
 ---
 
-## Constantes configurables (`config.h`)
+## Constantes configurables y macros de escala
 
-```cpp
-#define APP_NAME        "Deye Monitor"
-#define APP_VERSION     "1.0.0"
-#define WIFI_SSID       "TU_SSID"           // fallback si NVS vacío
-#define WIFI_PASS       "TU_PASSWORD"
-#define LOGGER_IP       "192.168.1.XXX"
-#define LOGGER_PORT     8899
-#define LOGGER_SERIAL   2712345678UL
-#define MODBUS_UNIT_ID  1
-#define NTP_SERVER1     "pool.ntp.org"
-#define NTP_SERVER2     "time.cloudflare.com"
-#define TIMEZONE        "CET-1CEST,M3.5.0,M10.5.0/3"
-#define POLL_INTERVAL_MS  5000
-#define POLL_DAILY_MS    60000UL
-// Pantalla (sobreescribibles desde platformio.ini con -D)
-#define SCREEN_WIDTH    480
-#define SCREEN_HEIGHT   270
-#define FONT_SMALL_SIZE  12
-#define FONT_SMALL  lv_font_montserrat_12
-#define FONT_NORMAL_SIZE 14
-#define FONT_NORMAL lv_font_montserrat_14
-#define FONT_LARGE_SIZE  28
-#define FONT_LARGE  lv_font_montserrat_28
-```
-
-### Macros de escala (`ui_constants.h`)
-```cpp
-#define SX(px)  ((px) * SCREEN_WIDTH  / 480)   // escala horizontal
-#define SY(px)  ((px) * SCREEN_HEIGHT / 270)   // escala vertical
-#define SS(px)  (SX(px) < SY(px) ? SX(px) : SY(px))  // escala uniforme
-```
+Ver `src/config.h` (defaults de app/WiFi/logger/NTP/polling, y fuentes/resolución sobreescribibles desde `platformio.ini` con `-D`) y `src/ui_constants.h` (macros `SX()`/`SY()`/`SS()` para escalar la UI a la resolución de cada placa).
 
 ---
 
@@ -507,35 +390,7 @@ lv_obj_t*         g_tile_summary= nullptr;
 
 ## Ficheros del proyecto
 
-```
-src/
-├── main.cpp                 # Setup, loop, solarmanTask, globals
-├── config.h                 # Constantes y defaults
-├── ui_constants.h           # Geometría escalable SX/SY/SS + defines layout
-├── psram_alloc.h/.cpp       # Allocator LVGL→PSRAM + símbolos lv_mem_*
-├── solarman.h/.cpp          # Protocolo SolarmanV5, fetchEnergyData, fetchDailyStats
-├── storage.h/.cpp           # NVS: AppConfig, BacklightConfig, TelegramConfig, SessionState
-├── data_store.h/.cpp        # LittleFS: 3 buffers circulares + índice días
-├── psram_cache.h/.cpp       # PSRAM cache raw/hourly/daily + bitmap
-├── dashboard.h/.cpp         # Tile 0: tiempo real + autoconsumo + reloj
-├── stats_screen.h/.cpp      # Tile 1: donuts diarios
-├── summary_screen.h/.cpp    # Tile 2: barras semanales
-├── chart_screen.h/.cpp      # Tile 3: gráfica horaria lv_chart
-├── config_screen.h/.cpp     # Tile 4: configuración scrollable
-├── splash_screen.h/.cpp     # Pantalla de inicio con progreso
-├── calendar_popup.h/.cpp    # Popup modal de calendario
-├── pagination_dots.h/.cpp   # Indicador de posición inferior
-├── backlight.h/.cpp         # PWM backlight, modo nocturno, inactividad
-├── web_server.h/.cpp        # HTTP server, OTA, /api/*, /chart
-└── telegram.h/.cpp          # Bot Telegram (UniversalTelegramBot)
-.github/
-├── workflows/build_release.yml
-└── scripts/get_envs.py
-partitions.csv
-platformio.ini
-lv_conf.h
-README.md
-```
+Todo el código vive en `src/` (un fichero `.h/.cpp` por subsistema: pantallas, protocolo Solarman, almacenamiento, backlight, web server, Telegram, etc. — ver `ls src/`). CI en `.github/workflows/build_release.yml` + `.github/scripts/get_envs.py`.
 
 ---
 
