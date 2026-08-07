@@ -6,6 +6,33 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Añadido
+
+- **Exportar/importar configuración completa desde `/admin`:** nuevo `GET /api/config/export` (descarga un JSON con WiFi, inversor, gráfica, Telegram y pantalla) y `POST /api/config/import` (restaura desde ese JSON), con su UI en el panel de administración. La contraseña del propio panel se excluye deliberadamente — sigue siendo configurable solo desde la pantalla táctil.
+- **Selector de rango de fechas para el CSV del dashboard:** el enlace «CSV» del pie de página despliega ahora un panel con dos selectores de fecha (por defecto los últimos 30 días, como antes) en lugar de exportar siempre un rango fijo. Usa el endpoint `/api/export?from=&to=`, que ya soportaba hasta 366 días.
+- **Notificaciones del navegador:** mientras el dashboard está abierto (puede estar en segundo plano), muestra una notificación del sistema operativo con cada alerta nueva (batería, solar, red, logger), mediante la Notification API del navegador y un nuevo endpoint `GET /api/alerts`. No es Web Push real: no requiere service worker ni claves VAPID, y por tanto no funciona con la pestaña cerrada.
+- **Rate-limit con backoff exponencial en la autenticación web:** a partir del 3er fallo consecutivo de contraseña en `/admin`, `/update` o la subida OTA, cada fallo adicional dobla la espera obligatoria (hasta un máximo de 5 minutos, respuesta `429` con `Retry-After`). Se resetea con un login correcto.
+
+### Seguridad
+
+- **Mitigación CSRF:** `/admin`, `/api/restart` y `/update` rechazan ahora las peticiones POST cuyo `Origin`/`Referer` no apunte al propio dispositivo. HTTP Basic Auth por sí solo no protege de CSRF, ya que el navegador reenvía las credenciales cacheadas también en peticiones disparadas desde otra web.
+- **Sin CORS abierto en la API:** eliminada la cabecera `Access-Control-Allow-Origin: *` de todos los endpoints `/api/*`, que permitía leer datos de energía desde cualquier web de terceros si el navegador podía alcanzar la IP del dispositivo en la LAN.
+- **Certificado TLS verificado en la conexión a Telegram:** sustituido `client.setInsecure()` (sin verificación de certificado, vulnerable a MITM) por `client.setCACert()` con la CA raíz real de `api.telegram.org`.
+
+### Mejorado
+
+- **Chart.js auto-alojado:** `/chart` cargaba chart.js y su plugin de anotaciones desde un CDN externo (`cdn.jsdelivr.net`), dejando de funcionar sin conexión a internet. Ahora se sirven desde el propio firmware.
+- **Confirmación antes de reiniciar:** tanto el botón táctil «Reiniciar sin guardar» como «Reiniciar dispositivo» en `/admin` piden confirmación antes de ejecutar — un toque o clic accidental ya no reinicia el dispositivo sin avisar.
+- **`pushDaily()` más rápido:** al actualizar el registro del día en curso (cada cambio de hora), recorre el buffer desde el más reciente en lugar de desde el principio; el caso común (actualizar «hoy») pasa de hasta 730 lecturas de flash a prácticamente O(1).
+
+---
+
+## [v3.3.0] - 2026-08-07
+
+### Añadido
+
+- **Soporte para Guition JC4880P443C (ESP32-P4, 480×800 px MIPI DSI):** nuevo entorno `guition_jc4880p443c` en `platformio.ini`. El panel es nativo vertical y se rota 90° por software a 800×480 lógico. Timings DSI y pin de reset (`GPIO5`) verificados en hardware real — los del datasheet oficial de terceros eran incorrectos y colgaban el panel a mitad de la secuencia de inicialización. El flush pasa por `draw16bitRGBBitmap()` en vez de la copia DMA2D en bruto usada en la JC1060P470, ya que esta última solo es válida sin rotación por software. Calibración táctil GT911 corregida separando las dimensiones físicas del panel (usadas para configurar el propio chip) de las dimensiones lógicas rotadas (usadas para el mapeo final a pantalla).
+
 ---
 
 ## [v3.2.1] - 2026-06-02
