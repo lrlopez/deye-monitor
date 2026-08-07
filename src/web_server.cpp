@@ -2,6 +2,7 @@
 #include <Update.h>
 #include <WiFi.h>
 #include <time.h>
+#include <ArduinoJson.h>
 #include "web_server.h"
 #include "config.h"
 #include "storage.h"
@@ -1449,6 +1450,47 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
         "<button type='submit' class='btn btn-save'>&#128190; Guardar cambios</button>"
         "</div></form>");
 
+    // ── Copia de seguridad de la configuración ──────────────────────────────
+    server.sendContent(
+        "<div class='card'><h2>&#128190; Copia de seguridad</h2>"
+        "<p class='info'>Incluye WiFi, inversor, Telegram y pantalla — "
+        "&uacute;til antes de una actualizaci&oacute;n o al sustituir el "
+        "dispositivo. El fichero contiene credenciales en claro: gu&aacute;rdalo "
+        "en un sitio seguro. La contrase&ntilde;a de este panel no se incluye "
+        "(solo se cambia desde la pantalla t&aacute;ctil).</p>"
+        "<div class='actions'>"
+        "<a class='btn btn-save' style='text-decoration:none;text-align:center' "
+        "href='/api/config/export'>&#11015; Descargar copia</a>"
+        "</div>"
+        "<div class='row' style='margin-top:10px'>"
+        "<input type='file' id='cfg_file' accept='application/json' style='flex:1'>"
+        "</div>"
+        "<div class='actions'>"
+        "<button type='button' class='btn btn-rst' onclick='importConfig()'>"
+        "&#11014; Restaurar copia</button>"
+        "</div>"
+        "<p class='info' id='cfg_import_msg'></p></div>"
+        "<script>"
+        "function importConfig(){"
+        "var f=document.getElementById('cfg_file').files[0];"
+        "if(!f){alert('Elige primero un fichero .json');return;}"
+        "if(!confirm('Esto sobrescribe la configuración actual (excepto la "
+        "contraseña de este panel). ¿Continuar?'))return;"
+        "var r=new FileReader();"
+        "r.onload=function(){"
+        "fetch('/api/config/import',{method:'POST',body:r.result})"
+        ".then(function(res){"
+        "var m=document.getElementById('cfg_import_msg');"
+        "if(res.ok){m.textContent='Restaurada. Recarga la página para ver los "
+        "valores nuevos.';m.style.color='var(--ok)';}"
+        "else{res.text().then(function(t){m.textContent='Error: '+t;"
+        "m.style.color='#e74c3c';});}"
+        "});"
+        "};"
+        "r.readAsText(f);"
+        "}"
+        "</script>");
+
     // ── Reiniciar (formulario independiente, con confirmación) ─────────────
     server.sendContent("<form method='post' action='/api/restart' "
         "onsubmit=\"return confirm('¿Reiniciar el dispositivo ahora?');\">"
@@ -1522,6 +1564,147 @@ static void handle_admin_post() {
 
     server.sendHeader("Location", "/admin?saved=1");
     server.send(303, "text/plain", "Guardado");
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// GET /api/config/export → descarga toda la configuración en un JSON
+// POST /api/config/import → restaura la configuración desde ese JSON
+//
+// La contraseña de administración (web_pass) se excluye deliberadamente:
+// solo puede establecerse desde la pantalla táctil (ver check_auth arriba),
+// y permitir restaurarla desde la web rompería esa garantía.
+// ═════════════════════════════════════════════════════════════════════════
+static void handle_config_export() {
+    if (!check_auth()) return;
+
+    AppConfig       cfg   = {}; Storage.loadConfig(cfg);
+    ChartConfig     ccfg  = Storage.loadChartConfig();
+    TelegramConfig  tgcfg = Storage.loadTelegramConfig();
+    BacklightConfig blcfg = Storage.loadBacklightConfig();
+
+    JsonDocument doc;
+    doc["config_version"]      = 1;
+    doc["wifi_ssid"]           = cfg.wifi_ssid;
+    doc["wifi_pass"]           = cfg.wifi_pass;
+    doc["logger_ip"]           = cfg.logger_ip;
+    doc["logger_serial"]       = cfg.logger_serial;
+    doc["mdns_hostname"]       = cfg.mdns_hostname;
+    doc["inv_max_w"]           = cfg.inv_max_w;
+    doc["grid_max_w"]          = cfg.grid_max_w;
+    doc["bat_cap_w"]           = cfg.bat_cap_w;
+    doc["chart_autoscale"]     = ccfg.autoscale;
+    doc["chart_max_kw"]        = ccfg.max_kw;
+    doc["tg_token"]            = tgcfg.token;
+    doc["tg_chat_id"]          = tgcfg.chat_id;
+    doc["tg_batt_threshold"]   = tgcfg.batt_threshold;
+    doc["tg_batt_warn"]        = tgcfg.batt_warn;
+    doc["tg_notify_solar"]     = tgcfg.notify_solar;
+    doc["tg_notify_grid"]      = tgcfg.notify_grid;
+    doc["tg_notify_logger"]    = tgcfg.notify_logger;
+    doc["bl_op_pct"]           = blcfg.op_pct;
+    doc["bl_normal_pct"]       = blcfg.normal_pct;
+    doc["bl_reduced_pct"]      = blcfg.reduced_pct;
+    doc["bl_inactivity_enabled"] = blcfg.inactivity_enabled;
+    doc["bl_inactivity_div10"] = blcfg.inactivity_div10;
+    doc["bl_night_enabled"]    = blcfg.night_enabled;
+    doc["bl_night_start_h"]    = blcfg.night_start_h;
+    doc["bl_night_end_h"]      = blcfg.night_end_h;
+
+    String out;
+    serializeJsonPretty(doc, out);
+
+    server.sendHeader("Content-Disposition",
+                      "attachment; filename=\"deye_config_backup.json\"");
+    server.send(200, "application/json", out);
+}
+
+static void handle_config_import() {
+    if (!check_auth()) return;
+    if (!check_same_origin()) return;
+
+    if (!server.hasArg("plain")) {
+        server.send(400, "text/plain", "Falta el cuerpo JSON");
+        return;
+    }
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, server.arg("plain"));
+    if (err) {
+        server.send(400, "text/plain", String("JSON inválido: ") + err.c_str());
+        return;
+    }
+
+    // ── Red / inversor (mismas validaciones que handle_admin_post) ─────────
+    AppConfig cfg{}; Storage.loadConfig(cfg);
+    if (doc["wifi_ssid"].is<const char*>())
+        strncpy(cfg.wifi_ssid, doc["wifi_ssid"] | "", sizeof(cfg.wifi_ssid) - 1);
+    if (doc["wifi_pass"].is<const char*>())
+        strncpy(cfg.wifi_pass, doc["wifi_pass"] | "", sizeof(cfg.wifi_pass) - 1);
+    if (doc["mdns_hostname"].is<const char*>()) {
+        String mdns = sanitize_mdns(String((const char*)(doc["mdns_hostname"] | "")));
+        if (mdns.length() > 0 && mdns.length() < sizeof(cfg.mdns_hostname))
+            mdns.toCharArray(cfg.mdns_hostname, sizeof(cfg.mdns_hostname));
+    }
+    if (doc["logger_ip"].is<const char*>()) {
+        String lip = doc["logger_ip"] | "";
+        if (lip.length() > 0 && lip.length() < sizeof(cfg.logger_ip) && is_valid_ipv4(lip))
+            lip.toCharArray(cfg.logger_ip, sizeof(cfg.logger_ip));
+    }
+    if (doc["logger_serial"].is<uint32_t>()) cfg.logger_serial = doc["logger_serial"];
+    if (doc["inv_max_w"].is<int>()) {
+        int v = doc["inv_max_w"]; if (v >= 1 && v <= 65535) cfg.inv_max_w = (uint16_t)v;
+    }
+    if (doc["grid_max_w"].is<int>()) {
+        int v = doc["grid_max_w"]; if (v >= 1 && v <= 65535) cfg.grid_max_w = (uint16_t)v;
+    }
+    if (doc["bat_cap_w"].is<int>()) {
+        int v = doc["bat_cap_w"]; if (v >= 1 && v <= 65535) cfg.bat_cap_w = (uint16_t)v;
+    }
+
+    // ── Gráfica ───────────────────────────────────────────────────────────
+    ChartConfig ccfg = Storage.loadChartConfig();
+    if (doc["chart_autoscale"].is<bool>()) ccfg.autoscale = doc["chart_autoscale"];
+    if (doc["chart_max_kw"].is<int>()) {
+        int v = doc["chart_max_kw"];
+        ccfg.max_kw = (uint8_t)(v < 1 ? 1 : v > 20 ? 20 : v);
+    }
+
+    // ── Telegram ──────────────────────────────────────────────────────────
+    TelegramConfig tgcfg = Storage.loadTelegramConfig();
+    if (doc["tg_token"].is<const char*>())
+        strncpy(tgcfg.token, doc["tg_token"] | "", sizeof(tgcfg.token) - 1);
+    if (doc["tg_chat_id"].is<const char*>())
+        strncpy(tgcfg.chat_id, doc["tg_chat_id"] | "", sizeof(tgcfg.chat_id) - 1);
+    if (doc["tg_batt_warn"].is<int>()) {
+        int v = doc["tg_batt_warn"]; tgcfg.batt_warn = (uint8_t)(v < 5 ? 5 : v > 95 ? 95 : v);
+    }
+    if (doc["tg_batt_threshold"].is<int>()) {
+        int v = doc["tg_batt_threshold"]; tgcfg.batt_threshold = (uint8_t)(v < 5 ? 5 : v > 50 ? 50 : v);
+    }
+    if (doc["tg_notify_solar"].is<bool>())  tgcfg.notify_solar  = doc["tg_notify_solar"];
+    if (doc["tg_notify_grid"].is<bool>())   tgcfg.notify_grid   = doc["tg_notify_grid"];
+    if (doc["tg_notify_logger"].is<bool>()) tgcfg.notify_logger = doc["tg_notify_logger"];
+
+    // ── Pantalla ──────────────────────────────────────────────────────────
+    auto clamp = [](int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; };
+    BacklightConfig blcfg = Storage.loadBacklightConfig();
+    if (doc["bl_op_pct"].is<int>())      blcfg.op_pct      = (uint8_t)clamp(doc["bl_op_pct"],      10, 100);
+    if (doc["bl_normal_pct"].is<int>())  blcfg.normal_pct  = (uint8_t)clamp(doc["bl_normal_pct"],   0, 100);
+    if (doc["bl_reduced_pct"].is<int>()) blcfg.reduced_pct = (uint8_t)clamp(doc["bl_reduced_pct"],  0, 100);
+    if (doc["bl_inactivity_enabled"].is<bool>()) blcfg.inactivity_enabled = doc["bl_inactivity_enabled"];
+    if (doc["bl_inactivity_div10"].is<int>())
+        blcfg.inactivity_div10 = (uint8_t)clamp(doc["bl_inactivity_div10"], 1, 18);
+    if (doc["bl_night_enabled"].is<bool>()) blcfg.night_enabled = doc["bl_night_enabled"];
+    if (doc["bl_night_start_h"].is<int>())  blcfg.night_start_h = (uint8_t)clamp(doc["bl_night_start_h"], 0, 23);
+    if (doc["bl_night_end_h"].is<int>())    blcfg.night_end_h   = (uint8_t)clamp(doc["bl_night_end_h"],   0, 23);
+
+    // ── Persistir ─────────────────────────────────────────────────────────
+    Storage.saveConfig(cfg);
+    Storage.saveChartConfig(ccfg);
+    Storage.saveTelegramConfig(tgcfg);
+    Storage.saveBacklightConfig(blcfg);
+
+    server.send(200, "text/plain", "OK");
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -1934,6 +2117,8 @@ void webserver_begin() {
     server.on("/chart",           HTTP_GET, handle_chart);
     server.on("/admin",           HTTP_GET,  handle_admin_get);
     server.on("/admin",           HTTP_POST, handle_admin_post);
+    server.on("/api/config/export", HTTP_GET,  handle_config_export);
+    server.on("/api/config/import", HTTP_POST, handle_config_import);
     server.on("/api/restart",     HTTP_POST, handle_restart);
     server.on("/api/export",      HTTP_GET,  handle_export_csv);
     server.onNotFound([]() {
