@@ -69,9 +69,6 @@ private:
 
     // Formateo de alertas proactivas
     String fmtAlert(const AlertMsg& msg) const;
-
-    // Envío (interno, llamado desde la tarea)
-    bool sendMsg(const String& text);
 };
 
 #define Telegram TelegramBot::instance()
