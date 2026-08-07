@@ -6,6 +6,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+---
+
+## [v3.4.0] - 2026-08-07
+
 ### Añadido
 
 - **Exportar/importar configuración completa desde `/admin`:** nuevo `GET /api/config/export` (descarga un JSON con WiFi, inversor, gráfica, Telegram y pantalla) y `POST /api/config/import` (restaura desde ese JSON), con su UI en el panel de administración. La contraseña del propio panel se excluye deliberadamente — sigue siendo configurable solo desde la pantalla táctil.
