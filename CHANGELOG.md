@@ -6,6 +6,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Añadido
+
+- **Copia de seguridad completa de datos históricos desde `/admin`:** nuevo `GET /api/data/export` (descarga TODO el historial de 5 min, horario y diario en un contenedor binario) y `POST /api/data/import` (lo restaura, con comprobación de compatibilidad de formato y de espacio libre en flash antes de cada sección). Solo funciona entre dispositivos con la misma versión de formato de almacenamiento.
+- **Borrar todo el historial:** nueva acción con doble confirmación, disponible tanto en `/admin` (`POST /api/data/wipe`) como en la pantalla táctil (Configuración → Datos históricos), para vaciar por completo las medidas guardadas. Pensada para dejar sitio antes de importar una copia de otro dispositivo.
+
 ---
 
 ## [v3.4.0] - 2026-08-07
