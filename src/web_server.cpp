@@ -1556,7 +1556,6 @@ static void handle_api_data() {
           d.valid, d.pv_kwh, d.load_kwh,
           (unsigned long)today_ep);
 
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", json);
 }
 
@@ -1602,7 +1601,6 @@ static void handle_status() {
         (int)WiFi.RSSI(),
         WiFi.localIP().toString().c_str());
 
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", json);
 }
 
@@ -1618,7 +1616,6 @@ static void handle_latest_date() {
         snprintf(json, sizeof(json), "{\"date\":\"%04d%02d%02d\"}",
                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
     }
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", json);
 }
 
@@ -1645,7 +1642,6 @@ static void handle_history() {
 
         server.setContentLength(CONTENT_LENGTH_UNKNOWN);
         server.sendHeader("Content-Type", "application/json");
-        server.sendHeader("Access-Control-Allow-Origin", "*");
         server.send(200);
         server.sendContent("{\"from\":\"" + from_s + "\",\"to\":\"" + to_s +
                             "\",\"granularity\":\"daily\",\"records\":[");
@@ -1692,7 +1688,6 @@ static void handle_history() {
 
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.sendHeader("Content-Type", "application/json");
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200);
 
     if (gran == "5min") {
@@ -1828,7 +1823,6 @@ static void handle_export_csv() {
     server.sendHeader("Content-Type", "text/csv");
     server.sendHeader("Content-Disposition",
                       "attachment; filename=\"" + fname + "\"");
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200);
 
     server.sendContent(
