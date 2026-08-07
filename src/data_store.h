@@ -122,9 +122,9 @@ public:
     DailyRecord getCurrentDaily();
 
     // ── Capacidad ─────────────────────────────────────────────────────────
-    uint32_t getRawCount()       const { return _raw_count;       }
-    uint32_t getHourlyCount()    const { return _hrly_count;      }
-    uint32_t getDailyCount()     const { return _day_count;       }
+    uint32_t getRawCount()       const { return _raw.count;       }
+    uint32_t getHourlyCount()    const { return _hrly.count;      }
+    uint32_t getDailyCount()     const { return _day.count;       }
     uint32_t getRawCapacity()    const { return _raw.capacity;    }
     uint32_t getHourlyCapacity() const { return _hrly.capacity;   }
     uint32_t getDailyCapacity()  const { return _day.capacity;    }
@@ -146,10 +146,6 @@ private:
     CircBuf  _hrly {"/hrly.bin",  STORE_DAYS * 24, 0, 0};  // STORE_DAYS días × 24
     CircBuf  _day  {"/day.bin",        STORE_DAYS, 0, 0};  // STORE_DAYS días
 
-    uint32_t& _raw_count  = _raw.count;
-    uint32_t& _hrly_count = _hrly.count;
-    uint32_t& _day_count  = _day.count;
-    
     // File handles abiertos permanentemente para rendimiento
     File _f_raw;
     File _f_hrly;
