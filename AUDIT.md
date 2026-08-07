@@ -67,8 +67,8 @@ conforme se implementan, cada uno en su propio commit.
 - [x] Selector de rango de fechas para el CSV en el dashboard (el endpoint
   `/api/export?from=&to=` ya soportaba hasta 366 días, faltaba la UI).
 - [x] Rate-limit / backoff tras fallos de autenticación en `/admin` y `/update`.
-- [ ] Notificaciones push del navegador (Web Push) — el dashboard ya es PWA instalable.
-  Pendiente de decidir el enfoque (ver conversación): Web Push real (RFC 8030 + VAPID)
-  requiere implementar en el ESP32 firma ECDSA y cifrado AES-GCM/HKDF — mucho riesgo
-  para hardware embebido — frente a una alternativa mucho más simple (notificación
-  del navegador mientras el dashboard está abierto, sin service worker ni claves).
+- [x] Notificaciones del navegador — se optó por notificación en pestaña abierta
+  (Notification API + sondeo de `/api/alerts`) en vez de Web Push real (RFC 8030 +
+  VAPID), que habría requerido implementar firma ECDSA y cifrado AES-GCM/HKDF en el
+  propio ESP32 — decisión tomada explícitamente con el usuario por el riesgo de esa
+  criptografía en hardware embebido.
