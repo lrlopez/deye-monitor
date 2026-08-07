@@ -61,10 +61,14 @@ conforme se implementan, cada uno en su propio commit.
   suministro innecesaria (~200 KB, cabe en los 8 MB de LittleFS ya reservados).
   Fix: auto-alojar chart.js + chartjs-plugin-annotation.
 
-## Nuevas funcionalidades propuestas (pendientes de acordar alcance — no implementar sin confirmación)
+## Nuevas funcionalidades propuestas
 
-- [ ] Exportar/importar configuración completa (JSON) desde `/admin`.
-- [ ] Selector de rango de fechas para el CSV en el dashboard (el endpoint
-  `/api/export?from=&to=` ya soporta hasta 366 días, falta la UI).
-- [ ] Rate-limit / backoff tras fallos de autenticación en `/admin` y `/update`.
+- [x] Exportar/importar configuración completa (JSON) desde `/admin`.
+- [x] Selector de rango de fechas para el CSV en el dashboard (el endpoint
+  `/api/export?from=&to=` ya soportaba hasta 366 días, faltaba la UI).
+- [x] Rate-limit / backoff tras fallos de autenticación en `/admin` y `/update`.
 - [ ] Notificaciones push del navegador (Web Push) — el dashboard ya es PWA instalable.
+  Pendiente de decidir el enfoque (ver conversación): Web Push real (RFC 8030 + VAPID)
+  requiere implementar en el ESP32 firma ECDSA y cifrado AES-GCM/HKDF — mucho riesgo
+  para hardware embebido — frente a una alternativa mucho más simple (notificación
+  del navegador mientras el dashboard está abierto, sin service worker ni claves).
