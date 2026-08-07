@@ -1624,6 +1624,58 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
         "}"
         "</script>");
 
+    // ── Copia de seguridad de datos históricos ──────────────────────────────
+    server.sendContent(
+        "<div class='card'><h2>&#128194; Copia de seguridad de datos hist&oacute;ricos</h2>"
+        "<p class='info'>Descarga TODO el historial registrado en flash (medidas "
+        "de 5 min, horarias y diarias) para restaurarlo en otro dispositivo con "
+        "el mismo firmware. Solo compatible entre dispositivos con la misma "
+        "versi&oacute;n de formato de almacenamiento.</p>"
+        "<div class='actions'>"
+        "<a class='btn btn-save' style='text-decoration:none;text-align:center' "
+        "href='/api/data/export'>&#11015; Descargar datos</a>"
+        "</div>"
+        "<div class='row' style='margin-top:10px'>"
+        "<input type='file' id='data_file' accept='.bin,application/octet-stream' "
+        "style='flex:1'>"
+        "</div>"
+        "<div id='data_progress' style='display:none;width:100%;background:#21262d;"
+        "border-radius:6px;height:10px;margin-top:8px'>"
+        "<div id='data_bar' style='height:10px;border-radius:6px;"
+        "background:#1f6feb;width:0%'></div></div>"
+        "<div class='actions'>"
+        "<button type='button' class='btn btn-rst' onclick='importData()'>"
+        "&#11014; Restaurar datos</button>"
+        "</div>"
+        "<p class='info' id='data_import_msg'></p></div>"
+        "<script>"
+        "function importData(){"
+        "var f=document.getElementById('data_file').files[0];"
+        "if(!f){alert('Elige primero un fichero .bin');return;}"
+        "if(!confirm('Esto SUSTITUYE TODO el historial actual por el del "
+        "fichero, y el dispositivo se reiniciará para aplicarlo. Esta acción "
+        "no se puede deshacer. ¿Continuar?'))return;"
+        "var m=document.getElementById('data_import_msg');"
+        "var prog=document.getElementById('data_progress'),"
+        "bar=document.getElementById('data_bar');"
+        "prog.style.display='block';"
+        "var fd=new FormData();fd.append('data',f);"
+        "var xhr=new XMLHttpRequest();"
+        "xhr.open('POST','/api/data/import');"
+        "xhr.upload.onprogress=function(e){"
+        "if(e.lengthComputable)bar.style.width=Math.round(e.loaded/e.total*100)+'%';"
+        "};"
+        "xhr.onload=function(){"
+        "if(xhr.status===200){m.textContent='Restaurando y reiniciando el "
+        "dispositivo…';m.style.color='var(--ok)';}"
+        "else{m.textContent='Error: '+xhr.responseText;m.style.color='#e74c3c';}"
+        "};"
+        "xhr.onerror=function(){m.textContent='Error de red.';"
+        "m.style.color='#e74c3c';};"
+        "xhr.send(fd);"
+        "}"
+        "</script>");
+
     // ── Reiniciar (formulario independiente, con confirmación) ─────────────
     server.sendContent("<form method='post' action='/api/restart' "
         "onsubmit=\"return confirm('¿Reiniciar el dispositivo ahora?');\">"
@@ -1838,6 +1890,266 @@ static void handle_config_import() {
     Storage.saveBacklightConfig(blcfg);
 
     server.send(200, "text/plain", "OK");
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// GET /api/data/export  → descarga TODO el histórico (raw/hourly/daily) en
+//                          un fichero binario, para restaurarlo en otro
+//                          dispositivo con /api/data/import
+//
+// Formato del contenedor (todo little-endian, como el resto del firmware):
+//   [4B]  magic del contenedor "DYB1"
+//   [4B]  DataStore::MAGIC del dispositivo origen
+//   [1B]  DataStore::VERSION del dispositivo origen
+//   [4B]  capacidad raw   (registros)
+//   [4B]  capacidad hourly
+//   [4B]  capacidad daily
+//   Después, 5 veces (mismo orden que DataStore::getBackupPaths):
+//     [4B tamaño][tamaño bytes] — meta2.bin, day_idx.bin, raw.bin, hrly.bin, day.bin
+//
+// Se transfieren los ficheros tal cual (no un dump reinterpretado registro a
+// registro): más rápido, no requiere miles de escrituras individuales en el
+// dispositivo destino, y preserva el formato exacto. Por eso el destino debe
+// tener la misma versión de formato y capacidad — se valida en la importación
+// antes de escribir nada (ver DataStore::isCompatibleBackup).
+// ═════════════════════════════════════════════════════════════════════════
+static const uint32_t DATA_BACKUP_MAGIC = 0x31425944;  // "DYB1" little-endian
+
+static void handle_data_export() {
+    if (!check_auth()) return;
+
+    const char* paths[DataStore::BACKUP_FILE_COUNT];
+    Store.getBackupPaths(paths);
+
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.sendHeader("Content-Type", "application/octet-stream");
+    server.sendHeader("Content-Disposition",
+                      "attachment; filename=\"deye_data_backup.bin\"");
+    server.send(200);
+
+    uint32_t container_magic = DATA_BACKUP_MAGIC;
+    uint32_t ds_magic   = Store.getFormatMagic();
+    uint8_t  ds_version = Store.getFormatVersion();
+    uint32_t raw_cap    = Store.getRawCapacity();
+    uint32_t hrly_cap   = Store.getHourlyCapacity();
+    uint32_t day_cap    = Store.getDailyCapacity();
+
+    uint8_t hdr[21];
+    memcpy(hdr,      &container_magic, 4);
+    memcpy(hdr + 4,  &ds_magic,        4);
+    hdr[8] = ds_version;
+    memcpy(hdr + 9,  &raw_cap,  4);
+    memcpy(hdr + 13, &hrly_cap, 4);
+    memcpy(hdr + 17, &day_cap,  4);
+    server.sendContent((const char*)hdr, sizeof(hdr));
+
+    uint8_t buf[1024];
+    for (uint8_t i = 0; i < DataStore::BACKUP_FILE_COUNT; i++) {
+        File f = LittleFS.open(paths[i], "r");
+        uint32_t sz = f ? (uint32_t)f.size() : 0;
+        server.sendContent((const char*)&sz, 4);
+        while (f && f.available()) {
+            size_t n = f.read(buf, sizeof(buf));
+            if (n == 0) break;
+            server.sendContent((const char*)buf, n);
+        }
+        if (f) f.close();
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// POST /api/data/import → sube un fichero generado por /api/data/export.
+//
+// Se escribe en ficheros temporales ("<ruta>.new") sin tocar los reales
+// mientras el dispositivo sigue funcionando (DataStore mantiene los suyos
+// abiertos permanentemente). Si todo se recibe y valida correctamente, se
+// deja un marcador ("/data_import_pending") y se reinicia: el intercambio
+// de ficheros ocurre en main.cpp, ANTES de Store.begin(), momento en el que
+// ningún fichero está abierto y el intercambio es seguro.
+// ═════════════════════════════════════════════════════════════════════════
+enum class DataImportPhase : uint8_t { HEADER, SECTION_LEN, SECTION_DATA, DONE, ERR };
+
+static bool            s_data_import_authed = false;
+static DataImportPhase s_di_phase = DataImportPhase::HEADER;
+static uint8_t         s_di_scratch[21];
+static uint16_t        s_di_scratch_len = 0;
+static uint8_t         s_di_section_idx = 0;
+static uint32_t        s_di_section_remaining = 0;
+static File             s_di_file;
+static const char*     s_di_error = nullptr;
+
+static String di_temp_path(uint8_t idx) {
+    const char* paths[DataStore::BACKUP_FILE_COUNT];
+    Store.getBackupPaths(paths);
+    return String(paths[idx]) + ".new";
+}
+
+static void di_cleanup_temp_files() {
+    for (uint8_t i = 0; i < DataStore::BACKUP_FILE_COUNT; i++)
+        LittleFS.remove(di_temp_path(i));
+}
+
+static void di_reset() {
+    s_di_phase = DataImportPhase::HEADER;
+    s_di_scratch_len = 0;
+    s_di_section_idx = 0;
+    s_di_section_remaining = 0;
+    s_di_error = nullptr;
+    if (s_di_file) s_di_file.close();
+    di_cleanup_temp_files();   // por si quedó algo de un intento anterior fallido
+}
+
+static void di_fail(const char* why) {
+    DBGSERIAL.printf("[DataImport] Error: %s\n", why);
+    s_di_error = why;
+    s_di_phase = DataImportPhase::ERR;
+    if (s_di_file) s_di_file.close();
+}
+
+static void di_process(const uint8_t* buf, size_t len) {
+    if (s_di_phase == DataImportPhase::ERR || s_di_phase == DataImportPhase::DONE) return;
+
+    size_t pos = 0;
+    while (pos < len) {
+        if (s_di_phase == DataImportPhase::HEADER) {
+            size_t need = sizeof(s_di_scratch) - s_di_scratch_len;
+            size_t take = min(need, len - pos);
+            memcpy(s_di_scratch + s_di_scratch_len, buf + pos, take);
+            s_di_scratch_len += take; pos += take;
+            if (s_di_scratch_len < sizeof(s_di_scratch)) return;   // esperar más datos
+
+            uint32_t container_magic, ds_magic, raw_cap, hrly_cap, day_cap;
+            memcpy(&container_magic, s_di_scratch,      4);
+            memcpy(&ds_magic,        s_di_scratch + 4,  4);
+            uint8_t ds_version = s_di_scratch[8];
+            memcpy(&raw_cap,  s_di_scratch + 9,  4);
+            memcpy(&hrly_cap, s_di_scratch + 13, 4);
+            memcpy(&day_cap,  s_di_scratch + 17, 4);
+
+            if (container_magic != DATA_BACKUP_MAGIC) {
+                di_fail("el fichero no es una copia de seguridad de datos válida");
+                return;
+            }
+            if (!Store.isCompatibleBackup(ds_magic, ds_version, raw_cap, hrly_cap, day_cap)) {
+                di_fail("copia de seguridad incompatible (versión de firmware distinta)");
+                return;
+            }
+            s_di_scratch_len = 0;
+            s_di_phase = DataImportPhase::SECTION_LEN;
+            continue;
+        }
+
+        if (s_di_phase == DataImportPhase::SECTION_LEN) {
+            if (s_di_section_idx >= DataStore::BACKUP_FILE_COUNT) {
+                s_di_phase = DataImportPhase::DONE;
+                return;
+            }
+            size_t need = 4 - s_di_scratch_len;
+            size_t take = min(need, len - pos);
+            memcpy(s_di_scratch + s_di_scratch_len, buf + pos, take);
+            s_di_scratch_len += take; pos += take;
+            if (s_di_scratch_len < 4) return;
+
+            memcpy(&s_di_section_remaining, s_di_scratch, 4);
+            s_di_scratch_len = 0;
+
+            // Comprobación de espacio libre ANTES de escribir: los ficheros
+            // ".new" conviven temporalmente con los reales hasta el
+            // intercambio en el próximo arranque, así que hace falta espacio
+            // libre adicional (no solo el que ya usan los ficheros actuales).
+            // Margen de seguridad para las operaciones COW de LittleFS —
+            // sin él, un historial casi lleno en ambos dispositivos puede
+            // agotar la partición de 8 MB a mitad de la escritura.
+            static constexpr uint32_t FREE_SPACE_MARGIN = 128UL * 1024;
+            uint32_t free_space = LittleFS.totalBytes() - LittleFS.usedBytes();
+            if (s_di_section_remaining + FREE_SPACE_MARGIN > free_space) {
+                DBGSERIAL.printf("[DataImport] Sin espacio: necesita %lu B (+%lu margen), libres %lu B\n",
+                              (unsigned long)s_di_section_remaining,
+                              (unsigned long)FREE_SPACE_MARGIN,
+                              (unsigned long)free_space);
+                di_fail("espacio insuficiente en flash — borra historial existente antes de importar");
+                return;
+            }
+
+            s_di_file = LittleFS.open(di_temp_path(s_di_section_idx), "w");
+            if (!s_di_file) { di_fail("no se pudo crear fichero temporal"); return; }
+            s_di_phase = DataImportPhase::SECTION_DATA;
+            continue;
+        }
+
+        if (s_di_phase == DataImportPhase::SECTION_DATA) {
+            if (s_di_section_remaining == 0) {
+                if (s_di_file) s_di_file.close();
+                s_di_section_idx++;
+                s_di_phase = DataImportPhase::SECTION_LEN;
+                continue;
+            }
+            size_t take = min((size_t)s_di_section_remaining, len - pos);
+            if (s_di_file.write(buf + pos, take) != take) {
+                di_fail("error escribiendo fichero temporal");
+                return;
+            }
+            pos += take; s_di_section_remaining -= take;
+            continue;
+        }
+    }
+}
+
+static void handle_data_import_upload() {
+    HTTPUpload& upload = server.upload();
+
+    if (upload.status == UPLOAD_FILE_START) {
+        if (!same_origin_request()) {
+            DBGSERIAL.println("[DataImport] Rechazado: Origin/Referer no coincide (posible CSRF)");
+            s_data_import_authed = false;
+            return;
+        }
+        String pw = Storage.loadAdminPassword();
+        if (pw.isEmpty()) {
+            s_data_import_authed = true;
+        } else if (auth_is_locked_out()) {
+            s_data_import_authed = false;
+            auth_send_lockout_response();
+            return;
+        } else if (server.authenticate("admin", pw.c_str())) {
+            auth_record_success();
+            s_data_import_authed = true;
+        } else {
+            auth_record_failure();
+            s_data_import_authed = false;
+        }
+        if (!s_data_import_authed) return;
+        di_reset();
+
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (!s_data_import_authed) return;
+        di_process(upload.buf, upload.currentSize);
+    }
+    // UPLOAD_FILE_END: la validación final y la respuesta las hace
+    // handle_data_import_post(), que se llama justo después.
+}
+
+static void handle_data_import_post() {
+    if (!s_data_import_authed) {
+        server.requestAuthentication(BASIC_AUTH, "Deye Admin",
+            "Acceso restringido. Configure la contraseña desde la pantalla táctil.");
+        return;
+    }
+    if (s_di_phase != DataImportPhase::DONE) {
+        di_cleanup_temp_files();
+        server.send(400, "text/plain",
+            String("Error: ") + (s_di_error ? s_di_error : "copia de seguridad incompleta"));
+        return;
+    }
+
+    File marker = LittleFS.open("/data_import_pending", "w");
+    if (marker) marker.close();
+
+    DBGSERIAL.println("[DataImport] Copia de seguridad válida — reiniciando para aplicarla");
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/plain", "OK");
+    delay(500);
+    ESP.restart();
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -2282,6 +2594,8 @@ void webserver_begin() {
     server.on("/admin",           HTTP_POST, handle_admin_post);
     server.on("/api/config/export", HTTP_GET,  handle_config_export);
     server.on("/api/config/import", HTTP_POST, handle_config_import);
+    server.on("/api/data/export",   HTTP_GET,  handle_data_export);
+    server.on("/api/data/import",   HTTP_POST, handle_data_import_post, handle_data_import_upload);
     server.on("/api/restart",     HTTP_POST, handle_restart);
     server.on("/api/export",      HTTP_GET,  handle_export_csv);
     server.onNotFound([]() {

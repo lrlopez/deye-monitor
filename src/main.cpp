@@ -755,6 +755,27 @@ void setup() {
         splash_update(SplashStep::LITTLEFS, SplashState::OK, detail);
     }
 
+    // ── Aplicar copia de seguridad de datos pendiente (si la hay) ──────────
+    // Los ficheros ".new" los deja /api/data/import (web_server.cpp) tras
+    // validar la copia. Se intercambian aquí, ANTES de Store.begin(), porque
+    // en este punto ningún fichero de datos está abierto todavía — el
+    // intercambio es seguro. Ver DataStore::getBackupPaths().
+    if (LittleFS.exists("/data_import_pending")) {
+        DBGSERIAL.println("[Setup] Aplicando copia de seguridad de datos pendiente...");
+        const char* paths[DataStore::BACKUP_FILE_COUNT];
+        Store.getBackupPaths(paths);
+        for (uint8_t i = 0; i < DataStore::BACKUP_FILE_COUNT; i++) {
+            String tmp = String(paths[i]) + ".new";
+            if (LittleFS.exists(tmp)) {
+                LittleFS.remove(paths[i]);
+                LittleFS.rename(tmp, paths[i]);
+                DBGSERIAL.printf("[Setup]   %s restaurado\n", paths[i]);
+            }
+        }
+        LittleFS.remove("/data_import_pending");
+        DBGSERIAL.println("[Setup] Copia de seguridad de datos aplicada");
+    }
+
     // ── Zona horaria — configurar ANTES de Store.begin() ──────────────────
     // _day_idx_load() usa localtime_r sobre los timestamps de flash para calcular
     // los epochs de medianoche. Si la TZ no está configurada aquí, usa UTC y los

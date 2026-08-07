@@ -129,6 +129,30 @@ public:
     uint32_t getHourlyCapacity() const { return _hrly.capacity;   }
     uint32_t getDailyCapacity()  const { return _day.capacity;    }
 
+    // ── Copia de seguridad completa (backup/restore entre dispositivos) ────
+    // Los 5 ficheros que componen el almacenamiento, en el orden fijo usado
+    // por el contenedor de backup (ver web_server.cpp). day_idx.bin es una
+    // caché derivable de raw.bin — se incluye igualmente para que el
+    // dispositivo destino no tenga que reconstruirla escaneando todo raw.bin.
+    static constexpr uint8_t BACKUP_FILE_COUNT = 5;
+    void getBackupPaths(const char* out[BACKUP_FILE_COUNT]) const {
+        out[0] = META_FILE; out[1] = IDX_FILE;
+        out[2] = _raw.path;  out[3] = _hrly.path; out[4] = _day.path;
+    }
+    // Magic/versión de formato y capacidades de este dispositivo — para
+    // escribir la cabecera al exportar y validar compatibilidad al importar.
+    uint32_t getFormatMagic()   const { return MAGIC; }
+    uint8_t  getFormatVersion() const { return VERSION; }
+    // true si (magic, version, capacidades) coinciden con este dispositivo.
+    // Un backup de una capacidad distinta (p.ej. STORE_DAYS cambiado en otra
+    // versión del firmware) desincronizaría la aritmética de anillo si se
+    // importara tal cual — se rechaza en vez de arriesgar datos corruptos.
+    bool isCompatibleBackup(uint32_t magic, uint8_t version,
+                             uint32_t raw_cap, uint32_t hrly_cap, uint32_t day_cap) const {
+        return magic == MAGIC && version == VERSION &&
+               raw_cap == _raw.capacity && hrly_cap == _hrly.capacity && day_cap == _day.capacity;
+    }
+
 private:
     DataStore() = default;
 
