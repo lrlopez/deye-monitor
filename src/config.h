@@ -36,7 +36,8 @@
 
 // ── Registros SUN-6K-SG05 (Holding Registers, FC=03) ─────────────────────
 // Leemos un bloque contiguo: registros 169–191 (23 registros)
-// NOTA: verifica con el mapa oficial de tu firmware; la comunidad usa:
+// Verificados en un SUN-6K-SG05 real (ver CLAUDE.md, «Registros verificados»).
+// Otros modelos o firmwares pueden usar un mapa distinto; referencia de la comunidad:
 //   https://github.com/kbialek/deye-inverter-mqtt/blob/main/config/deye_sg04lp3.yaml
 #define REG_BASE         169
 #define REG_COUNT         23
