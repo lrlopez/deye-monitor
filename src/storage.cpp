@@ -188,6 +188,22 @@ void StorageManager::saveDashView(uint8_t view) {
     p.end();
 }
 
+uint8_t StorageManager::loadHints() {
+    Preferences p;
+    p.begin(NS_CFG, true);
+    uint8_t v = p.getUChar("ui_hints", 0);
+    p.end();
+    return v;
+}
+
+void StorageManager::saveHints(uint8_t bits) {
+    if (loadHints() == bits) return;
+    Preferences p;
+    p.begin(NS_CFG, false);
+    p.putUChar("ui_hints", bits);
+    p.end();
+}
+
 bool StorageManager::loadFsKnownGood() {
     Preferences p;
     p.begin(NS_CFG, true);

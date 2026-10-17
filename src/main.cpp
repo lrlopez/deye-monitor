@@ -26,6 +26,7 @@
 #include "web_alerts.h"
 #include "app_state.h"
 #include "solarman_task.h"
+#include "ui_toast.h"
 
 
 /* Change to your screen resolution */
@@ -186,6 +187,11 @@ static lv_obj_t*         g_tile_chart   = nullptr;
 static lv_obj_t*         g_tile_stats   = nullptr;
 static lv_obj_t*         g_tile_energy  = nullptr;
 static lv_obj_t*         g_tile_config  = nullptr;
+
+// Pistas de uso ya mostradas (DEYE-56): máscara de bits persistida en NVS
+#define HINT_DOUBLE_TAP  0x01   // "toca dos veces para volver al inicio"
+#define HINT_DASH_VIEW   0x02   // "toca la barra superior para cambiar de vista"
+static uint8_t s_hints = 0;
 
 // Config en RAM cargada desde NVS al arrancar
 AppConfig g_cfg;
@@ -420,6 +426,7 @@ void setup() {
 
     // ── Cargar config desde NVS ───────────────────────────────────────────
     Storage.loadConfig(g_cfg);
+    s_hints = Storage.loadHints();
 
     // ── WiFi — inicio NO bloqueante ───────────────────────────────────────
     splash_update(SplashStep::WIFI_CONNECTING, SplashState::RUNNING,
@@ -459,6 +466,14 @@ void setup() {
 
     pagination_dots_init(g_main_screen, 5);
 
+    // DEYE-56: tocar un punto de paginación salta a esa pantalla
+    pagination_dots_set_handler([](int idx) {
+        lv_obj_t* tiles[] = {g_tile_dash, g_tile_chart,
+                             g_tile_stats, g_tile_energy, g_tile_config};
+        if (g_tileview && idx >= 0 && idx < 5)
+            lv_tileview_set_tile(g_tileview, tiles[idx], LV_ANIM_ON);
+    });
+
     lv_obj_add_event_cb(tv, [](lv_event_t* e) {
         lv_obj_t* tile = lv_tileview_get_tile_active(lv_event_get_target_obj(e));
 
@@ -469,6 +484,13 @@ void setup() {
             if (tiles[i] == tile) { idx = i; break; }
         }
         pagination_dots_set(idx);
+
+        // DEYE-56: la primera vez que se sale del dashboard, explicar cómo volver
+        if (idx != 0 && !(s_hints & HINT_DOUBLE_TAP)) {
+            s_hints |= HINT_DOUBLE_TAP;
+            Storage.saveHints(s_hints);
+            ui_toast_show("Toca dos veces la pantalla para volver al inicio");
+        }
 
         chart_screen_set_active(tile == g_tile_chart);
         stats_screen_set_active(tile == g_tile_stats);
@@ -669,6 +691,20 @@ void loop() {
     if (new_daily)  stats_screen_update(d_copy);
 
     dashboard_tick();
+
+    // DEYE-56: una sola vez, ya en marcha y con el dashboard a la vista, avisar de que
+    // la barra superior cambia entre tarjetas y flujo de energía
+    static bool s_dash_hint_done = false;
+    if (!s_dash_hint_done && millis() - g_uptime_start > 8000) {
+        s_dash_hint_done = true;
+        if (!(s_hints & HINT_DASH_VIEW) && g_tileview &&
+            lv_tileview_get_tile_active(g_tileview) == g_tile_dash) {
+            s_hints |= HINT_DASH_VIEW;
+            Storage.saveHints(s_hints);
+            ui_toast_show("Toca la barra superior para cambiar de vista");
+        }
+    }
+
     chart_screen_tick();
     energy_profile_tick();
     config_screen_tick();

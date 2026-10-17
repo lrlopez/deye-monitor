@@ -91,6 +91,11 @@ public:
     uint8_t loadDashView();
     void    saveDashView(uint8_t view);
 
+    // ── Pistas de uso ya mostradas (DEYE-56): una máscara de bits ──────────
+    // Cada pista se enseña una sola vez; el bit lo marca quien la muestra.
+    uint8_t loadHints();
+    void    saveHints(uint8_t bits);
+
     // ── LittleFS montado correctamente alguna vez (DEYE-10) ───────────────
     // Distingue "primer arranque" (formatear sin preguntar) de "el sistema de
     // ficheros ya existía y ahora no monta" (no borrar sin confirmación).

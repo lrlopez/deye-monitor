@@ -2,8 +2,10 @@
 #include "ui_constants.h"
 #include <Arduino.h>
 
+// DEYE-56: antes 0x2D3748 al 50 % (casi invisibles sobre el fondo oscuro); ahora
+// se distinguen bien y se leen como algo tocable
 #define C_ACTIVE  lv_color_hex(0x4A9EFF)
-#define C_PASSIVE lv_color_hex(0x2D3748)
+#define C_PASSIVE lv_color_hex(0x6B7A92)
 
 #define DOT_BIG   SS(8)    // diámetro del punto activo
 #define DOT_SMALL SS(5)    // diámetro de los puntos inactivos
@@ -47,13 +49,50 @@ void pagination_dots_init(lv_obj_t* parent, int n) {
         lv_obj_set_pos(dot, s_center_x[i] - d/2, (BAR_H - d)/2);
         lv_obj_set_style_bg_color(dot, C_PASSIVE, 0);
         lv_obj_set_style_radius(dot, d/2, 0);
-        lv_obj_set_style_opa(dot, LV_OPA_50, 0);
+        lv_obj_set_style_opa(dot, LV_OPA_COVER, 0);
 
         s_dots[i] = dot;
     }
 
     // Activar el primero
     pagination_dots_set(0);
+}
+
+// ── Toque sobre los puntos (DEYE-56) ──────────────────────────────────────
+static pagination_dots_cb_t s_cb = nullptr;
+
+// Índice del punto más cercano al toque, o -1 si cae fuera de la franja inferior o
+// a más de un espaciado de cualquier punto. La franja es la barra más un margen
+// para el dedo (los puntos miden pocos píxeles).
+static int dots_hit(const lv_point_t& p) {
+    if (s_n <= 0 || p.y < SCREEN_HEIGHT - BAR_H - SY(10)) return -1;
+    int best = -1, best_d = DOT_SPACING;
+    for (int i = 0; i < s_n; i++) {
+        int d = p.x > s_center_x[i] ? p.x - s_center_x[i] : s_center_x[i] - p.x;
+        if (d < best_d) { best_d = d; best = i; }
+    }
+    return best;
+}
+
+static void indev_click_cb(lv_event_t* e) {
+    if (!s_cb) return;
+    lv_indev_t* indev = lv_event_get_indev(e);
+    if (!indev) return;
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    int idx = dots_hit(p);
+    if (idx >= 0) s_cb(idx);
+}
+
+void pagination_dots_set_handler(pagination_dots_cb_t cb) {
+    s_cb = cb;
+    static bool registered = false;
+    if (registered) return;
+    lv_indev_t* indev = lv_indev_get_next(nullptr);
+    if (!indev) return;
+    registered = true;
+    // CLICKED del indev: solo se emite en toques que no han sido un arrastre
+    lv_indev_add_event_cb(indev, indev_click_cb, LV_EVENT_CLICKED, nullptr);
 }
 
 void pagination_dots_set(int idx) {
@@ -70,6 +109,6 @@ void pagination_dots_set(int idx) {
         lv_obj_set_style_bg_color(s_dots[i],
                                    active ? C_ACTIVE : C_PASSIVE, 0);
         lv_obj_set_style_radius(s_dots[i], d/2, 0);
-        lv_obj_set_style_opa(s_dots[i], LV_OPA_50, 0);
+        lv_obj_set_style_opa(s_dots[i], LV_OPA_COVER, 0);
     }
 }
