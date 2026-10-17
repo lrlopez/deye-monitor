@@ -96,6 +96,10 @@ Arduino_GFX *gfx = new Arduino_RGB_Display(screenWidth, screenHeight, panel);
 #include "touch.h"
 
 static lv_draw_buf_t draw_buf;
+#ifndef LVGL_BUF_LINES
+#define LVGL_BUF_LINES 27           // franjas de ~1/10 de pantalla (Sunton, 270 px de alto)
+#endif
+static size_t disp_buf_bytes = 0;    // tamaño de cada buffer parcial (solo Sunton)
 static lv_color_t *disp_draw_buf;
 static lv_color_t *disp_draw_buf2;
 static lv_display_t *disp_drv;
@@ -782,11 +786,28 @@ void setup() {
     screenHeight = gfx->height();
     // ESP32-P4 (Guition JC1060P470 / JC4880P443C): buffer completo en PSRAM. LVGL renderiza aquí y
     // esp_lcd_panel_draw_bitmap lo copia al buffer trasero DSI via DMA2D + swap en vsync.
-    // ESP32-S3 (esp32s3box): buffer parcial en SRAM para DMA.
+    // ESP32-S3 (esp32s3box): DOS buffers parciales de LVGL_BUF_LINES líneas en SRAM
+    // interna (DEYE-44), ver abajo.
 #if defined(BOARD_GUITION_JC1060P470) || defined(BOARD_GUITION_JC4880P443C)
     disp_draw_buf = (lv_color_t *)heap_caps_malloc(screenWidth * screenHeight * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 #else
-    disp_draw_buf = (lv_color_t *)heap_caps_malloc(2 * screenWidth * screenHeight, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    // DEYE-44: antes eran dos buffers de PANTALLA COMPLETA en PSRAM (2 × 259 KB). Con
+    // el panel RGB, el framebuffer del propio panel ya vive en PSRAM y su DMA la
+    // está leyendo continuamente; renderizar LVGL también en PSRAM compite por ese
+    // ancho de banda. Ahora LVGL renderiza por franjas (≈1/10 de pantalla, 2 × ~26 KB)
+    // en SRAM interna, que además libera ~490 KB de PSRAM. Si no hubiera SRAM
+    // suficiente se vuelve al comportamiento anterior (pantalla completa en PSRAM).
+    disp_buf_bytes = 2 * screenWidth * LVGL_BUF_LINES;
+    disp_draw_buf  = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    disp_draw_buf2 = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!disp_draw_buf || !disp_draw_buf2) {
+        DBGSERIAL.println("[LVGL] Sin SRAM para buffers parciales: usando PSRAM completa");
+        if (disp_draw_buf)  heap_caps_free(disp_draw_buf);
+        if (disp_draw_buf2) heap_caps_free(disp_draw_buf2);
+        disp_buf_bytes = 2 * screenWidth * screenHeight;
+        disp_draw_buf  = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        disp_draw_buf2 = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
 #endif
     if (!disp_draw_buf)
     {
@@ -806,14 +827,13 @@ void setup() {
                            screenWidth * screenHeight * sizeof(lv_color_t),
                            LV_DISPLAY_RENDER_MODE_FULL);
 #else
-    disp_draw_buf2 = (lv_color_t *)heap_caps_malloc(2 * screenWidth * screenHeight, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!disp_draw_buf2)
     {
         DBGSERIAL.println("LVGL disp_draw_buf2 allocate failed!");
         while (true)
             delay(1);
     }
-    lv_display_set_buffers(disp_drv, disp_draw_buf, disp_draw_buf2, 2 * screenWidth * screenHeight, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_buffers(disp_drv, disp_draw_buf, disp_draw_buf2, disp_buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
 #endif
 
     /* Initialize the (dummy) input device driver */
