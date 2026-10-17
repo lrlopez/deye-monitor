@@ -664,7 +664,8 @@ setInterval(clock,1000);
 static void handle_update_get() {
     s_ota_authed = false;   // invalidar cualquier sesión OTA anterior
     if (!check_auth()) return;
-    String html = R"(<!DOCTYPE html><html lang="es"><head>
+    // DEYE-40: literal en flash enviado con send_P (antes se copiaba a un String)
+    static const char OTA_PAGE_HTML[] PROGMEM = R"(<!DOCTYPE html><html lang="es"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OTA Update</title>
@@ -725,7 +726,7 @@ function upload(){
 }
 </script></body></html>)";
 
-    server.send(200, "text/html; charset=utf-8", html);
+    server.send_P(200, "text/html; charset=utf-8", OTA_PAGE_HTML);
 }
 
 static void handle_chart() {
@@ -2627,14 +2628,18 @@ static void handle_icon() {
 // funciona así sin conexión a internet. Cache-Control moderado: el
 // contenido solo cambia con una actualización de firmware.
 // ═════════════════════════════════════════════════════════════════════════
+// DEYE-40: send_P, NO send(). WebServer::send(code, type, const char*) construye un
+// String con TODO el contenido (los ~240 KB de chart.js en el heap, en cada
+// petición; el propio framework avisa: «Use send_P for long arrays»). send_P
+// escribe directamente desde la flash al socket, sin copia.
 static void handle_chartjs() {
     server.sendHeader("Cache-Control", "public, max-age=86400");
-    server.send(200, "application/javascript", CHARTJS_UMD_MIN_JS);
+    server.send_P(200, "application/javascript", CHARTJS_UMD_MIN_JS);
 }
 
 static void handle_chartjs_annotation() {
     server.sendHeader("Cache-Control", "public, max-age=86400");
-    server.send(200, "application/javascript", CHARTJS_ANNOTATION_MIN_JS);
+    server.send_P(200, "application/javascript", CHARTJS_ANNOTATION_MIN_JS);
 }
 
 void webserver_begin() {
