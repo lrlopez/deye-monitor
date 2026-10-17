@@ -199,7 +199,7 @@ private:
     static const uint32_t IDX_MAGIC = 0x49445831;  // 'IDX1'
     static const uint8_t  VERSION   = 5;           // versión 5: sin pre-alocación de ficheros
 
-    DailyRecord currentDaily;
+    DailyRecord currentDaily{};   // a cero hasta el primer registro (getCurrentDaily() podía devolver basura)
 
     bool loadMeta();
     bool saveMeta();

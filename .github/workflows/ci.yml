@@ -1,0 +1,102 @@
+name: CI
+
+# Validación en cada push a main y en cada pull request (build_release.yml solo se
+# dispara con tags). No publica nada.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Tests nativos + análisis estático ─────────────────────────────────────
+  checks:
+    name: Tests y análisis estático
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # scripts/git_version.py usa `git describe`
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-ci-checks-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-ci-checks-
+
+      - name: Instalar PlatformIO
+        run: pip install platformio
+
+      - name: Tests nativos (pio test -e native)
+        run: pio test -e native
+
+      # cppcheck sobre src/ (configurado en platformio.ini, [env:sunton_4827s043]):
+      # falla con defectos de severidad alta o media
+      - name: Análisis estático (cppcheck)
+        run: pio check -e sunton_4827s043
+
+  # ── Entornos de platformio.ini ────────────────────────────────────────────
+  get-environments:
+    name: Detectar entornos
+    runs-on: ubuntu-latest
+    outputs:
+      envs: ${{ steps.get-envs.outputs.envs }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: get-envs
+        run: python3 .github/scripts/get_envs.py >> $GITHUB_OUTPUT
+
+  # ── Compilación de cada placa + informe de tamaño ─────────────────────────
+  build:
+    name: Build · ${{ matrix.env }}
+    needs: get-environments
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: ${{ fromJson(needs.get-environments.outputs.envs) }}
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio/libdeps/${{ matrix.env }}
+          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ matrix.env }}-
+
+      - name: Instalar PlatformIO
+        run: pip install platformio
+
+      - name: Build · ${{ matrix.env }}
+        run: pio run --environment ${{ matrix.env }} | tee build.log
+
+      # Tamaño del binario y uso de RAM/Flash en el resumen de la ejecución
+      - name: Informe de tamaño
+        run: |
+          BIN=".pio/build/${{ matrix.env }}/firmware.bin"
+          SIZE=$(stat -c %s "$BIN")
+          {
+            echo "### ${{ matrix.env }}"
+            echo ""
+            echo "- firmware.bin: $((SIZE / 1024)) KB"
+            grep -E "^(RAM|Flash):" build.log | sed 's/^/- /' || true
+          } >> "$GITHUB_STEP_SUMMARY"
