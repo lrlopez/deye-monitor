@@ -113,8 +113,12 @@
 #define C_BG        lv_color_hex(0x0D1117)
 #define C_CARD      lv_color_hex(0x161B22)
 #define C_WHITE     lv_color_hex(0xEAEAEA)
-#define C_MUTED     lv_color_hex(0x4E5A6E)
-#define C_MUTED2    lv_color_hex(0x6E7A8E)
+// Grises de texto secundario (DEYE-55). Antes 0x4E5A6E y 0x6E7A8E: contraste de
+// 2,5:1 y 4,0:1 sobre C_CARD, por debajo del 4,5:1 de WCAG AA para texto normal.
+// Ahora 5,8:1 y 7,0:1 sobre C_CARD (6,3 y 7,6 sobre C_BG); siguen siendo más
+// apagados que C_WHITE, así que la jerarquía visual se mantiene.
+#define C_MUTED     lv_color_hex(0x8B96A8)
+#define C_MUTED2    lv_color_hex(0x9AA5B8)
 #define C_OK        lv_color_hex(0x2ECC71)
 #define C_ERR       lv_color_hex(0xE74C3C)
 #define C_WARN      lv_color_hex(0xF5C518)

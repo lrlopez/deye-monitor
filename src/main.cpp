@@ -580,7 +580,7 @@ static void show_ota_overlay() {
     // Subtítulo
     lv_obj_t* sub = lv_label_create(card);
     lv_label_set_text(sub, "No desconecte el dispositivo");
-    lv_obj_set_style_text_color(sub, lv_color_hex(0x4E5A6E), 0);
+    lv_obj_set_style_text_color(sub, C_MUTED, 0);
     lv_obj_set_style_text_font(sub, &FONT_SMALL, 0);
     lv_obj_align_to(sub, title, LV_ALIGN_OUT_BOTTOM_MID, 0, SY(7));
 }
