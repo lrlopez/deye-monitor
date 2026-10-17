@@ -6,6 +6,26 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Corregido
+
+- **`/assets/chart.js` ya no reserva ~240 KB de heap por petición (DEYE-40):** `WebServer::send(code, tipo, const char*)` copia TODO el contenido a un `String` (el propio framework avisa «Use send_P for long arrays»). Chart.js, su plugin y la página `/update` se sirven ahora con `send_P`, directamente desde flash. Antes, en un heap fragmentado, esa reserva podía fallar y dejar `/chart` sin gráfica.
+
+### Añadido
+
+- **Alerta de poco espacio en la flash (DEYE-46):** si el espacio libre de LittleFS baja del 10 % se muestra un banner en pantalla y, si Telegram está configurado, se envía un aviso (también aparece en las notificaciones del navegador). Se comprueba cada 15 min y se rearma al volver por encima del 15 %.
+
+### Mejorado
+
+- **Configuración cacheada en RAM (DEYE-43, DEYE-22):** `Storage` mantiene copias de la config de red, gráfica, Telegram, brillo y contraseña de administración; cualquier `save*` las invalida. Ya no se lee NVS en cada petición web protegida ni cada 60 s para la alerta de Telegram.
+- **Logs por niveles (DEYE-42):** nuevos `APP_LOGE/W/I/D` (`safe_serial.h`) con nivel de compilación `APP_LOG_LEVEL` (por defecto INFO). Las trazas de cada ciclo (lectura cada 5 s, slots de 5 min, datos diarios) pasan a DEBUG y por defecto ya no salen por el puerto serie; `-DAPP_LOG_LEVEL=4` en `build_flags` las restaura.
+- **Sunton: LVGL renderiza en franjas de SRAM interna (DEYE-44):** dos buffers de 27 líneas (~26 KB cada uno) en lugar de dos buffers de pantalla completa en PSRAM (2 × 259 KB), que competían con el DMA del panel RGB. Libera ~490 KB de PSRAM; si no hubiera SRAM suficiente se vuelve al comportamiento anterior. Pendiente de validar visualmente en hardware.
+- **`cache_bg` con prioridad explícita (DEYE-45):** `tskIDLE_PRIORITY` a propósito (solo usa el tiempo que dejan solarman/webserver/telegram) y al terminar registra el margen de pila.
+
+### Interno
+
+- **`main.cpp` dividido (DEYE-41):** pasa de ~1190 a ~660 líneas. La tarea de red vive en `solarman_task.cpp`; el histórico en `recorder.cpp` (`Recorder`: slots de 5 min, cierre de hora y de día) y las alertas en `alert_engine.cpp` (`AlertEngine`), en lugar de ~470 líneas de una sola función con variables `static`. Estado global compartido declarado en `app_state.h` (`FlashGuard` sustituye a los `if (mutex) Take/Give` repetidos). Sin cambio de comportamiento.
+- 49 tests nativos (+3 del monitor de espacio libre).
+
 ---
 
 ## [v3.6.0] - 2026-10-17

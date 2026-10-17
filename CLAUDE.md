@@ -173,10 +173,17 @@ Cambiar `STORE_DAYS` cambia la capacidad de los tres ficheros, del índice y de 
 
 La historia horaria completa está en PSRAM → **la gráfica diaria nunca toca flash**.
 
-### Grabación en `solarmanTask`
+### Grabación y alertas (`solarman_task.cpp`, `recorder.cpp`, `alert_engine.cpp`)
 
+Reparto (antes todo era una sola función en `main.cpp`):
+- `solarman_task.cpp` — bucle de la tarea de red: WiFi/NTP/mDNS, sondeo del logger, publicación en `g_energy`/`g_daily`, backoff y redescubrimiento. Orquesta a los otros dos.
+- `recorder.cpp` (`Recorder`) — todo el histórico: arranque, cierre de slot de 5 min, de hora y de día. Su estado (acumuladores, snapshots, `DailyTracker`) son miembros, no `static` de función.
+- `alert_engine.cpp` (`AlertEngine`) — envuelve las máquinas de estado de `alerts_logic.h` con Telegram, banner, NVS y el aviso de espacio libre (`FsSpaceMonitor`, cada 15 min).
+- `app_state.h` — globals compartidos con `main.cpp` (`g_cfg`, `g_mutex`, `g_energy`…) y `FlashGuard` (RAII sobre `g_flash_display_mutex`).
+
+Detalles:
 - Alineación exacta a slots de 5 min: `slot = epoch / 300`
-- Registro en cambio de slot (`slot != s_cur_5min_slot`): guarda la **media** de las muestras del periodo (`SlotAverager`, `slot_avg.h`), no la lectura puntual. El timestamp sigue siendo el inicio del slot que se abre
+- Registro en cambio de slot (`slot != _cur_5min_slot`): guarda la **media** de las muestras del periodo (`SlotAverager`, `slot_avg.h`), no la lectura puntual. El timestamp sigue siendo el inicio del slot que se abre
 - `saveSessionState` (NVS) se escribe como mucho cada hora y en cada cambio de estado solar
 - Agregación horaria al cambio de hora (media de potencias + acumulados al final). Tras un reinicio a mitad de hora el acumulador se siembra con los registros de 5 min ya guardados de esa hora
 - `DailyRecord` actualizado en cada cambio de hora (parcial) y en medianoche (completo). Los totales salen de `DailyTracker` (`daily_tracker.h`): última lectura diaria BUENA por día local, no de `local_d` (a medianoche puede ser un fallo o ya los ceros del día nuevo)
@@ -430,6 +437,13 @@ lv_obj_t*         g_tile_summary= nullptr;
 ## Ficheros del proyecto
 
 Todo el código vive en `src/` (un fichero `.h/.cpp` por subsistema: pantallas, protocolo Solarman, almacenamiento, backlight, web server, Telegram, etc. — ver `ls src/`). CI en `.github/workflows/build_release.yml` + `.github/scripts/get_envs.py`.
+
+### Convenciones
+
+- **Logs:** usar `APP_LOGE/W/I/D("Tag", "fmt", ...)` (`safe_serial.h`), no `DBGSERIAL.printf` suelto. Nivel de compilación `APP_LOG_LEVEL` (defecto INFO=3; `-DAPP_LOG_LEVEL=4` para ver DEBUG). Lo que ocurre en cada ciclo de 5 s va en DEBUG.
+- **Configuración:** `Storage.load*()` devuelve copias de una caché en RAM; cualquier `Storage.save*()` la invalida. No escribir claves del namespace `cfg` por fuera de `Storage` o la caché quedaría obsoleta.
+- **Servir contenido grande por web:** `server.send_P(...)` (o `sendContent` por trozos), nunca `server.send(code, type, const char*)`: ese copia todo el contenido a un `String`.
+- **Compilar varias placas seguidas:** PlatformIO reinstala `tool-esptoolpy`/toolchain al saltar entre la plataforma de la Sunton y la de las P4 y la primera pasada puede dar `TypeError ... NoneType`; repetir el comando. No pasa en CI (un job por entorno).
 
 ---
 
