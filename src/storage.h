@@ -91,6 +91,10 @@ public:
     uint8_t loadDashView();
     void    saveDashView(uint8_t view);
 
+    // ── Modo reloj en reposo (DEYE-54): activado por defecto ───────────────
+    bool    loadClockMode();
+    void    saveClockMode(bool enabled);
+
     // ── Pistas de uso ya mostradas (DEYE-56): una máscara de bits ──────────
     // Cada pista se enseña una sola vez; el bit lo marca quien la muestra.
     uint8_t loadHints();

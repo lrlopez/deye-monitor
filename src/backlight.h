@@ -20,6 +20,10 @@ public:
     // Llamar desde loop() cada iteración
     void tick();
 
+    // true si la inactividad está activada y se ha superado su tiempo (la pantalla
+    // está en "reposo": brillo reducido o diurno). Lo usa el modo reloj (DEYE-54).
+    bool isIdle() const { return _cfg.inactivity_enabled && _inactivity_exceeded(); }
+
     // Forzar brillo inmediato (para preview en config)
     void previewOperating() { _apply_immediate(_pct_to_duty(_cfg.op_pct));      }
     void previewNormal()    { _apply_immediate(_pct_to_duty(_cfg.normal_pct));  }

@@ -27,6 +27,7 @@
 #include "app_state.h"
 #include "solarman_task.h"
 #include "ui_toast.h"
+#include "clock_mode.h"
 
 
 /* Change to your screen resolution */
@@ -427,6 +428,7 @@ void setup() {
     // ── Cargar config desde NVS ───────────────────────────────────────────
     Storage.loadConfig(g_cfg);
     s_hints = Storage.loadHints();
+    clock_mode_init();
 
     // ── WiFi — inicio NO bloqueante ───────────────────────────────────────
     splash_update(SplashStep::WIFI_CONNECTING, SplashState::RUNNING,
@@ -671,6 +673,9 @@ void loop() {
     }
     screen_banner_tick();
     Backlight.tick();
+    // DEYE-54: en reposo (misma inactividad que atenúa el brillo) se muestra el reloj;
+    // el toque que lo retira ya llegó a Backlight.onTouch() más arriba en esta vuelta
+    clock_mode_tick(Backlight.isIdle());
 
     // DEYE-11: copiar los datos nuevos bajo el mutex y soltarlo ANTES de tocar
     // LVGL, para no bloquear a solarmanTask mientras se redibuja.
@@ -687,7 +692,7 @@ void loop() {
         }
         xSemaphoreGive(g_mutex);
     }
-    if (new_energy) dashboard_update(e_copy);
+    if (new_energy) { dashboard_update(e_copy); clock_mode_set_energy(e_copy); }
     if (new_daily)  stats_screen_update(d_copy);
 
     dashboard_tick();

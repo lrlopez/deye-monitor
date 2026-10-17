@@ -188,6 +188,22 @@ void StorageManager::saveDashView(uint8_t view) {
     p.end();
 }
 
+bool StorageManager::loadClockMode() {
+    Preferences p;
+    p.begin(NS_CFG, true);
+    bool v = p.getBool("ui_clock", true);
+    p.end();
+    return v;
+}
+
+void StorageManager::saveClockMode(bool enabled) {
+    if (loadClockMode() == enabled) return;
+    Preferences p;
+    p.begin(NS_CFG, false);
+    p.putBool("ui_clock", enabled);
+    p.end();
+}
+
 uint8_t StorageManager::loadHints() {
     Preferences p;
     p.begin(NS_CFG, true);
