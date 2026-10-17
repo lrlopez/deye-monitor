@@ -57,6 +57,37 @@ Ver `partitions.csv` (NVS + OTA doble + LittleFS 8MB + coredump) y los `board_bu
 
 ---
 
+## Tiempo y cambios de hora (DST)
+
+Un día local dura 86.400 s **salvo** el domingo de cambio de hora (23 h en primavera, 25 h en otoño).
+**Nunca** sumar/restar `86400` ni dividir por `86400` sobre epochs de medianoche local: usar los helpers
+de `src/time_utils.h` (`next_local_midnight`, `local_midnight_plus_days`, `local_days_between`,
+`local_day_offset`), que normalizan con `mktime(tm_isdst=-1)`. Bugs que esto corrigió: la hora 0 del día
+siguiente se colaba en la gráfica del día de cambio de primavera, los slots de caché quedaban 1 h
+desfasados, y el calendario mostraba 30 días en marzo.
+
+---
+
+## Seguridad web
+
+- Sin contraseña de administración (NVS `web_pass`, solo editable desde la pantalla táctil) las rutas
+  sensibles (`/admin`, `/update`, import/export/wipe de datos, config import/export, `/api/restart`)
+  responden **403**; ya no quedan abiertas. Con contraseña: Basic Auth `admin` + lockout con backoff + same-origin.
+- Las rutas de solo lectura (`/api/data`, `/api/history`, `/api/export`, `/chart`) siguen sin auth.
+
+---
+
+## Tests
+
+`pio test -e native` ejecuta tests Unity en el PC (sin hardware) sobre la lógica pura en headers sin
+dependencias de Arduino: `solarman_proto.h` (CRC, frame, parseo de respuesta), `slot_avg.h`, `time_utils.h`,
+`ring_index.h` (anillo circular + índice de días con búsqueda binaria, usados por `DataStore`) y
+`alerts_logic.h` (máquinas de estado de alertas solar/batería/red/logger, usadas por `solarmanTask`).
+No cubren la E/S real de LittleFS ni Telegram. Los headers deben compilar con C++11 (core Arduino del Sunton).
+El entorno `native` lleva `ci_skip = true`. Toda lógica nueva que pueda ser pura debería ir en un header así.
+
+---
+
 ## Protocolo SolarmanV5
 
 - Frame de 36 bytes: header A5 + payload (inner header 15B + Modbus RTU 8B) + checksum + 0x15
@@ -106,21 +137,24 @@ El signo de `batt_power`/`batt_w` y `grid_power`/`grid_w` sigue la convención d
 
 ## Sistema de almacenamiento
 
-### Capacidad (1.461 días = 4 años con bisiesto)
+### Capacidad (`STORE_DAYS` = 730 días = 2 años, en `data_store.h`)
 
 | Fichero | Registros | Tamaño |
 |---|---|---|
-| `/raw.bin` | 1461×288 = 420.768 | 6.730 KB |
-| `/hrly.bin` | 1461×24 = 35.064 | 1.121 KB |
-| `/day.bin` | 1.461 | 46 KB |
-| Total | | 7.897 KB < 8.192 KB ✓ |
+| `/raw.bin` | 730×288 = 210.240 | 3.285 KB |
+| `/hrly.bin` | 730×24 = 17.520 | 547 KB |
+| `/day.bin` | 730 | 23 KB |
+| Total | | ~3.855 KB de 8.192 KB |
+
+Cambiar `STORE_DAYS` cambia la capacidad de los tres ficheros, del índice y de la caché
+(y hace incompatibles las copias de seguridad de otra capacidad).
 
 ### `DataStore` — optimizaciones implementadas
 
 - **File handles abiertos permanentemente** (no open/close en cada lectura)
-- **Pre-alocación** de ficheros en `begin()` para evitar fragmentación
-- **Índice de días en PSRAM** (`DayIdx[]`): `readDay()` es O(1) sin búsqueda binaria
-- **Meta guardada cada 12 pushes** (no en cada push) → ×12 menos escrituras flash
+- **Sin pre-alocación**: los ficheros crecen bajo demanda (pre-alocar agotaba los bloques LittleFS necesarios para los COW de metadatos)
+- **Índice de días en PSRAM** (`DayIdx[]`, ordenado y estrictamente ascendente): `readDay()` busca por búsqueda binaria (`dayidx_find`)
+- **Meta guardada cada 12 pushes** en raw; en hourly solo al añadir registro nuevo (las actualizaciones in situ del `DailyRecord` no reescriben la meta)
 - **Tres buffers circulares independientes** con mismo número de días
 
 ### `PsramCache` — caché en PSRAM
@@ -128,19 +162,20 @@ El signo de `batt_power`/`batt_w` y `grid_power`/`grid_w` sigue la convención d
 | Caché | Días | Tamaño | Carga |
 |---|---|---|---|
 | Raw | 90 | 405 KB | Eager últimos 7 + background |
-| Hourly | 1.461 | 1.121 KB | Eager últimos 7 + background |
-| Daily | 1.461 | 46 KB | Eager completo en `begin()` |
-| DayIdx | 1.461 | 12 KB | En `DataStore` |
-| Bitmap has_data | 1.461 bits | <1 KB | Desde daily cache |
+| Hourly | 730 | 547 KB | Eager últimos 7 + background |
+| Daily | 730 | 23 KB | Eager completo en `begin()` |
+| DayIdx | 730 | 6 KB | En `DataStore` |
+| Bitmap has_data | 730 bits | <1 KB | Desde daily cache |
 
-**Total PSRAM usado:** ~2.030 KB (25% de 8.192 KB)
+**Total PSRAM usado:** ~1.000 KB aprox. (sin contar buffers de LVGL)
 
 La historia horaria completa está en PSRAM → **la gráfica diaria nunca toca flash**.
 
 ### Grabación en `solarmanTask`
 
 - Alineación exacta a slots de 5 min: `slot = epoch / 300`
-- Registro en cambio de slot (`slot != s_cur_5min_slot`)
+- Registro en cambio de slot (`slot != s_cur_5min_slot`): guarda la **media** de las muestras del periodo (`SlotAverager`, `slot_avg.h`), no la lectura puntual. El timestamp sigue siendo el inicio del slot que se abre
+- `saveSessionState` (NVS) se escribe como mucho cada hora y en cada cambio de estado solar
 - Agregación horaria al cambio de hora (media de potencias + acumulados al final)
 - `DailyRecord` actualizado en cada cambio de hora (parcial) y en medianoche (completo)
 - `fetchDailyStats()` llamado cada `POLL_DAILY_MS` (60s) — **crítico: debe seguir llamándose para que `g_daily` y la cache estén actualizados**
@@ -156,8 +191,8 @@ La historia horaria completa está en PSRAM → **la gráfica diaria nunca toca 
 ## Pantallas (5 tiles horizontales)
 
 ```
-[Dashboard] ←→ [Stats] ←→ [Summary] ←→ [Chart] ←→ [Config]
-     0              1           2            3           4
+[Dashboard] ←→ [Chart] ←→ [Stats] ←→ [Perfil energía] ←→ [Config]
+     0             1          2              3                4
 ```
 
 Indicador de posición: puntos de paginación en el borde inferior.
@@ -167,7 +202,7 @@ Indicador de posición: puntos de paginación en el borde inferior.
 - 4 tarjetas: Solar, Red, Batería (con barra SOC), Carga
 - Autoconsumo = `(PV - export) / PV × 100` (solo cuando PV > 10W)
 
-### Stats screen (tile 1)
+### Stats screen (tile 2)
 - Dos donuts SVG: CONSUMO y PRODUCCIÓN
 - Navegación día a día (± 6 días)
 - Tap en título → volver a hoy (título en azul si no es hoy)
@@ -178,16 +213,13 @@ Indicador de posición: puntos de paginación en el borde inferior.
 - Solar directo = `load - discharge - import` (mín 0)
 - Autoconsumo = `pv - export - batt_charge` (mín 0)
 
-### Summary screen (tile 2)
-- 7 filas fijas (no scrollable), una por día de la semana actual
-- Dos barras por fila dibujadas con `LV_EVENT_DRAW_MAIN` (sin objetos hijo → no OOM)
-- Barra superior: CONSUMO (PV directo + descarga + import)
-- Barra inferior: PRODUCCIÓN (autoconsumo + carga bat + export)
-- Navegación semanal (hasta -11 semanas)
-- Tap en fila → popup con valores y % del día
-- **`s_needs_reload = true`** en `set_active()` para evitar crash al cambiar tile durante animación
+### Perfil de energía (tile 3) — `energy_profile.cpp`
+- Reemplaza a la antigua pantalla Summary semanal. Vista mensual: una barra por día
+- Mitad superior: PV + importación + descarga de batería; mitad inferior (negativa):
+  consumo + exportación + carga de batería (valores diarios de `Cache.getDaily()`)
+- Navegación mes a mes; escala Y automática con gridlines cada `EP_GRID_STEP` kWh
 
-### Chart screen (tile 3)
+### Chart screen (tile 1)
 - `lv_chart` con 5 series: PV, Grid, Bat, Carga, SOC
 - Datos: `HourAgg` desde `Cache.getHourly()` (sin agregación en tiempo real)
 - Labels eje Y con `add_y_labels()` en contenedor con `LV_OBJ_FLAG_OVERFLOW_VISIBLE`
@@ -408,7 +440,8 @@ El proyecto está **funcional y estable**. Las últimas sesiones de trabajo se c
 8. README.md completo
 
 **Pendiente / posibles mejoras futuras:**
-- Pantalla de resumen semanal/mensual con barras (se planteó pero se simplificó)
 - Exportación de datos a CSV desde la web
 - Favicon y título en pestaña del navegador web
 - Doble tap para volver al dashboard desde cualquier pantalla
+
+**Backlog de mejoras numeradas (DEYE-NN):** ver la memoria del proyecto (`mejoras_backlog.md`).

@@ -1,4 +1,5 @@
 #include <time.h>
+#include "time_utils.h"
 #include "energy_profile.h"
 #include "ui_constants.h"
 #include "config.h"
@@ -115,7 +116,7 @@ static void load_month_data() {
         if (d >= last_day) continue;
 
         DailyRecord dr;
-        if (!Cache.getDaily(ep0 + (uint32_t)d * 86400, dr)) continue;
+        if (!Cache.getDaily(local_midnight_plus_days(ep0, d), dr)) continue;
 
         float pv   = dr.pv_10wh     * 0.1f;
         float imp  = dr.import_10wh * 0.1f;

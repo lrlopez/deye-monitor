@@ -1,4 +1,5 @@
 #include "telegram.h"
+#include "time_utils.h"
 #include "config.h"
 #include "psram_cache.h"
 #include "data_store.h"
@@ -244,7 +245,7 @@ String TelegramBot::cmdSemana() const {
     int pos = snprintf(buf, sizeof(buf), "📊 *Resumen semanal*\n\n");
 
     for (int i = 6; i >= 0 && pos < (int)sizeof(buf) - 2; i--) {
-        uint32_t dep = today - (uint32_t)i * 86400;
+        uint32_t dep = local_midnight_plus_days(today, -i);
         DailyRecord dr{};
         DailyStats d{};
         if (Cache.getDaily(dep, dr)) d = daily_record_to_stats(dr);

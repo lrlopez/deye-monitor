@@ -1,4 +1,5 @@
 #include "psram_cache.h"
+#include "time_utils.h"
 #include "safe_serial.h"
 #include <time.h>
 #include <string.h>
@@ -50,14 +51,14 @@ bool PsramCache::begin() {
     uint32_t today = (uint32_t)mktime(&tm_now);
 
     for (int i = 0; i < CACHE_RAW_DAYS; i++) {
-        _raw_days[i].day_epoch = today - (uint32_t)(CACHE_RAW_DAYS-1-i)*86400;
+        _raw_days[i].day_epoch = local_midnight_plus_days(today, -(CACHE_RAW_DAYS-1-i));
         _raw_days[i].loaded    = false;
         _raw_days[i].valid     = false;
     }
 
     // ── Inicializar slots hourly (todos los días disponibles) ─────────────
     for (int i = 0; i < CACHE_HRLY_DAYS; i++) {
-        _hrly_days[i].day_epoch = today - (uint32_t)(CACHE_HRLY_DAYS-1-i)*86400;
+        _hrly_days[i].day_epoch = local_midnight_plus_days(today, -(CACHE_HRLY_DAYS-1-i));
         _hrly_days[i].loaded    = false;
         _hrly_days[i].valid     = false;
     }
@@ -343,7 +344,7 @@ void PsramCache::reinitAfterNtp() {
     // Corregir los slots raw que tienen epochs incorrectos (originados en begin()
     // cuando NTP aún no estaba disponible, lo que provoca overflow de uint32_t).
     for (int i = 0; i < CACHE_RAW_DAYS; i++) {
-        uint32_t expected = today - (uint32_t)(CACHE_RAW_DAYS - 1 - i) * 86400;
+        uint32_t expected = local_midnight_plus_days(today, -(CACHE_RAW_DAYS - 1 - i));
         if (_raw_days[i].day_epoch != expected) {
             _raw_days[i].day_epoch = expected;
             _raw_days[i].count     = 0;
@@ -352,7 +353,7 @@ void PsramCache::reinitAfterNtp() {
         }
     }
     for (int i = 0; i < CACHE_HRLY_DAYS; i++) {
-        uint32_t expected = today - (uint32_t)(CACHE_HRLY_DAYS - 1 - i) * 86400;
+        uint32_t expected = local_midnight_plus_days(today, -(CACHE_HRLY_DAYS - 1 - i));
         if (_hrly_days[i].day_epoch != expected) {
             _hrly_days[i].day_epoch   = expected;
             _hrly_days[i].valid       = false;
@@ -393,7 +394,7 @@ void PsramCache::_bitmap_set(uint32_t dep, bool has) {
         return (uint32_t)mktime(&t);
     }();
     if (dep > today) return;
-    uint32_t days_ago = (today - dep) / 86400;
+    uint32_t days_ago = local_days_between(dep, today);
     if (days_ago >= BITMAP_DAYS) return;
     uint32_t byte_idx = days_ago / 8;
     uint32_t bit_idx  = days_ago % 8;
@@ -416,7 +417,7 @@ bool PsramCache::dayHasData(uint32_t dep) const {
             xSemaphoreGiveRecursive(_mutex);
             return false;
         }
-        uint32_t days_ago = (today - dep) / 86400;
+        uint32_t days_ago = local_days_between(dep, today);
         result = (days_ago < BITMAP_DAYS) &&
                  ((_has_data_bitmap[days_ago/8] >> (days_ago%8)) & 1);
     }

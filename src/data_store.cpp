@@ -1,4 +1,5 @@
 #include "data_store.h"
+#include "time_utils.h"
 #include "safe_serial.h"
 #include <time.h>
 
@@ -63,7 +64,7 @@ void DataStore::flush() {
 
 // ── Lectura/escritura genérica ────────────────────────────────────────────
 uint32_t DataStore::physIdx(const CircBuf& cb, uint32_t logical) const {
-    return (cb.head + logical) % cb.capacity;
+    return cb.phys(logical);
 }
 
 bool DataStore::writeFile(File& f, uint32_t phys, const void* data, size_t sz) {
@@ -200,8 +201,11 @@ bool DataStore::_day_idx_load_file() {
     if (count > 0) {
         size_t expected = count * sizeof(DayIdx);
         ok = (f.read((uint8_t*)_day_idx, expected) == expected);
-        for (uint32_t i = 0; i < count && ok; i++)
+        for (uint32_t i = 0; i < count && ok; i++) {
             if (_day_idx[i].phys_start >= _raw.capacity) ok = false;
+            // La búsqueda binaria exige orden estrictamente ascendente
+            if (i > 0 && _day_idx[i].day_epoch <= _day_idx[i - 1].day_epoch) ok = false;
+        }
     }
     f.close();
     if (!ok) { _day_idx_count = 0; return false; }
@@ -226,9 +230,10 @@ void DataStore::_day_idx_load() {
         tm_r.tm_hour = 0; tm_r.tm_min = 0; tm_r.tm_sec = 0; tm_r.tm_isdst = -1;
         uint32_t dep = (uint32_t)mktime(&tm_r);
 
-        if (dep != prev_dep && _day_idx_count < DAY_IDX_MAX) {
-            _day_idx[_day_idx_count++] = {dep, physIdx(_raw, li)};
-            prev_dep = dep;
+        if (dep != prev_dep) {
+            // dayidx_append exige epochs crecientes (necesario para la búsqueda binaria)
+            if (dayidx_append(_day_idx, _day_idx_count, DAY_IDX_MAX, dep, physIdx(_raw, li)))
+                prev_dep = dep;
         }
     }
     DBGSERIAL.printf("[Store] Índice de días: %lu entradas (raw_count=%lu head=%lu cap=%lu)\n",
@@ -268,20 +273,12 @@ void DataStore::_day_idx_load() {
 }
 
 void DataStore::_day_idx_insert(uint32_t dep, uint32_t phys_start) {
-    if (_day_idx_find(dep) >= 0) return;
-    if (_day_idx_count >= DAY_IDX_MAX) {
-        memmove(_day_idx, _day_idx + 1,
-                (_day_idx_count - 1) * sizeof(DayIdx));
-        _day_idx_count--;
-    }
-    _day_idx[_day_idx_count++] = {dep, phys_start};
-    _day_idx_save();   // ocurre una vez al día — coste amortizado es despreciable
+    if (dayidx_append(_day_idx, _day_idx_count, DAY_IDX_MAX, dep, phys_start))
+        _day_idx_save();   // ocurre una vez al día — coste amortizado es despreciable
 }
 
 int DataStore::_day_idx_find(uint32_t dep) const {
-    for (uint32_t i = 0; i < _day_idx_count; i++)
-        if (_day_idx[i].day_epoch == dep) return (int)i;
-    return -1;
+    return dayidx_find(_day_idx, _day_idx_count, dep);
 }
 
 // ── push(): meta guardada cada 12 pushes ──────────────────────────────────
@@ -297,9 +294,7 @@ bool DataStore::push(const Record5Min& r) {
     tm_r.tm_hour = 0; tm_r.tm_min = 0; tm_r.tm_sec = 0; tm_r.tm_isdst = -1;
     uint32_t dep = (uint32_t)mktime(&tm_r);
 
-    uint32_t phys = (_raw.count < _raw.capacity)
-                  ? physIdx(_raw, _raw.count)
-                  : _raw.head;
+    uint32_t phys = _raw.nextWritePhys();
 
     if (!writeRaw(phys, r)) {
         DBGSERIAL.printf("[Store] push FALLO escritura ts=%lu phys=%lu\n",
@@ -309,11 +304,7 @@ bool DataStore::push(const Record5Min& r) {
     }
 
     // Solo actualizar estado si la escritura tuvo éxito
-    if (_raw.count < _raw.capacity) {
-        _raw.count++;
-    } else {
-        _raw.head = (_raw.head + 1) % _raw.capacity;
-    }
+    _raw.commitPush();
 
     // ¿Es el primer registro de este día? Guardar posición física (inmutable),
     // no lógica — la posición lógica cambia con cada avance de head.
@@ -339,7 +330,7 @@ bool DataStore::push(const Record5Min& r) {
 uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
     if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(2000)) != pdTRUE) return 0;
 
-    uint32_t next_dep = dep + 86400;
+    uint32_t next_dep = next_local_midnight(dep);
     uint32_t found    = 0;
 
     int idx_entry = _day_idx_find(dep);
@@ -362,7 +353,7 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
     // La posición física no varía nunca; el índice lógico cambia con cada
     // avance de head al envolver el anillo, de ahí que se recalcule aquí.
     uint32_t phys_s   = _day_idx[idx_entry].phys_start;
-    uint32_t start_li = (phys_s - _raw.head + _raw.capacity) % _raw.capacity;
+    uint32_t start_li = _raw.logicalOf(phys_s);
 
     DBG_VERBOSE("[Store] readDay dep=%lu idx=%d phys=%lu start_li=%lu raw_count=%lu\n",
                    (unsigned long)dep, idx_entry,
@@ -389,13 +380,8 @@ bool DataStore::pushHourly(const HourlyRecord& r) {
         return false;
     }
 
-    uint32_t phys;
-    if (_hrly.count < _hrly.capacity) {
-        phys = physIdx(_hrly, _hrly.count++);
-    } else {
-        phys = _hrly.head;
-        _hrly.head = (_hrly.head + 1) % _hrly.capacity;
-    }
+    uint32_t phys = _hrly.nextWritePhys();
+    _hrly.commitPush();
     bool ok = writeFile(_f_hrly, phys, &r, sizeof(r));
     if (ok) saveMeta();
     xSemaphoreGive(_mutex);
@@ -424,20 +410,17 @@ bool DataStore::pushDaily(const DailyRecord& r) {
         DailyRecord existing{};
         if (readFile(_f_day, pi, &existing, sizeof(existing)) &&
             existing.day_epoch == r.day_epoch) {
+            // Actualización in situ: head/count no cambian, la meta sigue válida
+            // (DEYE-03: evita reescribir /meta2.bin en cada actualización horaria)
             writeFile(_f_day, pi, &r, sizeof(r));
-            saveMeta();
+            currentDaily = r;
             xSemaphoreGive(_mutex);
             return true;
         }
     }
 
-    uint32_t phys;
-    if (_day.count < _day.capacity) {
-        phys = physIdx(_day, _day.count++);
-    } else {
-        phys = _day.head;
-        _day.head = (_day.head + 1) % _day.capacity;
-    }
+    uint32_t phys = _day.nextWritePhys();
+    _day.commitPush();
     bool ok = writeFile(_f_day, phys, &r, sizeof(r));
     if (ok) saveMeta();
     currentDaily = r;
@@ -486,7 +469,7 @@ uint8_t DataStore::readHourly(uint32_t dep, HourlyRecord out[24]) {
         out[h].hour_epoch = dep + (uint32_t)h * 3600;
     }
 
-    uint32_t next  = dep + 86400;
+    uint32_t next  = next_local_midnight(dep);
     uint32_t start = lowerBoundHrly(dep);
     uint8_t  found = 0;
 
@@ -506,7 +489,7 @@ uint8_t DataStore::readHourly(uint32_t dep, HourlyRecord out[24]) {
 
 bool DataStore::getLastHourly(uint32_t dep, HourlyRecord& out) {
     if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(2000)) != pdTRUE) return false;
-    uint32_t next = dep + 86400;
+    uint32_t next = next_local_midnight(dep);
     bool found = false;
     uint32_t start = lowerBoundHrly(dep);
     for (uint32_t i = start; i < _hrly.count; i++) {

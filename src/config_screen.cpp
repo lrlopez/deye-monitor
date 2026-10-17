@@ -959,7 +959,7 @@ void config_screen_init(lv_obj_t* parent) {
     // ── Sección Acceso Web ────────────────────────────────────────────────────
     {
         String pw_status = Storage.loadAdminPassword().isEmpty()
-            ? "Sin proteccion (acceso libre)"
+            ? "Sin clave: web admin/OTA bloqueadas"
             : "Contrase\xC3\xB1\x61 configurada";
 
         lv_obj_t* sec_admin = make_section(parent,

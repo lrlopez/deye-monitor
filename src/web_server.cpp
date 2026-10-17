@@ -60,12 +60,39 @@ static bool auth_send_lockout_response() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth helper – devuelve true si el acceso está permitido.
-// Si hay contraseña en NVS, exige HTTP Basic Auth con usuario "admin".
-// Si no hay contraseña, el acceso es libre.
+// Exige HTTP Basic Auth con usuario "admin". Si no hay contraseña en NVS el
+// acceso se DENIEGA (403) hasta que se defina desde la pantalla táctil.
 // ─────────────────────────────────────────────────────────────────────────────
+static bool admin_password_missing() {
+    return Storage.loadAdminPassword().isEmpty();
+}
+
+// DEYE-20: sin contraseña de administración las rutas sensibles (config, OTA,
+// importar/borrar datos, reinicio) quedan bloqueadas en vez de abiertas.
+// La contraseña solo puede crearse desde la pantalla táctil (Config → Acceso web).
+static void send_password_required_response() {
+    server.send(403, "text/plain; charset=utf-8",
+        "Acceso bloqueado: no hay contraseña de administración.\n"
+        "Defínela desde la pantalla táctil (Config > Acceso web) y recarga.");
+}
+
+// Respuesta de denegación coherente: 403 informativo si no hay contraseña
+// (un prompt de Basic Auth no serviría de nada), 401 en caso contrario.
+static void send_auth_denied_response() {
+    if (admin_password_missing()) {
+        send_password_required_response();
+        return;
+    }
+    server.requestAuthentication(BASIC_AUTH, "Deye Admin",
+        "Acceso restringido. Configure la contraseña desde la pantalla táctil.");
+}
+
 static bool check_auth() {
     String pw = Storage.loadAdminPassword();
-    if (pw.isEmpty()) return true;
+    if (pw.isEmpty()) {
+        send_password_required_response();
+        return false;
+    }
     if (auth_is_locked_out()) return auth_send_lockout_response();
     if (server.authenticate("admin", pw.c_str())) {
         auth_record_success();
@@ -1240,8 +1267,7 @@ fetch('/api/latest_date').then(r => r.json()).then(d => {
 // ═════════════════════════════════════════════════════════════════════════
 static void handle_update_post() {
     if (!s_ota_authed) {
-        server.requestAuthentication(BASIC_AUTH, "Deye Admin",
-            "Acceso restringido. Configure la contraseña desde la pantalla táctil.");
+        send_auth_denied_response();
         return;
     }
     if (Update.hasError()) return;
@@ -1264,7 +1290,8 @@ static void handle_upload() {
         }
         String pw = Storage.loadAdminPassword();
         if (pw.isEmpty()) {
-            s_ota_authed = true;
+            DBGSERIAL.println("[OTA] Rechazado: sin contraseña de administración");
+            s_ota_authed = false;
         } else if (auth_is_locked_out()) {
             DBGSERIAL.println("[OTA] Rechazado: demasiados intentos fallidos");
             s_ota_authed = false;
@@ -2126,7 +2153,7 @@ static void handle_data_import_upload() {
         }
         String pw = Storage.loadAdminPassword();
         if (pw.isEmpty()) {
-            s_data_import_authed = true;
+            s_data_import_authed = false;
         } else if (auth_is_locked_out()) {
             s_data_import_authed = false;
             auth_send_lockout_response();
@@ -2151,8 +2178,7 @@ static void handle_data_import_upload() {
 
 static void handle_data_import_post() {
     if (!s_data_import_authed) {
-        server.requestAuthentication(BASIC_AUTH, "Deye Admin",
-            "Acceso restringido. Configure la contraseña desde la pantalla táctil.");
+        send_auth_denied_response();
         return;
     }
     if (s_di_phase != DataImportPhase::DONE) {

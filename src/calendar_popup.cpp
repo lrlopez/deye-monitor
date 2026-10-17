@@ -54,11 +54,11 @@ static int first_weekday(int y, int m) {   // 0=Lun … 6=Dom
 }
 
 static int days_in_month(int y, int m) {
-    struct tm t1{}, t2{};
-    t1.tm_year = t2.tm_year = y-1900;
-    t1.tm_mon  = m;   t1.tm_mday = 1; t1.tm_isdst = -1;
-    t2.tm_mon  = m+1; t2.tm_mday = 1; t2.tm_isdst = -1;
-    return (int)((mktime(&t2) - mktime(&t1)) / 86400);
+    // m: 0-11. Tabla en vez de restar mktime()/86400: en el mes del cambio de
+    // hora de primavera la resta da 23 h menos y truncaba 31 a 30 días.
+    static const int days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    if (m == 1 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) return 29;
+    return days[((m % 12) + 12) % 12];
 }
 
 // ── Click en celda ────────────────────────────────────────────────────────

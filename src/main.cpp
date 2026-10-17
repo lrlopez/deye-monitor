@@ -24,6 +24,8 @@
 #include "pagination_dots.h"
 #include "screen_banner.h"
 #include "web_alerts.h"
+#include "slot_avg.h"
+#include "alerts_logic.h"
 
 
 /* Change to your screen resolution */
@@ -206,25 +208,22 @@ static void solarmanTask(void* /*pv*/) {
     static int      s_acc_n   = 0;
     static uint8_t  s_acc_soc = 0;
 
+    // DEYE-02: media de las muestras del slot de 5 min en curso
+    static SlotAverager s_slot;
+    // DEYE-03: último guardado del estado de sesión en NVS (epoch)
+    static uint32_t s_session_saved_ep = 0;
+
     static uint16_t s_snap_day_pv = 0, s_snap_day_exp = 0;
     static uint16_t s_snap_day_imp = 0, s_snap_day_load = 0;
     static uint16_t s_snap_day_bchg = 0, s_snap_day_bdis = 0;
     static bool     s_snap_valid = false;
 
     // ── Estado de alertas ─────────────────────────────────────────────────
-    static bool     s_solar_active    = false;
-    static uint8_t  s_solar_debounce  = 0;
-    static bool     s_solar_restored  = false;  // cargado desde NVS una sola vez
-
-    enum class BattState : uint8_t { NORMAL, WARN, CRIT };
-    static BattState s_batt_state = BattState::NORMAL;
-
-    static uint8_t  s_logger_fail_cnt = 0;
-    static bool     s_logger_notified = false;
-
-    static bool     s_grid_outage     = false;
-    static uint8_t  s_grid_debounce   = 0;
-    static bool     s_had_grid        = false;  // al menos 1 lectura con red activa
+    static SolarMonitor       s_solar;
+    static bool               s_solar_restored = false;  // cargado desde NVS una sola vez
+    static BatteryMonitor     s_batt;
+    static LoggerFailMonitor  s_logger;
+    static GridMonitor        s_grid;
 
     // Config Telegram cacheada — se recarga desde NVS cada 60 s
     static bool           s_tgcfg_loaded  = false;
@@ -285,8 +284,7 @@ static void solarmanTask(void* /*pv*/) {
 
         // ── 1. Datos instantáneos ─────────────────────────────────────────
         if (client.fetchEnergyData(local_e)) {
-            s_logger_fail_cnt = 0;
-            s_logger_notified = false;
+            s_logger.onSuccess();
             DBGSERIAL.printf("[Live] PV:%dW Grid:%dW Bat:%dW(%d%%) Load:%dW\n",
                 (int)local_e.pv_power, (int)local_e.grid_power,
                 (int)local_e.batt_power, (int)local_e.batt_soc,
@@ -298,8 +296,7 @@ static void solarmanTask(void* /*pv*/) {
             }
         } else {
             // 5 fallos consecutivos (~25 s) → notificar una sola vez
-            if (++s_logger_fail_cnt == 5 && !s_logger_notified
-                    && Telegram.isConfigured()) {
+            if (s_logger.onFailure() && Telegram.isConfigured()) {
                 if (!s_tgcfg_loaded) {
                     s_tgcfg = Storage.loadTelegramConfig();
                     s_tgcfg_loaded  = true;
@@ -308,7 +305,7 @@ static void solarmanTask(void* /*pv*/) {
                 if (s_tgcfg.notify_logger)
                     Telegram.enqueueAlert(AlertType::LOGGER_FAIL);
                 screen_banner_enqueue(AlertType::LOGGER_FAIL);
-                s_logger_notified = true;
+                s_logger.markNotified();
             }
         }
 
@@ -400,10 +397,10 @@ static void solarmanTask(void* /*pv*/) {
                     bool same_day = (saved_tm.tm_mday == now_tm.tm_mday &&
                                      saved_tm.tm_mon  == now_tm.tm_mon  &&
                                      saved_tm.tm_year == now_tm.tm_year);
-                    s_solar_active = same_day ? ss.solar_active : false;
+                    s_solar.active = same_day ? ss.solar_active : false;
                     DBGSERIAL.printf("[Solar] Estado %s: %s\n",
                                      same_day ? "restaurado" : "reseteado (día anterior)",
-                                     s_solar_active ? "activo" : "inactivo");
+                                     s_solar.active ? "activo" : "inactivo");
                 }
             }
 
@@ -432,22 +429,43 @@ static void solarmanTask(void* /*pv*/) {
                 uint32_t record_ts = slot_5min * 300;
                 DBGSERIAL.printf("[Record] Slot: ts=%lu\n", (unsigned long)record_ts);
 
+                // DEYE-02: valor medio de las muestras del periodo (no el
+                // instante del cambio de slot). Si por algún motivo no hay
+                // muestras (primer slot tras arranque), se usa la actual.
                 Record5Min r{};
                 r.timestamp  = record_ts;
-                r.pv_w       = (int16_t)constrain(local_e.pv_power,  -32767, 32767);
-                r.grid_w     = (int16_t)constrain(local_e.grid_power, -32767, 32767);
-                r.batt_w     = (int16_t)constrain(local_e.batt_power, -32767, 32767);
-                r.load_w     = (int16_t)constrain(local_e.load_power, -32767, 32767);
+                if (!s_slot.empty()) {
+                    r.pv_w   = s_slot.pv();
+                    r.grid_w = s_slot.grid();
+                    r.batt_w = s_slot.batt();
+                    r.load_w = s_slot.load();
+                } else {
+                    r.pv_w   = (int16_t)constrain(local_e.pv_power,  -32767, 32767);
+                    r.grid_w = (int16_t)constrain(local_e.grid_power, -32767, 32767);
+                    r.batt_w = (int16_t)constrain(local_e.batt_power, -32767, 32767);
+                    r.load_w = (int16_t)constrain(local_e.load_power, -32767, 32767);
+                }
+                s_slot.reset();
                 r.soc        = (uint8_t)local_e.batt_soc;
                 r.flags      = 0x01;
 
                 // Serializar con el flush del display en Core 1 (ver s_flash_display_mutex)
                 if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
                 bool push_ok = Store.push(r);
-                Storage.saveSessionState({record_ts, true, s_solar_active});
+                // DEYE-03: NVS tiene ciclos de escritura limitados; el estado de
+                // sesión solo se usa para comparar el día al arrancar, así que
+                // basta guardarlo cada hora (los cambios solar ya lo guardan).
+                if (record_ts - s_session_saved_ep >= 3600) {
+                    Storage.saveSessionState({record_ts, true, s_solar.active});
+                    s_session_saved_ep = record_ts;
+                }
                 if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
                 if (push_ok) Cache.pushRaw(r);
             }
+            // La muestra actual pertenece al slot en curso (se añade tras
+            // cerrar el anterior para que no contamine su media)
+            s_slot.add(local_e.pv_power, local_e.grid_power,
+                       local_e.batt_power, local_e.load_power);
 
             // ── Cambio de hora ────────────────────────────────────────────
             if (new_hour != s_cur_hour) {
@@ -547,8 +565,7 @@ static void solarmanTask(void* /*pv*/) {
                 s_soc_start_of_day = (uint8_t)local_e.batt_soc;
                 s_cur_day = new_day;
                 // Resetear estado solar al cambiar de día — de noche no hay producción
-                s_solar_active   = false;
-                s_solar_debounce = 0;
+                s_solar.resetForNewDay();
             }
         }
 
@@ -566,26 +583,20 @@ static void solarmanTask(void* /*pv*/) {
             // ── Producción solar ──────────────────────────────────────────
             // Umbral de inicio: 50 W / parada: 20 W — debounce 3 lecturas (15 s)
             if (s_tgcfg.notify_solar) {
-                if (!s_solar_active && local_e.pv_power > 50.0f) {
-                    if (++s_solar_debounce >= 3) {
-                        s_solar_active   = true;
-                        s_solar_debounce = 0;
-                        Telegram.enqueueAlert(AlertType::SOLAR_START,
-                                              (int32_t)local_e.pv_power);
-                        screen_banner_enqueue(AlertType::SOLAR_START,
-                                              (int32_t)local_e.pv_power);
-                        Storage.saveSessionState({now_ep, true, true});
-                    }
-                } else if (s_solar_active && local_e.pv_power < 20.0f) {
-                    if (++s_solar_debounce >= 3) {
-                        s_solar_active   = false;
-                        s_solar_debounce = 0;
-                        Telegram.enqueueAlert(AlertType::SOLAR_STOP);
-                        screen_banner_enqueue(AlertType::SOLAR_STOP);
-                        Storage.saveSessionState({now_ep, true, false});
-                    }
-                } else {
-                    s_solar_debounce = 0;
+                switch (s_solar.update(local_e.pv_power)) {
+                case SolarMonitor::Event::START:
+                    Telegram.enqueueAlert(AlertType::SOLAR_START,
+                                          (int32_t)local_e.pv_power);
+                    screen_banner_enqueue(AlertType::SOLAR_START,
+                                          (int32_t)local_e.pv_power);
+                    Storage.saveSessionState({now_ep, true, true});
+                    break;
+                case SolarMonitor::Event::STOP:
+                    Telegram.enqueueAlert(AlertType::SOLAR_STOP);
+                    screen_banner_enqueue(AlertType::SOLAR_STOP);
+                    Storage.saveSessionState({now_ep, true, false});
+                    break;
+                default: break;
                 }
             }
 
@@ -593,43 +604,21 @@ static void solarmanTask(void* /*pv*/) {
             // Dos niveles: aviso (batt_warn) y crítico (batt_threshold)
             // Recuperación con histéresis +5% sobre el umbral de aviso
             {
-                const uint8_t warn = s_tgcfg.batt_warn;
-                const uint8_t crit = s_tgcfg.batt_threshold;
-                const uint8_t soc  = (uint8_t)local_e.batt_soc;
-                const uint8_t rec  = (uint8_t)min((int)warn + 5, 100);
-                switch (s_batt_state) {
-                case BattState::NORMAL:
-                    if (crit > 0 && soc < crit) {
-                        s_batt_state = BattState::CRIT;
-                        Telegram.enqueueAlert(AlertType::BATT_CRITICAL, (int32_t)soc);
-                        screen_banner_enqueue(AlertType::BATT_CRITICAL, (int32_t)soc);
-                    } else if (warn > 0 && soc < warn) {
-                        s_batt_state = BattState::WARN;
-                        Telegram.enqueueAlert(AlertType::BATT_LOW, (int32_t)soc);
-                        screen_banner_enqueue(AlertType::BATT_LOW, (int32_t)soc);
-                    }
+                const uint8_t soc = (uint8_t)local_e.batt_soc;
+                switch (s_batt.update(soc, s_tgcfg.batt_warn, s_tgcfg.batt_threshold)) {
+                case BatteryMonitor::Event::CRITICAL:
+                    Telegram.enqueueAlert(AlertType::BATT_CRITICAL, (int32_t)soc);
+                    screen_banner_enqueue(AlertType::BATT_CRITICAL, (int32_t)soc);
                     break;
-                case BattState::WARN:
-                    if (crit > 0 && soc < crit) {
-                        s_batt_state = BattState::CRIT;
-                        Telegram.enqueueAlert(AlertType::BATT_CRITICAL, (int32_t)soc);
-                        screen_banner_enqueue(AlertType::BATT_CRITICAL, (int32_t)soc);
-                    } else if (soc >= rec) {
-                        s_batt_state = BattState::NORMAL;
-                        Telegram.enqueueAlert(AlertType::BATT_RECOVERED, (int32_t)soc);
-                        screen_banner_enqueue(AlertType::BATT_RECOVERED, (int32_t)soc);
-                    }
+                case BatteryMonitor::Event::WARN_LOW:
+                    Telegram.enqueueAlert(AlertType::BATT_LOW, (int32_t)soc);
+                    screen_banner_enqueue(AlertType::BATT_LOW, (int32_t)soc);
                     break;
-                case BattState::CRIT:
-                    if (soc >= rec) {
-                        s_batt_state = BattState::NORMAL;
-                        Telegram.enqueueAlert(AlertType::BATT_RECOVERED, (int32_t)soc);
-                        screen_banner_enqueue(AlertType::BATT_RECOVERED, (int32_t)soc);
-                    } else if (warn > 0 && soc >= (uint8_t)min((int)crit + 5, 100)) {
-                        s_batt_state = BattState::WARN;
-                        // transición silenciosa de crítico a aviso
-                    }
+                case BatteryMonitor::Event::RECOVERED:
+                    Telegram.enqueueAlert(AlertType::BATT_RECOVERED, (int32_t)soc);
+                    screen_banner_enqueue(AlertType::BATT_RECOVERED, (int32_t)soc);
                     break;
+                default: break;
                 }
             }
 
@@ -637,24 +626,17 @@ static void solarmanTask(void* /*pv*/) {
             // Corte: |grid_power| = 0 W durante 12 lecturas (60 s)
             // Solo se evalúa tras haber visto red activa al menos una vez
             if (s_tgcfg.notify_grid) {
-                const bool grid_active = fabsf(local_e.grid_power) != 0.0f;
-                if (grid_active) s_had_grid = true;
-
-                if (s_had_grid && !s_grid_outage && !grid_active) {
-                    if (++s_grid_debounce >= 12) {
-                        s_grid_outage   = true;
-                        s_grid_debounce = 0;
-                        Telegram.enqueueAlert(AlertType::GRID_OUTAGE,
-                                              (int32_t)local_e.grid_power);
-                        screen_banner_enqueue(AlertType::GRID_OUTAGE);
-                    }
-                } else if (s_grid_outage && grid_active) {
-                    s_grid_outage   = false;
-                    s_grid_debounce = 0;
+                switch (s_grid.update(local_e.grid_power)) {
+                case GridMonitor::Event::OUTAGE:
+                    Telegram.enqueueAlert(AlertType::GRID_OUTAGE,
+                                          (int32_t)local_e.grid_power);
+                    screen_banner_enqueue(AlertType::GRID_OUTAGE);
+                    break;
+                case GridMonitor::Event::RESTORED:
                     Telegram.enqueueAlert(AlertType::GRID_RESTORED);
                     screen_banner_enqueue(AlertType::GRID_RESTORED);
-                } else if (grid_active) {
-                    s_grid_debounce = 0;
+                    break;
+                default: break;
                 }
             }
         }

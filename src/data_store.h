@@ -3,6 +3,7 @@
 #include <freertos/semphr.h>
 #include <LittleFS.h>
 #include "solarman.h"   // DailyStats
+#include "ring_index.h"  // RingState, DayIdxEntry
 
 static constexpr uint32_t STORE_DAYS = 730;
 
@@ -159,16 +160,15 @@ private:
     SemaphoreHandle_t _mutex = nullptr;
 
     // Tres buffers circulares independientes
-    struct CircBuf {
+    // (aritmética de anillo en ring_index.h, probada en test nativo)
+    struct CircBuf : RingState {
         const char* path;
-        uint32_t    capacity;
-        uint32_t    head;
-        uint32_t    count;
+        CircBuf(const char* p, uint32_t cap) : RingState(cap), path(p) {}
     };
 
-    CircBuf  _raw  {"/raw.bin",  STORE_DAYS * 288, 0, 0};  // STORE_DAYS días × 288
-    CircBuf  _hrly {"/hrly.bin",  STORE_DAYS * 24, 0, 0};  // STORE_DAYS días × 24
-    CircBuf  _day  {"/day.bin",        STORE_DAYS, 0, 0};  // STORE_DAYS días
+    CircBuf  _raw  {"/raw.bin",  STORE_DAYS * 288};  // STORE_DAYS días × 288
+    CircBuf  _hrly {"/hrly.bin",  STORE_DAYS * 24};  // STORE_DAYS días × 24
+    CircBuf  _day  {"/day.bin",        STORE_DAYS};  // STORE_DAYS días
 
     // File handles abiertos permanentemente para rendimiento
     File _f_raw;
@@ -177,7 +177,7 @@ private:
 
     // Índice de días en PSRAM — guarda posición FÍSICA (inmutable) en lugar de
     // lógica, para que no se desfase cuando head avanza al envolver el anillo.
-    struct DayIdx { uint32_t day_epoch; uint32_t phys_start; };
+    typedef DayIdxEntry DayIdx;
     DayIdx*  _day_idx       = nullptr;
     uint32_t _day_idx_count  = 0;
     static constexpr uint32_t DAY_IDX_MAX = STORE_DAYS;

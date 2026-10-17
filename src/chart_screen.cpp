@@ -1,4 +1,5 @@
 #include <time.h>
+#include "time_utils.h"
 #include "chart_screen.h"
 #include "data_store.h"
 #include "storage.h"
@@ -400,7 +401,7 @@ void chart_screen_init(lv_obj_t* parent) {
                 tm_now.tm_hour=0;tm_now.tm_min=0;
                 tm_now.tm_sec=0;tm_now.tm_isdst=-1;
                 uint32_t today = (uint32_t)mktime(&tm_now);
-                s_offset = (int)((int64_t)dep-(int64_t)today) / 86400;
+                s_offset = local_day_offset(dep, today);
                 load_day();
             });
     }, LV_EVENT_CLICKED, nullptr);

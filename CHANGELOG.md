@@ -6,6 +6,25 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Seguridad
+
+- **Contraseña de administración obligatoria (DEYE-20):** sin contraseña definida, `/admin`, `/update` (OTA), importar/exportar/borrar datos, importar/exportar configuración y `/api/restart` responden `403` en lugar de quedar abiertas a toda la LAN. La contraseña se sigue definiendo solo desde la pantalla táctil (Config → Acceso web), que ahora avisa de que la web admin/OTA está bloqueada mientras no exista. **Cambio de comportamiento** para quien usaba la web sin clave.
+
+### Corregido
+
+- **Cambios de hora (DST) (DEYE-05):** los límites de día usaban `+86400 s`, incorrecto el domingo de cambio de hora (23/25 h): la hora 0 del día siguiente aparecía en la gráfica del día de primavera, los slots de caché quedaban desfasados 1 h tras un cambio de hora y el calendario mostraba 30 días en marzo. Nuevo `time_utils.h` con aritmética de días robusta.
+
+### Mejorado
+
+- **Registro de 5 min = media del periodo (DEYE-02):** antes guardaba la lectura puntual del instante de cambio de slot (un pico de nube/carga distorsionaba la curva); ahora promedia las ~60 muestras del slot.
+- **Menos escrituras en flash/NVS (DEYE-03):** el estado de sesión en NVS se guarda como mucho cada hora (antes cada 5 min) y la actualización horaria del `DailyRecord` ya no reescribe `/meta2.bin`.
+
+### Interno
+
+- Lógica pura extraída a headers sin dependencias de Arduino (`solarman_proto.h`, `slot_avg.h`, `time_utils.h`, `ring_index.h`, `alerts_logic.h`) y 32 tests unitarios nativos (`pio test -e native`): protocolo, promedio de slot, DST, anillo/índice de días y máquinas de estado de alertas (DEYE-60). `DataStore` y `solarmanTask` usan esos headers sin cambio de comportamiento, salvo lo de abajo.
+- Índice de días con búsqueda binaria (DEYE-06). Exige epochs estrictamente crecientes: un registro con fecha anterior al último día indexado (reloj que retrocede) ya no se añade al índice, y un `day_idx.bin` desordenado se reconstruye al arrancar.
+- `CLAUDE.md` actualizado con las pantallas y capacidades reales (DEYE-61); `src/.DS_Store` sale del control de versiones (DEYE-62).
+
 ---
 
 ## [v3.5.0] - 2026-08-07
