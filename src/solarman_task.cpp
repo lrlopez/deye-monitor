@@ -165,6 +165,7 @@ void solarmanTask(void* /*pv*/) {
         // ── Alertas ───────────────────────────────────────────────────────
         if (recorder.started() && local_e.valid)
             alerts.evaluate(local_e, now_ep);
+        alerts.checkFlashSpace();            // DEYE-46 (como mucho cada 15 min)
 
         maybe_rediscover_logger(alerts.loggerFailures());
 

@@ -359,6 +359,9 @@ String TelegramBot::fmtAlert(const AlertMsg& msg) const {
         return "🟢 *Red eléctrica restaurada*";
     case AlertType::TEST:
         return "🔔 *Notificaciones activas*\n" APP_NAME " funcionando correctamente.";
+    case AlertType::FS_LOW:
+        return "💾 *Poco espacio en la memoria flash*\nLibre: *" + String(msg.value) + "%*\n"
+               "El histórico podría dejar de guardarse. Revisa la sección de datos en /admin.";
     default:
         return "📡 Evento";
     }

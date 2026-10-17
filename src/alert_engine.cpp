@@ -3,6 +3,7 @@
 #include "telegram.h"
 #include "screen_banner.h"
 #include "safe_serial.h"
+#include <LittleFS.h>
 #include <time.h>
 
 // ── Datalogger ────────────────────────────────────────────────────────────
@@ -97,5 +98,28 @@ void AlertEngine::evaluate(const EnergyData& e, uint32_t now_ep) {
             break;
         default: break;
         }
+    }
+}
+
+// ── Espacio libre en flash ────────────────────────────────────────────────
+void AlertEngine::checkFlashSpace() {
+    const uint32_t now = millis();
+    if (_fs_checked_ms != 0 && now - _fs_checked_ms < 15UL * 60UL * 1000UL) return;
+    _fs_checked_ms = now ? now : 1;
+
+    uint64_t total, used;
+    {
+        // usedBytes() recorre la estructura de LittleFS (lecturas de flash)
+        FlashGuard g;
+        total = LittleFS.totalBytes();
+        used  = LittleFS.usedBytes();
+    }
+
+    if (_fs.update(total, used) == FsSpaceMonitor::Event::LOW_SPACE) {
+        const int free_pct = FsSpaceMonitor::freePercent(total, used);
+        APP_LOGW("FS", "Poco espacio libre en LittleFS: %d%%", free_pct);
+        screen_banner_enqueue(AlertType::FS_LOW, free_pct);
+        if (Telegram.isConfigured())
+            Telegram.enqueueAlert(AlertType::FS_LOW, free_pct);
     }
 }

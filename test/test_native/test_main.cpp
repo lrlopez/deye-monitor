@@ -469,6 +469,36 @@ void test_logger_fail_not_marked_retries_at_wraparound_only() {
     TEST_ASSERT_FALSE(l.onFailure());
 }
 
+// ── DEYE-46: espacio libre en flash ───────────────────────────────────────
+void test_fs_free_percent() {
+    TEST_ASSERT_EQUAL_UINT8(100, FsSpaceMonitor::freePercent(8000, 0));
+    TEST_ASSERT_EQUAL_UINT8(50,  FsSpaceMonitor::freePercent(8000, 4000));
+    TEST_ASSERT_EQUAL_UINT8(9,   FsSpaceMonitor::freePercent(1000, 910));    // 9 % (trunca)
+    TEST_ASSERT_EQUAL_UINT8(0,   FsSpaceMonitor::freePercent(1000, 1000));
+    TEST_ASSERT_EQUAL_UINT8(0,   FsSpaceMonitor::freePercent(1000, 5000));   // usado > total: no desborda
+    TEST_ASSERT_EQUAL_UINT8(0,   FsSpaceMonitor::freePercent(0, 0));
+}
+
+void test_fs_warns_once_then_rearms_with_hysteresis() {
+    FsSpaceMonitor m;
+    const uint64_t T = 8ULL * 1024 * 1024;
+    TEST_ASSERT_EQUAL(FsSpaceMonitor::Event::NONE, m.update(T, T / 2));          // 50 % libre
+    TEST_ASSERT_EQUAL(FsSpaceMonitor::Event::NONE, m.update(T, T * 90 / 100));   // 10 % libre: aún no (< 10)
+    TEST_ASSERT_EQUAL(FsSpaceMonitor::Event::LOW_SPACE, m.update(T, T * 95 / 100)); // 5 %
+    TEST_ASSERT_EQUAL(FsSpaceMonitor::Event::NONE, m.update(T, T * 96 / 100));   // sin repetir
+    TEST_ASSERT_EQUAL(FsSpaceMonitor::Event::NONE, m.update(T, T * 88 / 100));   // 12 %: entre 10 y 15, sigue desarmado
+    TEST_ASSERT_TRUE(m.warned);
+    TEST_ASSERT_EQUAL(FsSpaceMonitor::Event::NONE, m.update(T, T * 80 / 100));   // 20 %: se rearma
+    TEST_ASSERT_FALSE(m.warned);
+    TEST_ASSERT_EQUAL(FsSpaceMonitor::Event::LOW_SPACE, m.update(T, T * 97 / 100)); // vuelve a avisar
+}
+
+void test_fs_unmounted_never_warns() {
+    FsSpaceMonitor m;
+    TEST_ASSERT_EQUAL(FsSpaceMonitor::Event::NONE, m.update(0, 0));
+    TEST_ASSERT_FALSE(m.warned);
+}
+
 // ── DEYE-08: backoff del datalogger ───────────────────────────────────────
 void test_logger_backoff_schedule() {
     LoggerFailMonitor l;
@@ -604,6 +634,9 @@ int main(int, char**) {
     RUN_TEST(test_ipv4_validation);
     RUN_TEST(test_discovery_reply_parse);
     RUN_TEST(test_daily_block_fits_buffer);
+    RUN_TEST(test_fs_free_percent);
+    RUN_TEST(test_fs_warns_once_then_rearms_with_hysteresis);
+    RUN_TEST(test_fs_unmounted_never_warns);
     RUN_TEST(test_logger_backoff_schedule);
     RUN_TEST(test_logger_notification_unchanged_by_backoff);
     RUN_TEST(test_tracker_keeps_last_good_per_day);

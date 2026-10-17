@@ -31,10 +31,16 @@ public:
     // banners de pantalla de estas alertas también dependen de ello).
     void evaluate(const EnergyData& e, uint32_t now_ep);
 
+    // ── Espacio libre en flash (DEYE-46) ──────────────────────────────────
+    // Comprueba como mucho cada 15 min; llamar libremente desde el bucle.
+    void checkFlashSpace();
+
 private:
     SolarMonitor      _solar;
     BatteryMonitor    _batt;
     GridMonitor       _grid;
     LoggerFailMonitor _logger;
+    FsSpaceMonitor    _fs;
     bool              _solar_restored = false;
+    uint32_t          _fs_checked_ms  = 0;
 };

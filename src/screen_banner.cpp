@@ -89,6 +89,10 @@ static void format_and_show(const BannerMsg& m) {
         snprintf(text, sizeof(text), LV_SYMBOL_PLUG " Red el\xC3\xA9\x63trica restaurada");
         bg = lv_color_hex(0x1A5C2E);
         break;
+    case AlertType::FS_LOW:
+        snprintf(text, sizeof(text), LV_SYMBOL_SD_CARD " Memoria flash casi llena: %d%% libre", (int)m.value);
+        bg = lv_color_hex(0xB7770D);
+        break;
     default:
         snprintf(text, sizeof(text), LV_SYMBOL_BELL " Alerta del sistema");
         bg = lv_color_hex(0x21262D);

@@ -90,6 +90,34 @@ struct GridMonitor {
     }
 };
 
+// ── Espacio libre en la flash (LittleFS) ──────────────────────────────────
+// Aviso cuando el espacio libre baja del umbral y vuelta a "armado" solo cuando
+// sube por encima de otro umbral mayor (histéresis), para no repetir el aviso
+// con el valor oscilando alrededor del límite. La partición es de 8 MB y el
+// histórico en régimen ocupa ~3,9 MB, así que saltar indica algo anómalo
+// (importación, STORE_DAYS ampliado, ficheros residuales…).
+struct FsSpaceMonitor {
+    static constexpr uint8_t WARN_BELOW_PCT   = 10;   // aviso si libre < 10 %
+    static constexpr uint8_t REARM_ABOVE_PCT  = 15;   // se rearma con libre >= 15 %
+    enum class Event : uint8_t { NONE, LOW_SPACE };
+
+    bool warned = false;
+
+    // total_bytes == 0 (FS sin montar) no genera avisos
+    Event update(uint64_t total_bytes, uint64_t used_bytes) {
+        if (total_bytes == 0) return Event::NONE;
+        if (used_bytes > total_bytes) used_bytes = total_bytes;
+        const uint8_t free_pct = freePercent(total_bytes, used_bytes);
+        if (!warned && free_pct < WARN_BELOW_PCT) { warned = true; return Event::LOW_SPACE; }
+        if (warned && free_pct >= REARM_ABOVE_PCT) warned = false;
+        return Event::NONE;
+    }
+    static uint8_t freePercent(uint64_t total_bytes, uint64_t used_bytes) {
+        if (total_bytes == 0 || used_bytes >= total_bytes) return 0;
+        return (uint8_t)(((total_bytes - used_bytes) * 100ULL) / total_bytes);
+    }
+};
+
 // ── Fallo del datalogger ──────────────────────────────────────────────────
 // 5 fallos consecutivos (~25 s) → un solo aviso hasta que haya una lectura OK.
 // `notified` solo se marca con markNotified(): si Telegram no está configurado

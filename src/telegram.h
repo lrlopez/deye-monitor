@@ -12,7 +12,8 @@ enum class AlertType : uint8_t {
     LOGGER_FAIL,
     GRID_OUTAGE,
     GRID_RESTORED,
-    TEST
+    TEST,
+    FS_LOW          // poco espacio libre en la flash (value = % libre)
 };
 
 struct AlertMsg {

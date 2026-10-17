@@ -51,6 +51,7 @@ const char* WebAlerts_level(AlertType type) {
             return "critical";
         case AlertType::BATT_LOW:
         case AlertType::SOLAR_STOP:
+        case AlertType::FS_LOW:
             return "warn";
         default:
             return "info";
@@ -77,6 +78,8 @@ const char* WebAlerts_text(const WebAlertEntry& e, char* buf, size_t buf_size) {
             snprintf(buf, buf_size, "Red eléctrica restaurada"); break;
         case AlertType::TEST:
             snprintf(buf, buf_size, "Notificaciones activas"); break;
+        case AlertType::FS_LOW:
+            snprintf(buf, buf_size, "Poco espacio en la memoria flash: %d%% libre", (int)e.value); break;
         default:
             snprintf(buf, buf_size, "Alerta del sistema"); break;
     }
