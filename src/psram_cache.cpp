@@ -73,8 +73,15 @@ bool PsramCache::begin() {
         _hrly_load(_hrly_days[i].day_epoch);
 
     // ── Carga en background de toda la historia horaria ───────────────────
-    // Prioridad mínima, Core 0, para no interferir con la UI
-    xTaskCreatePinnedToCore(_bg_task, "cache_bg", 4096, this, 0, nullptr, 0);
+    // DEYE-45: prioridad EXPLÍCITA = tskIDLE_PRIORITY (0), la más baja, a propósito:
+    // en el Core 0 corren solarman, webserver y telegram a prioridad 1, y esta
+    // carga solo debe usar el tiempo que ellos dejan libre (la UI vive en el
+    // Core 1). Con prioridad 0 comparte turno con la tarea IDLE, que sigue
+    // alimentando el watchdog; además cede 20 ms cada 10 días (ver _bg_task).
+    static constexpr UBaseType_t CACHE_BG_PRIORITY = tskIDLE_PRIORITY;
+    static constexpr uint32_t    CACHE_BG_STACK    = 4096;
+    xTaskCreatePinnedToCore(_bg_task, "cache_bg", CACHE_BG_STACK, this,
+                            CACHE_BG_PRIORITY, nullptr, 0);
 
     printStats();
     return true;
@@ -103,8 +110,12 @@ void PsramCache::_bg_task(void* pv) {
         if (self->_hrly_days[i].valid) valid++;
     self->unlock();
 
-    DBGSERIAL.printf("[Cache] Background completado: %lu/%d días con datos horarios\n",
-                  (unsigned long)valid, CACHE_HRLY_DAYS);
+    // Margen de pila restante (bytes libres del mínimo histórico): si baja de
+    // unos cientos de bytes hay que subir CACHE_BG_STACK.
+    DBGSERIAL.printf("[Cache] Background completado: %lu/%d días con datos horarios "
+                     "(pila libre mín.: %u B)\n",
+                  (unsigned long)valid, CACHE_HRLY_DAYS,
+                  (unsigned)uxTaskGetStackHighWaterMark(nullptr));
     vTaskDelete(nullptr);
 }
 
