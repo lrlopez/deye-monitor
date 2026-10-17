@@ -28,6 +28,7 @@
 #include "solarman_task.h"
 #include "ui_toast.h"
 #include "clock_mode.h"
+#include "setup_wizard.h"
 
 
 /* Change to your screen resolution */
@@ -537,6 +538,9 @@ void setup() {
     delay(800);
     lv_timer_handler();
     splash_finish();
+
+    // DEYE-59: equipo sin configurar → asistente de primer arranque
+    if (wizard_should_run()) wizard_start();
 
     // DEYE-12: a partir de aquí loop() debe alimentar el watchdog (feedLoopWDT).
     // Se activa al final de setup() porque el arranque (formateo, carga de

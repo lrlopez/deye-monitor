@@ -91,6 +91,11 @@ public:
     uint8_t loadDashView();
     void    saveDashView(uint8_t view);
 
+    // ── Asistente de primer arranque (DEYE-59) ─────────────────────────────
+    // true cuando se completó u omitió (o cuando el equipo ya venía configurado)
+    bool    loadWizardDone();
+    void    saveWizardDone(bool done);
+
     // ── Modo reloj en reposo (DEYE-54): activado por defecto ───────────────
     bool    loadClockMode();
     void    saveClockMode(bool enabled);

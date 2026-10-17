@@ -188,6 +188,22 @@ void StorageManager::saveDashView(uint8_t view) {
     p.end();
 }
 
+bool StorageManager::loadWizardDone() {
+    Preferences p;
+    p.begin(NS_CFG, true);
+    bool v = p.getBool("wiz_done", false);
+    p.end();
+    return v;
+}
+
+void StorageManager::saveWizardDone(bool done) {
+    if (loadWizardDone() == done) return;
+    Preferences p;
+    p.begin(NS_CFG, false);
+    p.putBool("wiz_done", done);
+    p.end();
+}
+
 bool StorageManager::loadClockMode() {
     Preferences p;
     p.begin(NS_CFG, true);
