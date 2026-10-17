@@ -27,7 +27,9 @@ static lv_obj_t *s_btn_prev, *s_btn_next, *s_lbl_date;
 static lv_obj_t *con_arcs[3], *con_total_lbl, *con_leg_val[3], *con_leg_pct[3];
 static lv_obj_t *pro_arcs[3], *pro_total_lbl, *pro_leg_val[3], *pro_leg_pct[3];
 static lv_obj_t *s_no_data;
-static lv_obj_t *s_lbl_con_vs, *s_lbl_pro_vs;   // comparativa semana anterior
+// Comparativas bajo cada donut (DEYE-53): izquierda = vs día anterior, derecha = vs semana anterior
+static lv_obj_t *s_lbl_con_vs, *s_lbl_pro_vs;   // semana anterior
+static lv_obj_t *s_lbl_con_vd, *s_lbl_pro_vd;   // día anterior
 
 // ── Helpers de tiempo ─────────────────────────────────────────────────────
 static uint32_t day_epoch_from_offset(int off) {
@@ -188,29 +190,78 @@ static void render_stats(float pv, float exp_k, float imp,
     lv_obj_add_flag(s_no_data, LV_OBJ_FLAG_HIDDEN);
 }
 
+// ── Comparativas con flechas de tendencia (DEYE-53) ───────────────────────
+// Rellena `lbl` con "▲ +12% <etiqueta>" / "▼ -8% <etiqueta>" / "= <etiqueta>" y lo
+// colorea: verde si el cambio es bueno, rojo si es malo, gris si es < 5 %.
+// `more_is_good`: producción sí (subir es bueno), consumo no.
+static void set_trend(lv_obj_t* lbl, float cur, float prev, const char* tag, bool more_is_good) {
+    if (prev <= 0.01f) { lv_label_set_text(lbl, ""); return; }
+    const float pct = (cur - prev) / prev * 100.0f;
+    char buf[32];
+    lv_color_t c = C_MUTED;
+    if (pct > 2.0f)       snprintf(buf, sizeof(buf), LV_SYMBOL_UP   " %+.0f%% %s", pct, tag);
+    else if (pct < -2.0f) snprintf(buf, sizeof(buf), LV_SYMBOL_DOWN " %+.0f%% %s", pct, tag);
+    else                  snprintf(buf, sizeof(buf), "= %s", tag);
+    if (pct > 5.0f)       c = more_is_good ? C_OK : C_ERR;
+    else if (pct < -5.0f) c = more_is_good ? C_ERR : C_OK;
+    lv_label_set_text(lbl, buf);
+    lv_obj_set_style_text_color(lbl, c, 0);
+}
+
+static void clear_vs_labels() {
+    lv_label_set_text(s_lbl_con_vs, ""); lv_label_set_text(s_lbl_pro_vs, "");
+    lv_label_set_text(s_lbl_con_vd, ""); lv_label_set_text(s_lbl_pro_vd, "");
+}
+
+// Consumo y producción del día `dep_prev` acumulados HASTA LA HORA ACTUAL, para
+// comparar el día de hoy (incompleto) con el anterior en igualdad de condiciones.
+// Sale de los acumulados que guarda cada registro horario (`day_*` al final de
+// cada hora), interpolando entre la hora anterior y la actual.
+static bool prev_day_up_to_now(uint32_t dep_prev, float& load_kwh, float& pv_kwh) {
+    const HourlyRecord* h = Cache.getHourly(dep_prev);
+    if (!h) return false;
+    time_t now; time(&now);
+    struct tm t; localtime_r(&now, &t);
+    if (t.tm_hour < 1) return false;                 // demasiado pronto para que signifique algo
+    const HourlyRecord& a = h[t.tm_hour - 1];        // acumulado al final de la hora anterior
+    const HourlyRecord& b = h[t.tm_hour];            // ...y al final de la actual
+    const bool va = (a.flags & 0x01), vb = (b.flags & 0x01);
+    if (!va) return false;
+    const float f = vb ? t.tm_min / 60.0f : 0.0f;
+    load_kwh = (a.day_load + (vb ? (b.day_load - a.day_load) * f : 0.0f)) / 10.0f;
+    pv_kwh   = (a.day_pv   + (vb ? (b.day_pv   - a.day_pv)   * f : 0.0f)) / 10.0f;
+    return true;
+}
+
 static void update_vs_labels(float load_cur, float pv_cur, int offset) {
-    uint32_t dep_prev = day_epoch_from_offset(offset - 7);
-    DailyRecord dr_prev{};
-    if (Cache.getDaily(dep_prev, dr_prev)) {
-        DailyStats prev = daily_record_to_stats(dr_prev);
-        char buf[20];
-        if (prev.load_kwh > 0.01f) {
-            float pct = (load_cur - prev.load_kwh) / prev.load_kwh * 100.0f;
-            lv_color_t c = pct < -5.0f ? C_OK : pct > 5.0f ? C_ERR : C_MUTED;
-            snprintf(buf, sizeof(buf), "%+.0f%% sem.ant.", pct);
-            lv_label_set_text(s_lbl_con_vs, buf);
-            lv_obj_set_style_text_color(s_lbl_con_vs, c, 0);
-        } else { lv_label_set_text(s_lbl_con_vs, ""); }
-        if (prev.pv_kwh > 0.01f) {
-            float pct = (pv_cur - prev.pv_kwh) / prev.pv_kwh * 100.0f;
-            lv_color_t c = pct > 5.0f ? C_OK : pct < -5.0f ? C_ERR : C_MUTED;
-            snprintf(buf, sizeof(buf), "%+.0f%% sem.ant.", pct);
-            lv_label_set_text(s_lbl_pro_vs, buf);
-            lv_obj_set_style_text_color(s_lbl_pro_vs, c, 0);
-        } else { lv_label_set_text(s_lbl_pro_vs, ""); }
+    clear_vs_labels();
+
+    // Semana anterior: mismo día de la semana, día completo (si el día visto es hoy
+    // se compara con el acumulado parcial de hace 7 días solo si hay registro horario)
+    DailyRecord dr_week{};
+    if (Cache.getDaily(day_epoch_from_offset(offset - 7), dr_week)) {
+        DailyStats w = daily_record_to_stats(dr_week);
+        set_trend(s_lbl_con_vs, load_cur, w.load_kwh, "sem.", false);
+        set_trend(s_lbl_pro_vs, pv_cur,   w.pv_kwh,   "sem.", true);
+    }
+
+    // Día anterior: hoy se compara con ayer a la misma hora; un día pasado, completo con completo
+    const uint32_t dep_prev = day_epoch_from_offset(offset - 1);
+    const char* tag = (offset == 0) ? "ayer" : "d\xC3\xAD\x61 ant.";
+    float pl = 0, pp = 0;
+    bool ok = false;
+    if (offset == 0) {
+        ok = prev_day_up_to_now(dep_prev, pl, pp);
     } else {
-        lv_label_set_text(s_lbl_con_vs, "");
-        lv_label_set_text(s_lbl_pro_vs, "");
+        DailyRecord dr{};
+        if (Cache.getDaily(dep_prev, dr)) {
+            DailyStats d = daily_record_to_stats(dr);
+            pl = d.load_kwh; pp = d.pv_kwh; ok = true;
+        }
+    }
+    if (ok) {
+        set_trend(s_lbl_con_vd, load_cur, pl, tag, false);
+        set_trend(s_lbl_pro_vd, pv_cur,   pp, tag, true);
     }
 }
 
@@ -225,8 +276,7 @@ static void load_and_render(int offset) {
             update_vs_labels(s_live.load_kwh, s_live.pv_kwh, 0);
         } else {
             lv_obj_remove_flag(s_no_data, LV_OBJ_FLAG_HIDDEN);
-            lv_label_set_text(s_lbl_con_vs, "");
-            lv_label_set_text(s_lbl_pro_vs, "");
+            clear_vs_labels();
         }
         return;
     }
@@ -241,8 +291,7 @@ static void load_and_render(int offset) {
         update_vs_labels(d.load_kwh, d.pv_kwh, offset);
     } else {
         lv_obj_remove_flag(s_no_data, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(s_lbl_con_vs, "");
-        lv_label_set_text(s_lbl_pro_vs, "");
+        clear_vs_labels();
     }
 }
 
@@ -374,19 +423,23 @@ void stats_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_color(pro_total_lbl, C_WHITE, 0);
     lv_label_set_text(pro_total_lbl, "--\nkWh");
 
-    // ── Comparativa semana anterior ───────────────────────────────────────
-    auto make_vs_label = [&](lv_obj_t* p, int x) -> lv_obj_t* {
+    // ── Comparativas con flechas (DEYE-53): cada mitad de columna lleva una ─
+    // izquierda: vs día anterior · derecha: vs semana anterior
+    auto make_vs_label = [&](lv_obj_t* p, int x, lv_text_align_t al) -> lv_obj_t* {
         lv_obj_t* lbl = lv_label_create(p);
         lv_obj_set_pos(lbl, x, STATS_DONUT_CY + DONUT_R + SY(3));
-        lv_obj_set_width(lbl, STATS_COL_W);
-        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(lbl, STATS_COL_W / 2 - SX(2));
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP);
+        lv_obj_set_style_text_align(lbl, al, 0);
         lv_obj_set_style_text_font(lbl, &FONT_SMALL, 0);
         lv_obj_set_style_text_color(lbl, C_MUTED, 0);
         lv_label_set_text(lbl, "");
         return lbl;
     };
-    s_lbl_con_vs = make_vs_label(parent, 0);
-    s_lbl_pro_vs = make_vs_label(parent, STATS_COL_W);
+    s_lbl_con_vd = make_vs_label(parent, 0,                              LV_TEXT_ALIGN_RIGHT);
+    s_lbl_con_vs = make_vs_label(parent, STATS_COL_W / 2 + SX(2),        LV_TEXT_ALIGN_LEFT);
+    s_lbl_pro_vd = make_vs_label(parent, STATS_COL_W,                    LV_TEXT_ALIGN_RIGHT);
+    s_lbl_pro_vs = make_vs_label(parent, STATS_COL_W + STATS_COL_W / 2 + SX(2), LV_TEXT_ALIGN_LEFT);
 
     // ── Leyendas ──────────────────────────────────────────────────────────
     const char* cn[3] = {"Solar directo", "Descarga bat.", "Importacion"};
