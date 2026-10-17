@@ -7,6 +7,7 @@
 #include "backlight.h"
 #include "data_store.h"
 #include "input_validators.h"
+#include "logger_scan_ui.h"
 #include "clock_mode.h"
 #include "ui_toast.h"
 
@@ -885,7 +886,7 @@ void config_screen_init(lv_obj_t* parent) {
 
     make_row_label(sec_inv, SY(18), "IP Logger");
     ta_logger_ip = make_field(sec_inv, CFG_LBL_W, SY(18),
-                              CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), false, "192.168.1.xxx");
+                              CFG_FIELD_W, false, "192.168.1.xxx");
     lv_textarea_set_text(ta_logger_ip, cfg.logger_ip);
     lv_obj_add_event_cb(ta_logger_ip, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_logger_ip, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
@@ -902,6 +903,10 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_add_event_cb(ta_logger_serial, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
     lv_textarea_set_max_length(ta_logger_serial, 10);
     add_rule(ta_logger_serial, valid_logger_serial, "N\xC3\xBAm. de serie: solo d\xC3\xADgitos, de 1 a 4294967295", "0123456789");
+
+    // Botón de autodetección de la IP del logger (verifica con el serie si es válido)
+    logger_scan_button(sec_inv, CFG_LBL_W + CFG_FIELD_W + SX(4), SY(18), CFG_SCAN_BTN_W,
+                       ta_logger_ip, ta_logger_serial);
 
     // ── Inversor: capacidades de la instalación ───────────────────────────
     const int FW = CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4);

@@ -5,6 +5,7 @@
 #include "storage.h"
 #include "config.h"
 #include "input_validators.h"
+#include "logger_scan_ui.h"
 
 // ── Pasos ─────────────────────────────────────────────────────────────────
 enum { ST_WELCOME = 0, ST_WIFI, ST_LOGGER, ST_WEB, ST_SUMMARY, ST_N };
@@ -313,6 +314,13 @@ static void finish_and_restart() {
 static void next_cb(lv_event_t*) {
     if (!validate_step(s_step)) return;
     if (s_step == ST_SUMMARY) { finish_and_restart(); return; }
+    if (s_step == ST_WIFI) {
+        // Conectar ya, para que la búsqueda del logger del paso siguiente funcione.
+        // solarmanTask no toca el WiFi mientras no haya SSID guardada.
+        // (en P4, disconnect() antes de la primera conexión puede crashear: solo si ya hay una)
+        if (WiFi.status() == WL_CONNECTED) WiFi.disconnect();
+        WiFi.begin(lv_textarea_get_text(ta_ssid), lv_textarea_get_text(ta_pass));
+    }
     show_step(s_step + 1);
 }
 
@@ -324,6 +332,7 @@ static void skip_confirm_no_cb(lv_event_t* e)  { lv_msgbox_close((lv_obj_t*)lv_e
 static void skip_confirm_yes_cb(lv_event_t* e) {
     lv_msgbox_close((lv_obj_t*)lv_event_get_user_data(e));
     Storage.saveWizardDone(true);              // no volver a ofrecerlo
+    if (WiFi.status() == WL_CONNECTED) WiFi.disconnect();   // la conexión de prueba del paso WiFi
     close_wizard();
 }
 
@@ -427,13 +436,15 @@ void wizard_start() {
     {
         lv_obj_t* p = s_panel[ST_LOGGER];
         mk_label(p, 0, SY(8) + SY(10), CFG_LBL_W, "IP del logger", &FONT_SMALL, C_MUTED);
-        ta_ip = mk_field(p, WZ_FIELD_X, SY(8), fw, false, true, "192.168.1.xxx", "0123456789.");
+        ta_ip = mk_field(p, WZ_FIELD_X, SY(8), fw - CFG_SCAN_BTN_W - SX(4), false, true, "192.168.1.xxx", "0123456789.");
         lv_textarea_set_max_length(ta_ip, 15);
         mk_label(p, 0, SY(8) + WZ_ROW_H + SY(10), CFG_LBL_W, "N\xC3\xBAm. de serie", &FONT_SMALL, C_MUTED);
         ta_serial = mk_field(p, WZ_FIELD_X, SY(8) + WZ_ROW_H, fw, false, true, "Ver etiqueta del stick", "0123456789");
         lv_textarea_set_max_length(ta_serial, 10);
+        logger_scan_button(p, WZ_FIELD_X + fw - CFG_SCAN_BTN_W, SY(8), CFG_SCAN_BTN_W, ta_ip, ta_serial);
         mk_label(p, 0, SY(8) + 2 * WZ_ROW_H + SY(4), pw,
-                 "La IP del stick WiFi (LSW3) aparece en tu router; el n\xC3\xBAmero de serie, en su etiqueta o en la app SolarmanPV.",
+                 "Pulsa " LV_SYMBOL_GPS " para buscar el stick WiFi (LSW3) en tu red; para verificarlo, escribe antes el "
+                 "n\xC3\xBAmero de serie (en su etiqueta o en la app SolarmanPV).",
                  &FONT_SMALL, C_MUTED2, true);
     }
 
