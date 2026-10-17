@@ -9,6 +9,7 @@
 #include "ring_index.h"
 #include "alerts_logic.h"
 #include "daily_tracker.h"
+#include "fw_update_logic.h"
 
 // Misma zona horaria que config.h (TIMEZONE)
 static const char* TZ_SPAIN = "CET-1CEST,M3.5.0,M10.5.0/3";
@@ -469,6 +470,141 @@ void test_logger_fail_not_marked_retries_at_wraparound_only() {
     TEST_ASSERT_FALSE(l.onFailure());
 }
 
+// ── Actualización desde GitHub (fw_update_logic.h) ────────────────────────
+// Respuesta real de /releases/latest recortada (campos irrelevantes incluidos a
+// propósito para comprobar que el filtro los ignora). Los hashes y tamaños son
+// los publicados en la v3.6.0.
+static const char* RELEASE_JSON = R"JSON({
+ "url":"https://api.github.com/repos/lrlopez/deye-monitor/releases/416054294",
+ "html_url":"https://github.com/lrlopez/deye-monitor/releases/tag/v3.6.0",
+ "id":416054294,
+ "author":{"login":"github-actions[bot]","id":41898282,"type":"Bot"},
+ "tag_name":"v3.6.0","name":"Deye Monitor v3.6.0","draft":false,"prerelease":false,
+ "assets":[
+  {"id":1,"name":"deye_monitor_guition_jc1060p470_v3.6.0.bin","size":2372080,
+   "digest":"sha256:8c27c65b8ad58bc3879ab5a0457ef96f0108ee8f439b0b7743633b857f7f1fe5",
+   "download_count":3,
+   "browser_download_url":"https://github.com/lrlopez/deye-monitor/releases/download/v3.6.0/deye_monitor_guition_jc1060p470_v3.6.0.bin"},
+  {"id":2,"name":"deye_monitor_guition_jc4880p443c_v3.6.0.bin","size":2274368,
+   "digest":"sha256:3561b838828051e48d8d6bdc6ff7b2f4b136df0dabe52712f6dbc69f8d51b2b9",
+   "browser_download_url":"https://github.com/lrlopez/deye-monitor/releases/download/v3.6.0/deye_monitor_guition_jc4880p443c_v3.6.0.bin"},
+  {"id":3,"name":"deye_monitor_sunton_4827s043_v3.6.0.bin","size":1869584,
+   "digest":"sha256:D698AF512717A7925932E4333BC8D3BCDA25A7D593B560936D9EAC37D024AD9F",
+   "browser_download_url":"https://github.com/lrlopez/deye-monitor/releases/download/v3.6.0/deye_monitor_sunton_4827s043_v3.6.0.bin"}
+ ],
+ "body":"## Qué hay en este release\n..."
+})JSON";
+
+void test_fw_version_parse() {
+    FwVersion v = fw_parse_version("v3.6.0");
+    TEST_ASSERT_TRUE(v.valid);
+    TEST_ASSERT_EQUAL_INT(3, v.major); TEST_ASSERT_EQUAL_INT(6, v.minor); TEST_ASSERT_EQUAL_INT(0, v.patch);
+    TEST_ASSERT_FALSE(v.prerelease);
+    v = fw_parse_version("3.10.12");
+    TEST_ASSERT_EQUAL_INT(10, v.minor); TEST_ASSERT_EQUAL_INT(12, v.patch);
+    TEST_ASSERT_TRUE(fw_parse_version("v4.0.0-beta.1").prerelease);
+    TEST_ASSERT_TRUE(fw_parse_version("3.6").valid);
+    TEST_ASSERT_TRUE(fw_parse_version("3.6.0+build5").valid);
+    TEST_ASSERT_FALSE(fw_parse_version("").valid);
+    TEST_ASSERT_FALSE(fw_parse_version(nullptr).valid);
+    TEST_ASSERT_FALSE(fw_parse_version("latest").valid);
+    TEST_ASSERT_FALSE(fw_parse_version("3.x.0").valid);
+    TEST_ASSERT_FALSE(fw_parse_version("3.6.0abc").valid);
+}
+
+void test_fw_is_newer() {
+    TEST_ASSERT_TRUE(fw_is_newer("3.6.0", "v3.6.1"));
+    TEST_ASSERT_TRUE(fw_is_newer("3.6.0", "v3.7.0"));
+    TEST_ASSERT_TRUE(fw_is_newer("3.9.9", "v3.10.0"));      // comparación numérica, no de texto
+    TEST_ASSERT_TRUE(fw_is_newer("3.6.0", "v4.0.0"));
+    TEST_ASSERT_FALSE(fw_is_newer("3.6.0", "v3.6.0"));      // misma versión
+    TEST_ASSERT_FALSE(fw_is_newer("3.7.0", "v3.6.0"));      // nunca bajar de versión
+    TEST_ASSERT_TRUE(fw_is_newer("3.6.0-beta", "v3.6.0"));  // la final supera a su prerelease
+    TEST_ASSERT_FALSE(fw_is_newer("3.6.0", "v3.6.0-beta")); // y no al revés
+    TEST_ASSERT_FALSE(fw_is_newer("3.6.0", "basura"));      // ilegible: no ofrecer
+    TEST_ASSERT_FALSE(fw_is_newer("", "v9.9.9"));
+}
+
+void test_fw_asset_matches() {
+    TEST_ASSERT_TRUE(fw_asset_matches("deye_monitor_sunton_4827s043_v3.6.0.bin", "sunton_4827s043"));
+    TEST_ASSERT_FALSE(fw_asset_matches("deye_monitor_sunton_4827s043_v3.6.0.bin", "guition_jc1060p470"));
+    TEST_ASSERT_FALSE(fw_asset_matches("deye_monitor_sunton_4827s043_v3.6.0.bin", "sunton"));       // prefijo parcial
+    TEST_ASSERT_FALSE(fw_asset_matches("deye_monitor_sunton_4827s043_v3.6.0.elf", "sunton_4827s043"));
+    TEST_ASSERT_FALSE(fw_asset_matches("otra_cosa_sunton_4827s043_v3.6.0.bin", "sunton_4827s043"));
+    TEST_ASSERT_FALSE(fw_asset_matches("deye_monitor_sunton_4827s043_v3.6.0.bin", ""));              // placa desconocida
+    TEST_ASSERT_FALSE(fw_asset_matches(nullptr, "sunton_4827s043"));
+}
+
+void test_fw_parse_release_picks_this_board() {
+    FwRelease r;
+    TEST_ASSERT_TRUE(fw_parse_release(RELEASE_JSON, "sunton_4827s043", r));
+    TEST_ASSERT_TRUE(r.valid);
+    TEST_ASSERT_EQUAL_STRING("v3.6.0", r.tag);
+    TEST_ASSERT_EQUAL_STRING("https://github.com/lrlopez/deye-monitor/releases/tag/v3.6.0", r.html_url);
+    TEST_ASSERT_EQUAL_STRING("deye_monitor_sunton_4827s043_v3.6.0.bin", r.asset_name);
+    TEST_ASSERT_EQUAL_STRING(
+        "https://github.com/lrlopez/deye-monitor/releases/download/v3.6.0/deye_monitor_sunton_4827s043_v3.6.0.bin",
+        r.asset_url);
+    TEST_ASSERT_EQUAL_UINT32(1869584, r.asset_size);
+    TEST_ASSERT_TRUE(r.has_digest);
+    // El digest llega en mayúsculas en este caso: se normaliza a minúsculas
+    TEST_ASSERT_EQUAL_STRING("d698af512717a7925932e4333bc8d3bcda25a7d593b560936d9eac37d024ad9f", r.sha256);
+
+    TEST_ASSERT_TRUE(fw_parse_release(RELEASE_JSON, "guition_jc4880p443c", r));
+    TEST_ASSERT_EQUAL_UINT32(2274368, r.asset_size);
+    TEST_ASSERT_EQUAL_STRING("3561b838828051e48d8d6bdc6ff7b2f4b136df0dabe52712f6dbc69f8d51b2b9", r.sha256);
+}
+
+void test_fw_parse_release_errors() {
+    FwRelease r;
+    TEST_ASSERT_FALSE(fw_parse_release(RELEASE_JSON, "placa_inexistente", r));
+    TEST_ASSERT_FALSE(r.valid);
+    TEST_ASSERT_TRUE(strlen(r.error) > 0);
+    TEST_ASSERT_FALSE(fw_parse_release(RELEASE_JSON, "", r));                  // placa desconocida
+    TEST_ASSERT_FALSE(fw_parse_release("esto no es json", "sunton_4827s043", r));
+    TEST_ASSERT_FALSE(fw_parse_release("{}", "sunton_4827s043", r));           // sin tag_name
+    TEST_ASSERT_FALSE(fw_parse_release(
+        R"({"tag_name":"v9.9.9","draft":true,"assets":[]})", "sunton_4827s043", r));
+}
+
+void test_fw_parse_release_without_digest_and_insecure_url() {
+    FwRelease r;
+    // Releases antiguas no traen "digest": válido, pero sin hash que comprobar
+    TEST_ASSERT_TRUE(fw_parse_release(
+        R"({"tag_name":"v3.0.0","assets":[{"name":"deye_monitor_sunton_4827s043_v3.0.0.bin","size":100,
+            "browser_download_url":"https://github.com/x/y/releases/download/v3.0.0/deye_monitor_sunton_4827s043_v3.0.0.bin"}]})",
+        "sunton_4827s043", r));
+    TEST_ASSERT_FALSE(r.has_digest);
+    // Digest mal formado: se ignora, no se acepta a medias
+    TEST_ASSERT_TRUE(fw_parse_release(
+        R"({"tag_name":"v3.0.0","assets":[{"name":"deye_monitor_sunton_4827s043_v3.0.0.bin","size":100,"digest":"sha256:1234",
+            "browser_download_url":"https://github.com/a.bin"}]})", "sunton_4827s043", r));
+    TEST_ASSERT_FALSE(r.has_digest);
+    // Nunca se descarga firmware por HTTP plano
+    TEST_ASSERT_FALSE(fw_parse_release(
+        R"({"tag_name":"v3.0.0","assets":[{"name":"deye_monitor_sunton_4827s043_v3.0.0.bin","size":100,
+            "browser_download_url":"http://github.com/a.bin"}]})", "sunton_4827s043", r));
+    // Tamaño 0: no se intenta
+    TEST_ASSERT_FALSE(fw_parse_release(
+        R"({"tag_name":"v3.0.0","assets":[{"name":"deye_monitor_sunton_4827s043_v3.0.0.bin","size":0,
+            "browser_download_url":"https://github.com/a.bin"}]})", "sunton_4827s043", r));
+}
+
+void test_fw_sha256_and_magic() {
+    // SHA-256 de la cadena vacía
+    const uint8_t empty[32] = {0xe3,0xb0,0xc4,0x42,0x98,0xfc,0x1c,0x14,0x9a,0xfb,0xf4,0xc8,0x99,0x6f,0xb9,0x24,
+                               0x27,0xae,0x41,0xe4,0x64,0x9b,0x93,0x4c,0xa4,0x95,0x99,0x1b,0x78,0x52,0xb8,0x55};
+    TEST_ASSERT_TRUE(fw_sha256_equals_hex(empty, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
+    TEST_ASSERT_TRUE(fw_sha256_equals_hex(empty, "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"));
+    TEST_ASSERT_FALSE(fw_sha256_equals_hex(empty, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b856")); // 1 nibble
+    TEST_ASSERT_FALSE(fw_sha256_equals_hex(empty, "e3b0"));
+    TEST_ASSERT_FALSE(fw_sha256_equals_hex(empty, nullptr));
+    const uint8_t good[1] = {0xE9}, bad[1] = {0x7F};
+    TEST_ASSERT_TRUE(fw_looks_like_esp_image(good, 1));
+    TEST_ASSERT_FALSE(fw_looks_like_esp_image(bad, 1));
+    TEST_ASSERT_FALSE(fw_looks_like_esp_image(good, 0));
+}
+
 // ── DEYE-46: espacio libre en flash ───────────────────────────────────────
 void test_fs_free_percent() {
     TEST_ASSERT_EQUAL_UINT8(100, FsSpaceMonitor::freePercent(8000, 0));
@@ -634,6 +770,13 @@ int main(int, char**) {
     RUN_TEST(test_ipv4_validation);
     RUN_TEST(test_discovery_reply_parse);
     RUN_TEST(test_daily_block_fits_buffer);
+    RUN_TEST(test_fw_version_parse);
+    RUN_TEST(test_fw_is_newer);
+    RUN_TEST(test_fw_asset_matches);
+    RUN_TEST(test_fw_parse_release_picks_this_board);
+    RUN_TEST(test_fw_parse_release_errors);
+    RUN_TEST(test_fw_parse_release_without_digest_and_insecure_url);
+    RUN_TEST(test_fw_sha256_and_magic);
     RUN_TEST(test_fs_free_percent);
     RUN_TEST(test_fs_warns_once_then_rearms_with_hysteresis);
     RUN_TEST(test_fs_unmounted_never_warns);

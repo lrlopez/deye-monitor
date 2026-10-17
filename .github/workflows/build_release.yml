@@ -172,8 +172,10 @@ jobs:
           ### 🔄 Actualización OTA (recomendado)
 
           1. Accede a `http://<ip-del-esp32>/update` desde tu navegador
-          2. Selecciona el fichero `.bin` correspondiente a tu configuración
-          3. Pulsa **Actualizar** — el ESP32 se reiniciará automáticamente
+          2. Pulsa **Buscar actualización**: el propio dispositivo descarga desde
+             esta página el `.bin` de su placa (verificado con TLS y SHA-256), o bien
+             selecciona a mano el fichero `.bin` correspondiente a tu configuración
+          3. Pulsa **Instalar** / **Actualizar** — el ESP32 se reiniciará automáticamente
 
           ### 🔌 Instalación inicial por USB
 

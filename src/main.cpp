@@ -194,8 +194,10 @@ volatile bool g_wifi_connected = false;
 // Flags OTA (protocolo Core0→Core1):
 //   g_ota_request: webserver pide mostrar overlay
 //   g_ota_active:  loop confirma que el overlay está pintado y el render está congelado
+//   g_ota_cancel:  la actualización falló: loop retira el overlay y descongela el render
 volatile bool g_ota_request = false;
 volatile bool g_ota_active  = false;
+volatile bool g_ota_cancel  = false;
 
 // Pantalla principal (tileview vive aquí)
 lv_obj_t* g_main_screen = nullptr;
@@ -523,9 +525,12 @@ void setup() {
 
 // ── Overlay OTA ───────────────────────────────────────────────────────────
 // Llamar SOLO desde loop() (Core 1 — LVGL no es thread-safe)
+static lv_obj_t* s_ota_overlay = nullptr;   // para poder retirarlo si la actualización falla
+
 static void show_ota_overlay() {
     // Fondo negro completo sobre cualquier pantalla activa
     lv_obj_t* ov = lv_obj_create(lv_layer_top());
+    s_ota_overlay = ov;
     lv_obj_set_size(ov, SCREEN_WIDTH, SCREEN_HEIGHT);
     lv_obj_set_pos(ov, 0, 0);
     lv_obj_set_style_bg_color(ov, lv_color_hex(0x0D1117), 0);
@@ -586,6 +591,15 @@ void loop() {
     // LVGL o un mutex dejan de responder, el chip se reinicia en vez de quedarse
     // con la pantalla congelada. Va el primero para cubrir también el modo OTA.
     feedLoopWDT();
+
+    // La actualización falló (subida manual o desde GitHub): retirar el overlay y
+    // descongelar el render. Antes quedaba la pantalla congelada hasta reiniciar.
+    if (g_ota_cancel) {
+        g_ota_cancel = false;
+        g_ota_request = false;
+        if (s_ota_overlay) { lv_obj_delete(s_ota_overlay); s_ota_overlay = nullptr; }
+        g_ota_active = false;
+    }
 
     // Render congelado durante escritura flash OTA
     if (g_ota_active) { delay(10); return; }

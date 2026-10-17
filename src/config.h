@@ -18,6 +18,14 @@
 #define APP_VERSION     "3.6.0"
 #define MDNS_HOSTNAME   "inversor"
 
+// ── Actualización desde GitHub (ver fw_update.cpp) ───────────────────────
+// Repositorio cuyas releases se consultan. FW_ENV_NAME lo define platformio.ini
+// por entorno (es el que el CI usa en el nombre del .bin publicado).
+#define FW_UPDATE_REPO  "lrlopez/deye-monitor"
+#ifndef FW_ENV_NAME
+#define FW_ENV_NAME     ""      // vacío: el entorno no sabe qué binario descargar
+#endif
+
 // ── NTP ───────────────────────────────────────────────────────────────────
 #define NTP_SERVER1     "es.pool.ntp.org"
 #define NTP_SERVER2     "time.cloudflare.com"

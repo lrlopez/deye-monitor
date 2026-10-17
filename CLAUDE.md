@@ -75,6 +75,19 @@ desfasados, y el calendario mostraba 30 días en marzo.
   responden **403**; ya no quedan abiertas. Con contraseña: Basic Auth `admin` + lockout con backoff + same-origin.
 - Las rutas de solo lectura (`/api/data`, `/api/history`, `/api/export`, `/chart`) siguen sin auth.
 
+## Actualización de firmware
+
+Dos vías en `/update`, ambas tras contraseña de administración:
+- **Manual:** subida multipart del `.bin` (`handle_upload`).
+- **Desde GitHub** (`fw_update.cpp`, lógica pura en `fw_update_logic.h`, probada en nativo): `POST /api/fw/check` consulta
+  `releases/latest` de `FW_UPDATE_REPO` (config.h); `POST /api/fw/install` descarga el asset `deye_monitor_<FW_ENV_NAME>_<tag>.bin`
+  (nombre del CI en `build_release.yml`; `FW_ENV_NAME` lo fija cada entorno en `platformio.ini`), comprueba TLS (raíces en
+  `fw_update_ca.h`), tamaño, cabecera 0xE9 y SHA-256 (`digest` de la API) y solo entonces llama a `Update.end()`.
+  Corre en tareas de 16 KB (TLS); el estado se consulta con `GET /api/fw/status`.
+- Protocolo con el hilo LVGL: `g_ota_request` → overlay y render congelado (`g_ota_active`); `g_ota_cancel` lo retira si falla.
+- Si GitHub cambia de CA, la descarga falla "cerrada" (la subida manual sigue funcionando): añadir la raíz nueva a `fw_update_ca.h`.
+- Si se renombran los `.bin` del CI hay que actualizar `fw_asset_matches()` (y sus tests).
+
 ---
 
 ## Tests

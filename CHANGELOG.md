@@ -6,7 +6,17 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Añadido
+
+- **Actualización del firmware desde GitHub:** en `/update` hay una nueva tarjeta «Actualizar desde GitHub»: el propio dispositivo consulta la última release publicada, la compara con la instalada y, si es posterior, descarga el `.bin` de SU placa y lo instala (doble confirmación). La subida manual del `.bin` sigue disponible justo debajo.
+  - TLS con validación de la cadena contra raíces embebidas (`fw_update_ca.h`: Sectigo E46 e ISRG X1, que son las que usa GitHub hoy, más otras alternativas); nunca `setInsecure()`.
+  - Verificación del SHA-256 publicado por la API (`digest`), tamaño y cabecera de imagen antes de activarla; si algo falla no se toca el firmware actual. Solo se ofrece una versión estrictamente posterior.
+  - Corre en tareas propias (el servidor web sigue respondiendo y muestra el progreso) y congela el render de la pantalla durante la escritura, como la subida manual. Endpoints nuevos: `GET /api/fw/status`, `POST /api/fw/check`, `POST /api/fw/install` (contraseña de administración + anti-CSRF).
+  - Cada entorno declara su nombre (`-DFW_ENV_NAME`) para elegir el binario `deye_monitor_<entorno>_<tag>.bin` que publica el CI.
+
 ### Corregido
+
+- **Pantalla congelada tras una actualización fallida:** si la subida manual del `.bin` fallaba al iniciar o al finalizar, el overlay «Actualizando firmware» y el render congelado se quedaban hasta reiniciar. Ahora se retira el overlay y se descongela (`g_ota_cancel`).
 
 - **`/assets/chart.js` ya no reserva ~240 KB de heap por petición (DEYE-40):** `WebServer::send(code, tipo, const char*)` copia TODO el contenido a un `String` (el propio framework avisa «Use send_P for long arrays»). Chart.js, su plugin y la página `/update` se sirven ahora con `send_P`, directamente desde flash. Antes, en un heap fragmentado, esa reserva podía fallar y dejar `/chart` sin gráfica.
 

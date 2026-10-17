@@ -10,6 +10,9 @@
 #include "psram_cache.h"
 #include "web_assets_chartjs.h"
 #include "web_alerts.h"
+#include "fw_update.h"
+
+extern volatile bool g_ota_cancel;   // main.cpp: retira el overlay OTA si la actualización falla
 
 static WebServer          server(80);
 static SemaphoreHandle_t  s_mutex   = nullptr;
@@ -684,8 +687,37 @@ static void handle_update_get() {
   #bar{height:12px;border-radius:6px;background:#2ecc71;width:0%;transition:width .3s}
   #msg{color:#6e7681;font-size:.85rem;text-align:center}
   a{color:#4a9eff;font-size:.8rem}
+  .card{background:#161b22;border:1px solid #21262d;border-radius:10px;
+        padding:22px 28px;display:flex;flex-direction:column;gap:10px;
+        width:min(440px,calc(100vw - 32px));box-sizing:border-box}
+  form{width:min(440px,calc(100vw - 32px));box-sizing:border-box}
+  .card h2{margin:0;font-size:1rem;color:#eaeaea}
+  .row{display:flex;justify-content:space-between;gap:16px;font-size:.9rem;color:#6e7681}
+  .row b{color:#eaeaea;font-weight:600}
+  #gh-msg{color:#c9d1d9;font-size:.9rem;line-height:1.35}
+  #gh-prog{width:100%;background:#21262d;border-radius:6px;height:12px;display:none}
+  #gh-bar{height:12px;border-radius:6px;background:#2ecc71;width:0%;transition:width .3s}
+  .btns{display:flex;gap:10px;flex-wrap:wrap}
+  button:disabled{opacity:.5;cursor:default}
+  #gh-install{background:#238636}
+  #gh-install:hover{background:#2ea043}
+  .sep{color:#6e7681;font-size:.8rem}
 </style></head><body>
-<h1>&#8593; Actualización de Firmware OTA</h1>
+<h1>&#8593; Actualización de Firmware</h1>
+<div class="card" id="gh">
+  <h2>&#8681; Actualizar desde GitHub</h2>
+  <div class="row"><span>Versión instalada</span><b id="gh-cur">&ndash;</b></div>
+  <div class="row"><span>Placa</span><b id="gh-env">&ndash;</b></div>
+  <div class="row" id="gh-lat-row" style="display:none"><span>Última versión</span><b id="gh-lat">&ndash;</b></div>
+  <div id="gh-msg">Pulsa «Buscar» para consultar la última release publicada.</div>
+  <div id="gh-prog"><div id="gh-bar"></div></div>
+  <div class="btns">
+    <button type="button" id="gh-check" onclick="ghCheck();">Buscar actualización</button>
+    <button type="button" id="gh-install" style="display:none" onclick="ghInstall();">Instalar</button>
+  </div>
+  <a id="gh-notes" href="#" target="_blank" rel="noopener" style="display:none">Ver notas de la versión en GitHub</a>
+</div>
+<div class="sep">&mdash; o sube el fichero a mano &mdash;</div>
 <form id="frm" enctype="multipart/form-data">
   <label>Selecciona el fichero <code>.bin</code></label>
   <input type="file" id="fw" accept=".bin" required>
@@ -724,6 +756,86 @@ function upload(){
   };
   xhr.send(fd);
 }
+
+// ── Actualización desde GitHub ──────────────────────────────────────────
+const $=id=>document.getElementById(id);
+let ghLast=null, ghArmed=false, ghTimer=null, ghBusy=false;
+async function ghFetch(path,method){
+  const r=await fetch(path,{method:method||'GET',cache:'no-store'});
+  if(!r.ok) throw new Error((await r.text())||('HTTP '+r.status));
+  return r.json();
+}
+function ghRender(s){
+  ghLast=s;
+  $('gh-cur').textContent=s.current;
+  $('gh-env').textContent=s.env||'desconocida';
+  $('gh-lat-row').style.display=s.latest?'flex':'none';
+  $('gh-lat').textContent=s.latest||'';
+  const n=$('gh-notes'); n.style.display=s.notes_url?'inline':'none'; if(s.notes_url) n.href=s.notes_url;
+  const msg=$('gh-msg'), chk=$('gh-check'), ins=$('gh-install'), pr=$('gh-prog');
+  pr.style.display='none'; ins.style.display='none'; chk.disabled=false;
+  switch(s.state){
+  case 'checking':
+    msg.textContent='Consultando GitHub…'; chk.disabled=true; break;
+  case 'uptodate':
+    msg.textContent='Ya tienes la última versión ('+s.current+').'; break;
+  case 'available':
+    msg.textContent='Hay una versión nueva: '+s.latest+' ('+Math.round(s.size/1024)+' KB'+
+      (s.has_digest?', verificada con SHA-256':'')+').';
+    ins.style.display='inline-block';
+    ins.textContent=ghArmed?'Confirmar: instalar '+s.latest+' y reiniciar':'Instalar '+s.latest;
+    break;
+  case 'downloading':
+    msg.textContent='Descargando e instalando… no apagues el dispositivo.';
+    chk.disabled=true; pr.style.display='block';
+    $('gh-bar').style.width=(s.size?Math.round(s.done/s.size*100):0)+'%'; break;
+  case 'installed':
+    msg.textContent='Instalado. El dispositivo se está reiniciando…';
+    chk.disabled=true; pr.style.display='block'; $('gh-bar').style.width='100%';
+    ghWaitReboot(); return;
+  case 'error':
+    msg.textContent='Error: '+s.error; break;
+  default:
+    msg.textContent='Pulsa «Buscar» para consultar la última release publicada.';
+  }
+}
+async function ghPoll(){
+  clearTimeout(ghTimer);
+  try{
+    const s=await ghFetch('/api/fw/status'); ghRender(s);
+    if(s.state==='checking'||s.state==='downloading') ghTimer=setTimeout(ghPoll,s.state==='downloading'?700:1000);
+  }catch(e){
+    // Durante la descarga un fallo puntual de red no debe cortar el seguimiento
+    if(ghBusy){ ghTimer=setTimeout(ghPoll,1500); }
+    else $('gh-msg').textContent='Sin respuesta del dispositivo ('+e.message+')';
+  }
+}
+async function ghCheck(){
+  ghArmed=false;
+  try{ ghRender(await ghFetch('/api/fw/check','POST')); ghTimer=setTimeout(ghPoll,800); }
+  catch(e){ $('gh-msg').textContent='Error: '+e.message; }
+}
+async function ghInstall(){
+  // Doble confirmación: el primer clic arma el botón, el segundo instala
+  if(!ghArmed){
+    ghArmed=true; ghRender(ghLast);
+    setTimeout(()=>{ if(ghArmed){ ghArmed=false; if(ghLast) ghRender(ghLast); } },8000);
+    return;
+  }
+  ghArmed=false; ghBusy=true;
+  try{ ghRender(await ghFetch('/api/fw/install','POST')); ghTimer=setTimeout(ghPoll,700); }
+  catch(e){ ghBusy=false; $('gh-msg').textContent='Error: '+e.message; }
+}
+function ghWaitReboot(){
+  // Esperar a que el dispositivo vuelva a responder y recargar con la versión nueva
+  ghBusy=false;
+  const t0=Date.now();
+  const probe=()=>fetch('/api/status',{cache:'no-store'}).then(r=>{
+    if(r.ok) location.reload(); else throw 0;
+  }).catch(()=>{ if(Date.now()-t0<120000) setTimeout(probe,2000); });
+  setTimeout(probe,6000);
+}
+ghPoll();
 </script></body></html>)";
 
     server.send_P(200, "text/html; charset=utf-8", OTA_PAGE_HTML);
@@ -1266,6 +1378,59 @@ fetch('/api/latest_date').then(r => r.json()).then(d => {
 // ═════════════════════════════════════════════════════════════════════════
 // Ruta POST /update  →  Recepción del .bin y flasheo
 // ═════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════
+// Actualización desde GitHub: /api/fw/status (GET), /api/fw/check y
+// /api/fw/install (POST). Las tres exigen contraseña de administración; las
+// POST, además, que la petición venga de esta misma página (anti-CSRF). La
+// consulta y la descarga corren en tareas propias (fw_update.cpp): estos
+// handlers solo las lanzan y devuelven el estado.
+// ═════════════════════════════════════════════════════════════════════════
+static void send_fw_status() {
+    FwStatus st;
+    fw_update_status(st);
+    JsonDocument d;
+    d["state"]      = fw_state_name(st.state);
+    d["env"]        = st.env;
+    d["current"]    = st.current;
+    d["latest"]     = st.latest;
+    d["notes_url"]  = st.notes_url;
+    d["asset"]      = st.asset;
+    d["size"]       = st.size;
+    d["done"]       = st.done;
+    d["has_digest"] = st.has_digest;
+    d["error"]      = st.error;
+    String out;
+    serializeJson(d, out);
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", out);
+}
+
+static void handle_fw_status() {
+    if (!check_auth()) return;
+    send_fw_status();
+}
+
+static void handle_fw_check() {
+    if (!check_auth()) return;
+    if (!check_same_origin()) return;
+    if (!fw_update_check_async()) {
+        server.send(409, "text/plain", "Ya hay una operación de actualización en curso");
+        return;
+    }
+    send_fw_status();
+}
+
+static void handle_fw_install() {
+    if (!check_auth()) return;
+    if (!check_same_origin()) return;
+    if (!fw_update_install_async()) {
+        server.send(409, "text/plain",
+                    "No hay una versión disponible para instalar o hay otra operación en curso");
+        return;
+    }
+    send_fw_status();
+}
+
 static void handle_update_post() {
     if (!s_ota_authed) {
         send_auth_denied_response();
@@ -1320,6 +1485,7 @@ static void handle_upload() {
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
             DBGSERIAL.print("[OTA] Error al iniciar: ");
             Update.printError(DBGSERIAL);
+            g_ota_cancel = true;    // descongelar la pantalla (antes quedaba congelada hasta reiniciar)
         }
 
     } else if (upload.status == UPLOAD_FILE_WRITE) {
@@ -1337,6 +1503,7 @@ static void handle_upload() {
         } else {
             DBGSERIAL.print("[OTA] Error al finalizar: ");
             Update.printError(DBGSERIAL);
+            g_ota_cancel = true;    // descongelar la pantalla
             server.send(500, "text/plain",
                         String("Error OTA: ") + Update.errorString());
         }
@@ -2656,6 +2823,9 @@ void webserver_begin() {
     server.on("/update",        HTTP_GET,  handle_update_get);
     server.on("/api/data", HTTP_GET,  handle_api_data);
     server.on("/update",   HTTP_POST, handle_update_post, handle_upload);
+    server.on("/api/fw/status",  HTTP_GET,  handle_fw_status);
+    server.on("/api/fw/check",   HTTP_POST, handle_fw_check);
+    server.on("/api/fw/install", HTTP_POST, handle_fw_install);
     server.on("/api/history",     HTTP_GET, handle_history);
     server.on("/api/latest_date", HTTP_GET, handle_latest_date);
     server.on("/api/alerts",      HTTP_GET, handle_alerts);
