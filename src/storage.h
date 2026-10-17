@@ -87,6 +87,10 @@ public:
     void   saveAdminPassword(const char* password);
     String loadAdminPassword();
 
+    // ── Vista del dashboard (DEYE-50): 0 = tarjetas, 1 = flujo de energía ──
+    uint8_t loadDashView();
+    void    saveDashView(uint8_t view);
+
     // ── LittleFS montado correctamente alguna vez (DEYE-10) ───────────────
     // Distingue "primer arranque" (formatear sin preguntar) de "el sistema de
     // ficheros ya existía y ahora no monta" (no borrar sin confirmación).

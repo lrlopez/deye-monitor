@@ -8,11 +8,17 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Añadido
 
+- **Vista de flujo de energía en el dashboard (DEYE-50):** tocando la barra superior (icono de la derecha) se alterna entre las tarjetas de siempre y un esquema Solar / Red / Batería alrededor de «Casa» con puntos animados que muestran el sentido de la energía (solar → casa, importando o exportando a la red, batería cargando o descargando) y su intensidad (3 velocidades). Solo se anima cuando fluyen más de 50 W y se detiene si los datos están obsoletos. La vista elegida se recuerda tras reiniciar.
+- **Aviso persistente de datos obsoletos (DEYE-51):** pasados 30 s sin datos (o 30 s tras arrancar sin haber recibido ninguno) las tarjetas se atenúan y la barra superior muestra «Sin conexión WiFi» o «Sin datos hace X» en rojo hasta que vuelven a llegar datos.
 - **Actualización del firmware desde GitHub:** en `/update` hay una nueva tarjeta «Actualizar desde GitHub»: el propio dispositivo consulta la última release publicada, la compara con la instalada y, si es posterior, descarga el `.bin` de SU placa y lo instala (doble confirmación). La subida manual del `.bin` sigue disponible justo debajo.
   - TLS con validación de la cadena contra raíces embebidas (`fw_update_ca.h`: Sectigo E46 e ISRG X1, que son las que usa GitHub hoy, más otras alternativas); nunca `setInsecure()`.
   - Verificación del SHA-256 publicado por la API (`digest`), tamaño y cabecera de imagen antes de activarla; si algo falla no se toca el firmware actual. Solo se ofrece una versión estrictamente posterior.
   - Corre en tareas propias (el servidor web sigue respondiendo y muestra el progreso) y congela el render de la pantalla durante la escritura, como la subida manual. Endpoints nuevos: `GET /api/fw/status`, `POST /api/fw/check`, `POST /api/fw/install` (contraseña de administración + anti-CSRF).
   - Cada entorno declara su nombre (`-DFW_ENV_NAME`) para elegir el binario `deye_monitor_<entorno>_<tag>.bin` que publica el CI.
+
+### Mejorado
+
+- **Contraste del texto secundario (DEYE-55):** los grises de las etiquetas pasan de 2,5:1 y 4,0:1 a 5,8:1 y 7,0:1 sobre las tarjetas (WCAG AA exige 4,5:1).
 
 ### Corregido
 

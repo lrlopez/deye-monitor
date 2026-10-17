@@ -172,6 +172,22 @@ static String readAdminPasswordNvs() {
     return s;
 }
 
+uint8_t StorageManager::loadDashView() {
+    Preferences p;
+    p.begin(NS_CFG, true);
+    uint8_t v = p.getUChar("dash_view", 0);
+    p.end();
+    return v > 1 ? 0 : v;
+}
+
+void StorageManager::saveDashView(uint8_t view) {
+    if (loadDashView() == view) return;       // no gastar ciclos de NVS si no cambia
+    Preferences p;
+    p.begin(NS_CFG, false);
+    p.putUChar("dash_view", view);
+    p.end();
+}
+
 bool StorageManager::loadFsKnownGood() {
     Preferences p;
     p.begin(NS_CFG, true);
