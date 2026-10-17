@@ -87,6 +87,12 @@ public:
     void   saveAdminPassword(const char* password);
     String loadAdminPassword();
 
+    // ── LittleFS montado correctamente alguna vez (DEYE-10) ───────────────
+    // Distingue "primer arranque" (formatear sin preguntar) de "el sistema de
+    // ficheros ya existía y ahora no monta" (no borrar sin confirmación).
+    bool loadFsKnownGood();
+    void saveFsKnownGood();   // no escribe en NVS si ya estaba marcado
+
 private:
     StorageManager() = default;
 };

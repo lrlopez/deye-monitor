@@ -96,11 +96,27 @@ struct GridMonitor {
 // el aviso se reintentará en el siguiente ciclo que llegue a 5.
 struct LoggerFailMonitor {
     static constexpr uint8_t THRESHOLD = 5;
-    uint8_t fail_cnt = 0;
-    bool    notified = false;
+    uint8_t  fail_cnt    = 0;
+    bool     notified    = false;
+    uint16_t consecutive = 0;   // fallos seguidos (satura en 65535), para el backoff
 
-    void onSuccess() { fail_cnt = 0; notified = false; }
+    void onSuccess() { fail_cnt = 0; notified = false; consecutive = 0; }
     // true cuando se acaba de alcanzar el umbral y aún no se ha avisado
-    bool onFailure() { return ++fail_cnt == THRESHOLD && !notified; }
+    bool onFailure() {
+        if (consecutive < 0xFFFF) consecutive++;
+        return ++fail_cnt == THRESHOLD && !notified;
+    }
     void markNotified() { notified = true; }
+
+    // Espera hasta la próxima lectura (DEYE-08). Hasta THRESHOLD fallos se
+    // mantiene el intervalo normal (para que el aviso siga saltando a los
+    // ~25 s); después se duplica con cada fallo hasta max_ms, para no
+    // martillear un logger caído o saturado.
+    uint32_t nextDelayMs(uint32_t base_ms, uint32_t max_ms) const {
+        if (consecutive <= THRESHOLD) return base_ms;
+        uint32_t extra = consecutive - THRESHOLD;
+        if (extra > 10) extra = 10;
+        uint32_t d = base_ms << extra;
+        return d > max_ms ? max_ms : d;
+    }
 };

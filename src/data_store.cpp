@@ -139,6 +139,17 @@ bool DataStore::begin() {
         return false;
     }
 
+    // Copias en RAM de los epochs de hourly/daily (DEYE-04)
+    _hrly_eps = (uint32_t*)heap_caps_malloc(_hrly.capacity * sizeof(uint32_t),
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    _day_eps  = (uint32_t*)heap_caps_malloc(_day.capacity * sizeof(uint32_t),
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!_hrly_eps || !_day_eps) {
+        DBGSERIAL.println("[Store] Sin PSRAM para índices de epochs"); return false;
+    }
+    _load_epochs(_f_hrly, _hrly_eps, _hrly.capacity, sizeof(HourlyRecord));
+    _load_epochs(_f_day,  _day_eps,  _day.capacity,  sizeof(DailyRecord));
+
     DBGSERIAL.printf("[Store] Ficheros abiertos. raw=%lu hrly=%lu day=%lu registros. "
                   "LittleFS libre=%u KB\n",
                   (unsigned long)_raw.count,
@@ -158,6 +169,26 @@ bool DataStore::begin() {
         }
     }
 
+    return true;
+}
+
+// Lee el primer campo uint32 (el epoch) de cada registro del fichero a `eps`,
+// en bloques para no hacer un seek por registro. Las posiciones que no existen
+// en el fichero (aún no escritas) quedan a 0.
+bool DataStore::_load_epochs(File& f, uint32_t* eps, uint32_t capacity, size_t rec_size) {
+    memset(eps, 0, capacity * sizeof(uint32_t));
+    const uint32_t CHUNK = 64;                       // registros por lectura
+    uint8_t buf[CHUNK * 32];                         // rec_size <= 32 (static_assert abajo)
+    static_assert(sizeof(HourlyRecord) <= 32 && sizeof(DailyRecord) <= 32, "rec_size > 32");
+    uint32_t in_file = (uint32_t)(f.size() / rec_size);
+    if (in_file > capacity) in_file = capacity;
+    if (!f.seek(0)) return false;
+    for (uint32_t i = 0; i < in_file; i += CHUNK) {
+        uint32_t n = (in_file - i < CHUNK) ? (in_file - i) : CHUNK;
+        if (f.read(buf, n * rec_size) != n * rec_size) return false;
+        for (uint32_t k = 0; k < n; k++)
+            memcpy(&eps[i + k], buf + k * rec_size, sizeof(uint32_t));
+    }
     return true;
 }
 
@@ -375,6 +406,7 @@ uint32_t DataStore::readDay(uint32_t dep, Record5Min* out, uint32_t max) {
 
 // ── Hourly push ───────────────────────────────────────────────────────────
 bool DataStore::pushHourly(const HourlyRecord& r) {
+    if (!_hrly_eps) return false;   // begin() falló antes de reservar el índice
     if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(500)) != pdTRUE) {
         DBGSERIAL.println("[Store] pushHourly: mutex timeout — registro horario perdido");
         return false;
@@ -382,6 +414,7 @@ bool DataStore::pushHourly(const HourlyRecord& r) {
 
     uint32_t phys = _hrly.nextWritePhys();
     _hrly.commitPush();
+    _hrly_eps[phys] = r.hour_epoch;
     bool ok = writeFile(_f_hrly, phys, &r, sizeof(r));
     if (ok) saveMeta();
     xSemaphoreGive(_mutex);
@@ -395,32 +428,28 @@ bool DataStore::pushHourly(const HourlyRecord& r) {
 
 // ── Daily push ────────────────────────────────────────────────────────────
 bool DataStore::pushDaily(const DailyRecord& r) {
+    if (!_day_eps) return false;    // begin() falló antes de reservar el índice
     if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(500)) != pdTRUE) {
         DBGSERIAL.println("[Store] pushDaily: mutex timeout — registro diario perdido");
         return false;
     }
 
     // Buscar si ya existe un registro para ese día (actualizar en lugar de duplicar).
-    // Se recorre desde el más reciente hacia atrás: el día actualizado es casi
-    // siempre "hoy" (el último escrito), así el caso común es O(1) en vez de
-    // hasta STORE_DAYS lecturas de flash bajo el mutex.
-    for (uint32_t k = _day.count; k > 0; k--) {
-        uint32_t i = k - 1;
-        uint32_t pi = physIdx(_day, i);
-        DailyRecord existing{};
-        if (readFile(_f_day, pi, &existing, sizeof(existing)) &&
-            existing.day_epoch == r.day_epoch) {
-            // Actualización in situ: head/count no cambian, la meta sigue válida
-            // (DEYE-03: evita reescribir /meta2.bin en cada actualización horaria)
-            writeFile(_f_day, pi, &r, sizeof(r));
-            currentDaily = r;
-            xSemaphoreGive(_mutex);
-            return true;
-        }
+    // La búsqueda se hace sobre la copia en RAM de los epochs (DEYE-04), desde el
+    // más reciente hacia atrás: no se lee flash bajo el mutex.
+    int existing = ring_find_exact_from_end(_day, _day_eps, r.day_epoch);
+    if (existing >= 0) {
+        // Actualización in situ: head/count no cambian, la meta sigue válida
+        // (DEYE-03: evita reescribir /meta2.bin en cada actualización horaria)
+        writeFile(_f_day, physIdx(_day, (uint32_t)existing), &r, sizeof(r));
+        currentDaily = r;
+        xSemaphoreGive(_mutex);
+        return true;
     }
 
     uint32_t phys = _day.nextWritePhys();
     _day.commitPush();
+    _day_eps[phys] = r.day_epoch;
     bool ok = writeFile(_f_day, phys, &r, sizeof(r));
     if (ok) saveMeta();
     currentDaily = r;
@@ -448,16 +477,9 @@ bool DataStore::getLastRecord(Record5Min& out) {
 
 // ── Hourly read ───────────────────────────────────────────────────────────
 uint32_t DataStore::lowerBoundHrly(uint32_t ts) {
-    if (_hrly.count == 0) return 0;
-    uint32_t lo = 0, hi = _hrly.count;
-    while (lo < hi) {
-        uint32_t mid = (lo + hi) / 2;
-        HourlyRecord r{};
-        if (readFile(_f_hrly, physIdx(_hrly, mid), &r, sizeof(r)) && r.hour_epoch < ts)
-            lo = mid + 1;
-        else hi = mid;
-    }
-    return lo;
+    // Búsqueda binaria sobre la copia en RAM (DEYE-04): cero lecturas de flash
+    if (!_hrly_eps) return 0;   // begin() falló antes de reservar el índice
+    return ring_lower_bound(_hrly, _hrly_eps, ts);
 }
 
 uint8_t DataStore::readHourly(uint32_t dep, HourlyRecord out[24]) {
@@ -504,13 +526,15 @@ bool DataStore::getLastHourly(uint32_t dep, HourlyRecord& out) {
 
 // ── Daily read ────────────────────────────────────────────────────────────
 bool DataStore::readDaily(uint32_t dep, DailyRecord& out) {
+    if (!_day_eps) return false;
     if (xSemaphoreTake(_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return false;
     bool found = false;
-    for (uint32_t i = 0; i < _day.count; i++) {
+    int i = ring_find_exact_from_end(_day, _day_eps, dep);   // sin leer flash (DEYE-04)
+    if (i >= 0) {
         DailyRecord r{};
-        if (readFile(_f_day, physIdx(_day, i), &r, sizeof(r)) &&
+        if (readFile(_f_day, physIdx(_day, (uint32_t)i), &r, sizeof(r)) &&
             r.day_epoch == dep && (r.flags & 0x01)) {
-            out = r; found = true; break;
+            out = r; found = true;
         }
     }
     xSemaphoreGive(_mutex);

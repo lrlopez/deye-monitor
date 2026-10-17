@@ -81,8 +81,10 @@ desfasados, y el calendario mostraba 30 días en marzo.
 
 `pio test -e native` ejecuta tests Unity en el PC (sin hardware) sobre la lógica pura en headers sin
 dependencias de Arduino: `solarman_proto.h` (CRC, frame, parseo de respuesta), `slot_avg.h`, `time_utils.h`,
-`ring_index.h` (anillo circular + índice de días con búsqueda binaria, usados por `DataStore`) y
-`alerts_logic.h` (máquinas de estado de alertas solar/batería/red/logger, usadas por `solarmanTask`).
+`ring_index.h` (anillo circular + índice de días con búsqueda binaria + búsqueda por epochs, usados por `DataStore`),
+`alerts_logic.h` (máquinas de estado de alertas solar/batería/red/logger + backoff, usadas por `solarmanTask`) y
+`daily_tracker.h` (última lectura diaria buena por día, para cerrar el día). Ojo con los nombres: las cabeceras
+Xtensa definen macros como `EPS` (rompe un `constexpr EPS`) y Arduino define `LOW`/`HIGH`.
 No cubren la E/S real de LittleFS ni Telegram. Los headers deben compilar con C++11 (core Arduino del Sunton).
 El entorno `native` lleva `ci_skip = true`. Toda lógica nueva que pueda ser pura debería ir en un header así.
 
@@ -176,9 +178,14 @@ La historia horaria completa está en PSRAM → **la gráfica diaria nunca toca 
 - Alineación exacta a slots de 5 min: `slot = epoch / 300`
 - Registro en cambio de slot (`slot != s_cur_5min_slot`): guarda la **media** de las muestras del periodo (`SlotAverager`, `slot_avg.h`), no la lectura puntual. El timestamp sigue siendo el inicio del slot que se abre
 - `saveSessionState` (NVS) se escribe como mucho cada hora y en cada cambio de estado solar
-- Agregación horaria al cambio de hora (media de potencias + acumulados al final)
-- `DailyRecord` actualizado en cada cambio de hora (parcial) y en medianoche (completo)
-- `fetchDailyStats()` llamado cada `POLL_DAILY_MS` (60s) — **crítico: debe seguir llamándose para que `g_daily` y la cache estén actualizados**
+- Agregación horaria al cambio de hora (media de potencias + acumulados al final). Tras un reinicio a mitad de hora el acumulador se siembra con los registros de 5 min ya guardados de esa hora
+- `DailyRecord` actualizado en cada cambio de hora (parcial) y en medianoche (completo). Los totales salen de `DailyTracker` (`daily_tracker.h`): última lectura diaria BUENA por día local, no de `local_d` (a medianoche puede ser un fallo o ya los ceros del día nuevo)
+- Los diarios se leen cada `POLL_DAILY_MS` (60 s; cada 10 s entre 23:58 y 00:02) **en la misma conexión TCP** que los instantáneos (`SolarmanClient::fetchAll`) — **crítico: deben seguir leyéndose para que `g_daily` y la cache estén actualizados**
+- Con el logger caído: backoff del sondeo desde el 5º fallo (×2 hasta 60 s) y, tras ≥8 fallos, redescubrimiento por UDP 48899 (`logger_discovery.cpp`) verificado con lectura Modbus real
+- UI ↔ red: `g_energy_seq`/`g_daily_seq` (contadores incrementados bajo `g_mutex`); `loop()` copia bajo el mutex y redibuja fuera de él
+- `loop()` alimenta el watchdog (`feedLoopWDT`, activado con `enableLoopWDT()` al final de `setup()`)
+- `DataStore` mantiene en PSRAM los epochs de hourly y daily por posición física (`_hrly_eps`/`_day_eps`) para buscar sin leer flash
+- Montaje de LittleFS: 3 reintentos; si ya montó antes (NVS `fs_ok`) y falla, solo formatea con pulsación larga de 2 s en la splash
 
 ---
 

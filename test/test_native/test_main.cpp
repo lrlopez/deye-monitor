@@ -8,6 +8,7 @@
 #include "time_utils.h"
 #include "ring_index.h"
 #include "alerts_logic.h"
+#include "daily_tracker.h"
 
 // Misma zona horaria que config.h (TIMEZONE)
 static const char* TZ_SPAIN = "CET-1CEST,M3.5.0,M10.5.0/3";
@@ -107,10 +108,70 @@ void test_parse_errors() {
     TEST_ASSERT_EQUAL(SolarmanParse::BAD_FRAME, solarman_parse_response(b, n, 2, out));
 
     memcpy(b, r, 256); b[SOLARMAN_DATA_OFFSET - 2] = 0x83;   // excepción Modbus
+    TEST_ASSERT_EQUAL(SolarmanParse::EXCEPTION, solarman_parse_response(b, n, 2, out));
+
+    memcpy(b, r, 256); b[SOLARMAN_DATA_OFFSET - 2] = 0x04;   // FC distinto de 03 sin bit 7
     TEST_ASSERT_EQUAL(SolarmanParse::BAD_FC, solarman_parse_response(b, n, 2, out));
 
     memcpy(b, r, 256); b[SOLARMAN_DATA_OFFSET] ^= 0x01;      // dato corrupto
     TEST_ASSERT_EQUAL(SolarmanParse::BAD_CRC, solarman_parse_response(b, n, 2, out));
+}
+
+// DEYE-07: longitud total anunciada por la propia trama y detección temprana
+// de excepciones (no hay que esperar al timeout con una trama corta)
+void test_frame_total_len_from_header() {
+    uint8_t r[256]; uint16_t vals[3] = {1, 2, 3};
+    int n = make_response(r, 3, vals);
+    // El campo de longitud (payload) más 13 bytes de cabecera/cola = longitud total
+    r[1] = (uint8_t)((n - 13) & 0xFF); r[2] = (uint8_t)((n - 13) >> 8);
+    TEST_ASSERT_EQUAL_INT(n, solarman_frame_total_len(r, n));
+    TEST_ASSERT_EQUAL_INT(0, solarman_frame_total_len(r, 2));     // aún no hay cabecera
+    r[0] = 0x00;
+    TEST_ASSERT_EQUAL_INT(0, solarman_frame_total_len(r, n));     // no empieza por A5
+}
+
+void test_exception_detected_on_short_frame() {
+    uint8_t r[256] = {};
+    r[0] = 0xA5;
+    r[SOLARMAN_DATA_OFFSET - 2] = 0x83;
+    int short_len = SOLARMAN_DATA_OFFSET + 3;   // trama de excepción: mucho más corta que la esperada
+    TEST_ASSERT_TRUE(short_len < solarman_expected_len(23));
+    uint16_t out[23];
+    TEST_ASSERT_TRUE(solarman_frame_is_exception(r, short_len));
+    TEST_ASSERT_EQUAL(SolarmanParse::EXCEPTION, solarman_parse_response(r, short_len, 23, out));
+    // Con menos bytes de los necesarios para ver el FC todavía no se puede afirmar
+    TEST_ASSERT_FALSE(solarman_frame_is_exception(r, SOLARMAN_DATA_OFFSET - 2));
+}
+
+// ── Descubrimiento del logger ─────────────────────────────────────────────
+void test_ipv4_validation() {
+    TEST_ASSERT_TRUE(solarman_is_valid_ipv4("192.168.1.50"));
+    TEST_ASSERT_TRUE(solarman_is_valid_ipv4("0.0.0.0"));
+    TEST_ASSERT_FALSE(solarman_is_valid_ipv4("192.168.1"));
+    TEST_ASSERT_FALSE(solarman_is_valid_ipv4("192.168.1.256"));
+    TEST_ASSERT_FALSE(solarman_is_valid_ipv4("192.168.1.1.1"));
+    TEST_ASSERT_FALSE(solarman_is_valid_ipv4("192.168..1"));
+    TEST_ASSERT_FALSE(solarman_is_valid_ipv4("a.b.c.d"));
+    TEST_ASSERT_FALSE(solarman_is_valid_ipv4(""));
+}
+
+void test_discovery_reply_parse() {
+    char ip[16];
+    const char* ok = "192.168.1.77,AABBCCDDEEFF,2712345678";
+    TEST_ASSERT_TRUE(solarman_parse_discovery_reply(ok, (int)strlen(ok), ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL_STRING("192.168.1.77", ip);
+
+    const char* nl = "10.0.0.5\r\n";
+    TEST_ASSERT_TRUE(solarman_parse_discovery_reply(nl, (int)strlen(nl), ip, sizeof(ip)));
+    TEST_ASSERT_EQUAL_STRING("10.0.0.5", ip);
+
+    const char* junk = "OK";
+    TEST_ASSERT_FALSE(solarman_parse_discovery_reply(junk, 2, ip, sizeof(ip)));
+    const char* big = "999.1.1.1,xx";
+    TEST_ASSERT_FALSE(solarman_parse_discovery_reply(big, (int)strlen(big), ip, sizeof(ip)));
+    const char* longip = "1234567890123456789,xx";
+    TEST_ASSERT_FALSE(solarman_parse_discovery_reply(longip, (int)strlen(longip), ip, sizeof(ip)));
+    TEST_ASSERT_FALSE(solarman_parse_discovery_reply(",x", 2, ip, sizeof(ip)));
 }
 
 // Regresión: el bloque diario (39 registros) debe caber en el búfer de 256 B
@@ -408,13 +469,151 @@ void test_logger_fail_not_marked_retries_at_wraparound_only() {
     TEST_ASSERT_FALSE(l.onFailure());
 }
 
+// ── DEYE-08: backoff del datalogger ───────────────────────────────────────
+void test_logger_backoff_schedule() {
+    LoggerFailMonitor l;
+    TEST_ASSERT_EQUAL_UINT32(5000, l.nextDelayMs(5000, 60000));      // sin fallos
+    for (int i = 0; i < 5; i++) l.onFailure();
+    TEST_ASSERT_EQUAL_UINT32(5000, l.nextDelayMs(5000, 60000));      // hasta el umbral: intervalo normal
+    l.onFailure();
+    TEST_ASSERT_EQUAL_UINT32(10000, l.nextDelayMs(5000, 60000));     // 6º fallo
+    l.onFailure();
+    TEST_ASSERT_EQUAL_UINT32(20000, l.nextDelayMs(5000, 60000));
+    l.onFailure();
+    TEST_ASSERT_EQUAL_UINT32(40000, l.nextDelayMs(5000, 60000));
+    l.onFailure();
+    TEST_ASSERT_EQUAL_UINT32(60000, l.nextDelayMs(5000, 60000));     // tope
+    for (int i = 0; i < 100000; i++) l.onFailure();                  // sin desbordar
+    TEST_ASSERT_EQUAL_UINT32(60000, l.nextDelayMs(5000, 60000));
+    l.onSuccess();
+    TEST_ASSERT_EQUAL_UINT32(5000, l.nextDelayMs(5000, 60000));      // vuelve al ritmo normal
+}
+
+void test_logger_notification_unchanged_by_backoff() {
+    // El aviso sigue saltando en el 5º fallo (los 4 primeros usan 5 s: ~25 s)
+    LoggerFailMonitor l;
+    for (int i = 0; i < 4; i++) {
+        TEST_ASSERT_FALSE(l.onFailure());
+        TEST_ASSERT_EQUAL_UINT32(5000, l.nextDelayMs(5000, 60000));
+    }
+    TEST_ASSERT_TRUE(l.onFailure());
+}
+
+// ── DEYE-01: DailyTracker ─────────────────────────────────────────────────
+struct TestDaily { float pv_kwh, export_kwh, import_kwh, load_kwh; };
+typedef DailyTracker<TestDaily> TestTracker;
+
+void test_tracker_keeps_last_good_per_day() {
+    TestTracker t;
+    TEST_ASSERT_NULL(t.forDay(1000));
+    t.onFetch({10, 1, 2, 8}, 1000, false);
+    t.onFetch({12, 1, 3, 9}, 1000, false);
+    TEST_ASSERT_NOT_NULL(t.forDay(1000));
+    TEST_ASSERT_EQUAL_FLOAT(12, t.forDay(1000)->pv_kwh);
+    TEST_ASSERT_NULL(t.forDay(2000));
+}
+
+void test_tracker_rolls_over_and_keeps_yesterday() {
+    TestTracker t;
+    t.onFetch({20, 5, 3, 15}, 1000, false);   // lectura final de ayer
+    t.onFetch({0, 0, 0, 0.1f}, 2000, false);  // primera de hoy (contadores reiniciados)
+    TEST_ASSERT_EQUAL_FLOAT(20, t.forDay(1000)->pv_kwh);   // ayer intacto -> se puede cerrar
+    TEST_ASSERT_EQUAL_FLOAT(0,  t.forDay(2000)->pv_kwh);
+}
+
+void test_tracker_rejects_early_counter_reset_before_midnight() {
+    // El reloj del inversor va adelantado: pone los contadores a cero antes de
+    // nuestra medianoche. En la ventana final del día esa lectura se descarta.
+    TestTracker t;
+    t.onFetch({20, 5, 3, 15}, 1000, true);
+    TEST_ASSERT_FALSE(t.onFetch({0, 0, 0, 0}, 1000, true));
+    TEST_ASSERT_EQUAL_FLOAT(20, t.forDay(1000)->pv_kwh);
+    TEST_ASSERT_EQUAL_FLOAT(5,  t.forDay(1000)->export_kwh);
+}
+
+void test_tracker_accepts_decrease_outside_window_and_after_midnight() {
+    TestTracker t;
+    t.onFetch({20, 5, 3, 15}, 1000, false);
+    // Fuera de la ventana final un descenso es válido (p.ej. reinicio del inversor)
+    TEST_ASSERT_TRUE(t.onFetch({1, 0, 0, 0.5f}, 1000, false));
+    TEST_ASSERT_EQUAL_FLOAT(1, t.forDay(1000)->pv_kwh);
+    // Reinicio TARDÍO: ya es el día nuevo (dep distinto) y llegan ceros: se acepta
+    TestTracker u;
+    u.onFetch({20, 5, 3, 15}, 1000, true);
+    TEST_ASSERT_TRUE(u.onFetch({20, 5, 3, 15}, 2000, false));   // aún con totales de ayer
+    TEST_ASSERT_TRUE(u.onFetch({0, 0, 0, 0}, 2000, false));     // ya reiniciado: no se congela
+    TEST_ASSERT_EQUAL_FLOAT(0, u.forDay(2000)->pv_kwh);
+    TEST_ASSERT_EQUAL_FLOAT(20, u.forDay(1000)->pv_kwh);
+}
+
+void test_tracker_ignores_rounding_noise() {
+    TestTracker t;
+    t.onFetch({10.0f, 1, 1, 5}, 1000, true);
+    TEST_ASSERT_TRUE(t.onFetch({9.97f, 1, 1, 5}, 1000, true));   // < EPS: ruido, no un reinicio
+}
+
+// ── DEYE-04: búsqueda en el anillo sobre la copia de epochs ───────────────
+void test_ring_lower_bound_no_wrap_and_wrapped() {
+    const uint32_t CAP = 6;
+    RingState r(CAP);
+    uint32_t eps[CAP] = {};
+    // Sin vueltas: epochs 100,200,300,400
+    for (uint32_t v = 1; v <= 4; v++) { eps[r.nextWritePhys()] = v * 100; r.commitPush(); }
+    TEST_ASSERT_EQUAL_UINT32(0, ring_lower_bound(r, eps, 50));
+    TEST_ASSERT_EQUAL_UINT32(0, ring_lower_bound(r, eps, 100));
+    TEST_ASSERT_EQUAL_UINT32(2, ring_lower_bound(r, eps, 250));
+    TEST_ASSERT_EQUAL_UINT32(3, ring_lower_bound(r, eps, 400));
+    TEST_ASSERT_EQUAL_UINT32(4, ring_lower_bound(r, eps, 401));   // todos menores -> count
+    // Con vueltas: 100..400 + 500..900 (se pierden 100,200,300)
+    for (uint32_t v = 5; v <= 9; v++) { eps[r.nextWritePhys()] = v * 100; r.commitPush(); }
+    TEST_ASSERT_EQUAL_UINT32(6, r.count);
+    TEST_ASSERT_EQUAL_UINT32(0, ring_lower_bound(r, eps, 1));      // el más antiguo es 400
+    TEST_ASSERT_EQUAL_UINT32(0, ring_lower_bound(r, eps, 400));
+    TEST_ASSERT_EQUAL_UINT32(1, ring_lower_bound(r, eps, 401));
+    TEST_ASSERT_EQUAL_UINT32(4, ring_lower_bound(r, eps, 800));
+    TEST_ASSERT_EQUAL_UINT32(5, ring_lower_bound(r, eps, 900));
+    TEST_ASSERT_EQUAL_UINT32(6, ring_lower_bound(r, eps, 901));
+}
+
+void test_ring_lower_bound_empty() {
+    RingState r(4);
+    uint32_t eps[4] = {};
+    TEST_ASSERT_EQUAL_UINT32(0, ring_lower_bound(r, eps, 123));
+}
+
+void test_ring_find_exact_from_end() {
+    RingState r(4);
+    uint32_t eps[4] = {};
+    TEST_ASSERT_EQUAL_INT(-1, ring_find_exact_from_end(r, eps, 10));
+    for (uint32_t v = 1; v <= 6; v++) { eps[r.nextWritePhys()] = v * 10; r.commitPush(); }
+    // Quedan 30,40,50,60 en orden lógico 0..3
+    TEST_ASSERT_EQUAL_INT(3, ring_find_exact_from_end(r, eps, 60));
+    TEST_ASSERT_EQUAL_INT(0, ring_find_exact_from_end(r, eps, 30));
+    TEST_ASSERT_EQUAL_INT(-1, ring_find_exact_from_end(r, eps, 20));   // ya sobrescrito
+    TEST_ASSERT_EQUAL_INT(-1, ring_find_exact_from_end(r, eps, 35));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_crc_known_vector);
     RUN_TEST(test_build_frame_layout);
     RUN_TEST(test_parse_ok_big_endian);
     RUN_TEST(test_parse_errors);
+    RUN_TEST(test_frame_total_len_from_header);
+    RUN_TEST(test_exception_detected_on_short_frame);
+    RUN_TEST(test_ipv4_validation);
+    RUN_TEST(test_discovery_reply_parse);
     RUN_TEST(test_daily_block_fits_buffer);
+    RUN_TEST(test_logger_backoff_schedule);
+    RUN_TEST(test_logger_notification_unchanged_by_backoff);
+    RUN_TEST(test_tracker_keeps_last_good_per_day);
+    RUN_TEST(test_tracker_rolls_over_and_keeps_yesterday);
+    RUN_TEST(test_tracker_rejects_early_counter_reset_before_midnight);
+    RUN_TEST(test_tracker_accepts_decrease_outside_window_and_after_midnight);
+    RUN_TEST(test_tracker_ignores_rounding_noise);
+    RUN_TEST(test_ring_lower_bound_no_wrap_and_wrapped);
+    RUN_TEST(test_ring_lower_bound_empty);
+    RUN_TEST(test_ring_find_exact_from_end);
     RUN_TEST(test_slot_average_basic_and_rounding);
     RUN_TEST(test_slot_average_spike_is_smoothed);
     RUN_TEST(test_slot_average_clamp_and_reset);

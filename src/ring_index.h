@@ -30,6 +30,29 @@ struct RingState {
     }
 };
 
+// Búsqueda binaria en el anillo SIN leer del fichero (DEYE-04).
+// `epochs[phys]` es una copia en RAM del epoch (hour_epoch/day_epoch) de cada
+// posición física. Los registros están en orden cronológico creciente en
+// posición lógica. Devuelve la primera posición lógica con epoch >= ts
+// (count si todos son menores).
+inline uint32_t ring_lower_bound(const RingState& r, const uint32_t* epochs, uint32_t ts) {
+    uint32_t lo = 0, hi = r.count;
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        if (epochs[r.phys(mid)] < ts) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+}
+
+// Posición lógica del registro con exactamente ese epoch, o -1. Busca desde el
+// final: el registro que se actualiza casi siempre es el más reciente.
+inline int ring_find_exact_from_end(const RingState& r, const uint32_t* epochs, uint32_t ts) {
+    for (uint32_t k = r.count; k > 0; k--)
+        if (epochs[r.phys(k - 1)] == ts) return (int)(k - 1);
+    return -1;
+}
+
 // ── Índice de días ────────────────────────────────────────────────────────
 // Guarda la posición FÍSICA (inmutable) del primer registro de cada día.
 // Ordenado por day_epoch ascendente: permite búsqueda binaria.

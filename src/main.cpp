@@ -26,6 +26,8 @@
 #include "web_alerts.h"
 #include "slot_avg.h"
 #include "alerts_logic.h"
+#include "daily_tracker.h"
+#include "logger_discovery.h"
 
 
 /* Change to your screen resolution */
@@ -169,8 +171,13 @@ uint32_t                 g_uptime_start = 0;
 EnergyData               g_energy;
 DailyStats               g_daily;
 SemaphoreHandle_t        g_mutex;
-static volatile bool     g_energy_ready = false;
-static volatile bool     g_daily_ready  = false;
+// DEYE-11: contadores de secuencia en lugar de flags "ready". Se incrementan
+// SIEMPRE bajo g_mutex al publicar un dato nuevo; loop() recuerda el último que
+// vio y copia el dato bajo el mutex, liberándolo ANTES de tocar LVGL (antes
+// se mantenía durante dashboard_update() y podía bloquear/descartar lecturas
+// de solarmanTask).
+static uint32_t          g_energy_seq   = 0;
+static uint32_t          g_daily_seq    = 0;
 static lv_obj_t*         g_tileview     = nullptr;
 static lv_obj_t*         g_tile_dash    = nullptr;
 static lv_obj_t*         g_tile_chart   = nullptr;
@@ -191,12 +198,26 @@ volatile bool g_ota_active  = false;
 // Pantalla principal (tileview vive aquí)
 lv_obj_t* g_main_screen = nullptr;
 
+static inline uint16_t kwh_to_10wh(float kwh) { return (uint16_t)(kwh * 10.0f + 0.5f); }
+
+// Medianoche local del día de `t`
+static uint32_t local_midnight_of(time_t t) {
+    struct tm tm_r; localtime_r(&t, &tm_r);
+    tm_r.tm_hour = 0; tm_r.tm_min = 0; tm_r.tm_sec = 0; tm_r.tm_isdst = -1;
+    return (uint32_t)mktime(&tm_r);
+}
+
 // ── Tarea de red (Core 0) ─────────────────────────────────────────────────
 static void solarmanTask(void* /*pv*/) {
     SolarmanClient client(g_cfg.logger_ip, LOGGER_PORT,
                           g_cfg.logger_serial, MODBUS_UNIT_ID);
     EnergyData  local_e{};
     DailyStats  local_d{};
+
+    // DEYE-01: última lectura diaria BUENA por día local (ver daily_tracker.h)
+    static DailyTracker<DailyStats> s_dtrack;
+    // DEYE-09: último intento de redescubrir el logger
+    static uint32_t s_last_discovery_ms = 0;
 
     static int32_t  s_cur_5min_slot = -1;
     static int32_t  s_cur_hour      = -1;
@@ -282,17 +303,38 @@ static void solarmanTask(void* /*pv*/) {
             }
         }
 
-        // ── 1. Datos instantáneos ─────────────────────────────────────────
-        if (client.fetchEnergyData(local_e)) {
+        // ── 1+2. Lectura del logger: UNA conexión TCP (DEYE-08) ───────────
+        // Diarios cada POLL_DAILY_MS; en los minutos alrededor de medianoche cada
+        // 10 s, para que la última lectura del día esté lo más cerca posible del
+        // cambio de día (DEYE-01).
+        static uint32_t last_daily_ms = millis() - POLL_DAILY_MS + POLL_INTERVAL_MS;
+        uint32_t daily_period = POLL_DAILY_MS;
+        bool     near_midnight_end = false;   // últimos minutos del día: rechazar contadores a cero
+        {
+            time_t t_now = time(nullptr);
+            if (t_now > 1700000000L) {
+                struct tm lt; localtime_r(&t_now, &lt);
+                if (lt.tm_hour == 23 && lt.tm_min >= 55) near_midnight_end = true;
+                if ((lt.tm_hour == 23 && lt.tm_min >= 58) ||
+                    (lt.tm_hour == 0  && lt.tm_min < 2))
+                    daily_period = 10000;
+            }
+        }
+        const bool want_daily = (millis() - last_daily_ms >= daily_period);
+        bool daily_ok = false;
+
+        if (client.fetchAll(local_e, local_d, want_daily, daily_ok)) {
             s_logger.onSuccess();
             DBGSERIAL.printf("[Live] PV:%dW Grid:%dW Bat:%dW(%d%%) Load:%dW\n",
                 (int)local_e.pv_power, (int)local_e.grid_power,
                 (int)local_e.batt_power, (int)local_e.batt_soc,
                 (int)local_e.load_power);
-            if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                g_energy       = local_e;
-                g_energy_ready = true;
+            if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+                g_energy = local_e;
+                g_energy_seq++;
                 xSemaphoreGive(g_mutex);
+            } else {
+                DBGSERIAL.println("[Live] mutex ocupado: lectura no publicada");
             }
         } else {
             // 5 fallos consecutivos (~25 s) → notificar una sola vez
@@ -309,16 +351,19 @@ static void solarmanTask(void* /*pv*/) {
             }
         }
 
-        // ── 2. Datos diarios ──────────────────────────────────────────────
-        static uint32_t last_daily_ms = millis() - POLL_DAILY_MS + POLL_INTERVAL_MS;
-        if (millis() - last_daily_ms >= POLL_DAILY_MS) {
-            if (client.fetchDailyStats(local_d)) {
+        // ── Datos diarios (leídos arriba en la misma conexión) ─────────────
+        if (daily_ok) {
+            {
                 last_daily_ms = millis();
                 // Actualizar g_daily para el servidor web
-                if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                    g_daily       = local_d;
-                    g_daily_ready = true;
+                if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+                    g_daily = local_d;
+                    g_daily_seq++;
                     xSemaphoreGive(g_mutex);
+                }
+                // DEYE-01: guardar la lectura buena etiquetada con su día local
+                if (time(nullptr) > 1700000000L) {
+                    s_dtrack.onFetch(local_d, local_midnight_of(time(nullptr)), near_midnight_end);
                 }
                 // Inicialización tardía de snaps si el startup ocurrió sin daily data
                 if (s_startup_done && !s_snap_valid) {
@@ -351,6 +396,33 @@ static void solarmanTask(void* /*pv*/) {
             struct tm now_tm; getLocalTime(&now_tm, 500);
             s_cur_hour = now_tm.tm_hour;
             s_cur_day  = now_tm.tm_mday;
+
+            // DEYE-01: tras un reinicio a mitad de hora, sembrar el acumulador horario
+            // con los registros de 5 min ya guardados en esta hora. Cada uno es la media
+            // de ~60 muestras de 5 s, de ahí el peso 60: así el HourlyRecord no se
+            // calcula solo con lo posterior al arranque.
+            {
+                struct tm hs = now_tm;
+                hs.tm_min = 0; hs.tm_sec = 0; hs.tm_isdst = -1;
+                const uint32_t hour_start = (uint32_t)mktime(&hs);
+                const uint32_t dep_today  = local_midnight_of((time_t)now_ep);
+                uint32_t cnt = 0, seeded = 0;
+                Cache.lock();
+                const Record5Min* rr = Cache.getRawDay(dep_today, cnt);
+                for (uint32_t i = 0; rr && i < cnt; i++) {
+                    // El registro con ts = hour_start cubre la hora anterior
+                    if (rr[i].timestamp <= hour_start || rr[i].timestamp > now_ep) continue;
+                    s_acc_pv   += rr[i].pv_w   * 60.0f;
+                    s_acc_grid += rr[i].grid_w * 60.0f;
+                    s_acc_batt += rr[i].batt_w * 60.0f;
+                    s_acc_load += rr[i].load_w * 60.0f;
+                    s_acc_n    += 60;
+                    seeded++;
+                }
+                Cache.unlock();
+                if (seeded) DBGSERIAL.printf("[Record] Acumulador horario sembrado con %lu registros de 5 min\n",
+                                             (unsigned long)seeded);
+            }
 
             if (local_d.valid) {
                 s_snap_day_pv   = (uint16_t)(local_d.pv_kwh             * 10.0f + 0.5f);
@@ -469,18 +541,27 @@ static void solarmanTask(void* /*pv*/) {
 
             // ── Cambio de hora ────────────────────────────────────────────
             if (new_hour != s_cur_hour) {
-                if (s_acc_n > 0 && s_snap_valid && local_d.valid) {
-                    struct tm mid = now_tm;
-                    if (new_hour == 0) mid.tm_mday--;  // mktime() normaliza mday=0 al último día del mes anterior
-                    mid.tm_hour = s_cur_hour;
-                    mid.tm_min = 0; mid.tm_sec = 0; mid.tm_isdst = -1;
+                // Hora que se cierra y día local al que pertenece (a las 00:00 es AYER)
+                struct tm mid = now_tm;
+                if (new_hour == 0) mid.tm_mday--;  // mktime() normaliza mday=0 al último día del mes anterior
+                mid.tm_hour = s_cur_hour;
+                mid.tm_min = 0; mid.tm_sec = 0; mid.tm_isdst = -1;
+                struct tm mid_day = mid;
+                mid_day.tm_hour = 0; mid_day.tm_isdst = -1;
+                const uint32_t mid_dep = (uint32_t)mktime(&mid_day);
 
-                    uint16_t cur_pv   = (uint16_t)(local_d.pv_kwh            * 10.0f + 0.5f);
-                    uint16_t cur_exp  = (uint16_t)(local_d.export_kwh         * 10.0f + 0.5f);
-                    uint16_t cur_imp  = (uint16_t)(local_d.import_kwh         * 10.0f + 0.5f);
-                    uint16_t cur_load = (uint16_t)(local_d.load_kwh           * 10.0f + 0.5f);
-                    uint16_t cur_bchg = (uint16_t)(local_d.batt_charge_kwh    * 10.0f + 0.5f);
-                    uint16_t cur_bdis = (uint16_t)(local_d.batt_discharge_kwh * 10.0f + 0.5f);
+                // DEYE-01: totales diarios de ESE día (última lectura buena), no la
+                // última lectura a secas: a medianoche puede ser un fallo (valid=false)
+                // o ya la del día nuevo con los contadores a cero.
+                const DailyStats* hd = s_dtrack.forDay(mid_dep);
+
+                if (s_acc_n > 0 && s_snap_valid && hd) {
+                    uint16_t cur_pv   = kwh_to_10wh(hd->pv_kwh);
+                    uint16_t cur_exp  = kwh_to_10wh(hd->export_kwh);
+                    uint16_t cur_imp  = kwh_to_10wh(hd->import_kwh);
+                    uint16_t cur_load = kwh_to_10wh(hd->load_kwh);
+                    uint16_t cur_bchg = kwh_to_10wh(hd->batt_charge_kwh);
+                    uint16_t cur_bdis = kwh_to_10wh(hd->batt_discharge_kwh);
 
                     HourlyRecord hr{};
                     hr.hour_epoch   = (uint32_t)mktime(&mid);
@@ -510,20 +591,23 @@ static void solarmanTask(void* /*pv*/) {
                 s_acc_n  = 0;
                 s_cur_hour = new_hour;
 
-                // Actualizar DailyRecord parcial al cambio de hora (requiere daily data)
-                if (local_d.valid) {
-                    struct tm today_tm = now_tm;
-                    today_tm.tm_hour = 0; today_tm.tm_min = 0;
-                    today_tm.tm_sec  = 0; today_tm.tm_isdst = -1;
-                    uint32_t dep = (uint32_t)mktime(&today_tm);
+                // Actualizar DailyRecord parcial al cambio de hora (requiere una
+                // lectura diaria buena de HOY: a las 00:00 aún puede ser la de ayer)
+                struct tm today_tm = now_tm;
+                today_tm.tm_hour = 0; today_tm.tm_min = 0;
+                today_tm.tm_sec  = 0; today_tm.tm_isdst = -1;
+                const uint32_t dep_now = (uint32_t)mktime(&today_tm);
+                const DailyStats* td = s_dtrack.forDay(dep_now);
+                if (td) {
+                    uint32_t dep = dep_now;
                     DailyRecord dr{};
                     dr.day_epoch   = dep;
-                    dr.pv_10wh     = (uint16_t)(local_d.pv_kwh            * 10.0f + 0.5f);
-                    dr.export_10wh = (uint16_t)(local_d.export_kwh         * 10.0f + 0.5f);
-                    dr.import_10wh = (uint16_t)(local_d.import_kwh         * 10.0f + 0.5f);
-                    dr.load_10wh   = (uint16_t)(local_d.load_kwh           * 10.0f + 0.5f);
-                    dr.bchg_10wh   = (uint16_t)(local_d.batt_charge_kwh    * 10.0f + 0.5f);
-                    dr.bdis_10wh   = (uint16_t)(local_d.batt_discharge_kwh * 10.0f + 0.5f);
+                    dr.pv_10wh     = kwh_to_10wh(td->pv_kwh);
+                    dr.export_10wh = kwh_to_10wh(td->export_kwh);
+                    dr.import_10wh = kwh_to_10wh(td->import_kwh);
+                    dr.load_10wh   = kwh_to_10wh(td->load_kwh);
+                    dr.bchg_10wh   = kwh_to_10wh(td->batt_charge_kwh);
+                    dr.bdis_10wh   = kwh_to_10wh(td->batt_discharge_kwh);
                     dr.soc_start   = s_soc_start_of_day;
                     dr.soc_end     = (uint8_t)local_e.batt_soc;
                     dr.flags       = 0x01;
@@ -545,17 +629,31 @@ static void solarmanTask(void* /*pv*/) {
                 if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
                 bool got_hr = Store.getLastHourly(dep_yesterday, last_hr);
                 if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
-                if (got_hr) {
+
+                // DEYE-01: cerrar el día con la última lectura diaria BUENA de ayer
+                // (como mucho unos segundos antes de medianoche); solo si no la hay
+                // se recurre al último registro horario, que puede estar hasta 1 h atrás.
+                const DailyStats* yd = s_dtrack.forDay(dep_yesterday);
+                if (yd || got_hr) {
                     DailyRecord dr{};
                     dr.day_epoch   = dep_yesterday;
-                    dr.pv_10wh     = last_hr.day_pv;
-                    dr.export_10wh = last_hr.day_export;
-                    dr.import_10wh = last_hr.day_import;
-                    dr.load_10wh   = last_hr.day_load;
-                    dr.bchg_10wh   = last_hr.day_bchg;
-                    dr.bdis_10wh   = last_hr.day_bdis;
+                    if (yd) {
+                        dr.pv_10wh     = kwh_to_10wh(yd->pv_kwh);
+                        dr.export_10wh = kwh_to_10wh(yd->export_kwh);
+                        dr.import_10wh = kwh_to_10wh(yd->import_kwh);
+                        dr.load_10wh   = kwh_to_10wh(yd->load_kwh);
+                        dr.bchg_10wh   = kwh_to_10wh(yd->batt_charge_kwh);
+                        dr.bdis_10wh   = kwh_to_10wh(yd->batt_discharge_kwh);
+                    } else {
+                        dr.pv_10wh     = last_hr.day_pv;
+                        dr.export_10wh = last_hr.day_export;
+                        dr.import_10wh = last_hr.day_import;
+                        dr.load_10wh   = last_hr.day_load;
+                        dr.bchg_10wh   = last_hr.day_bchg;
+                        dr.bdis_10wh   = last_hr.day_bdis;
+                    }
                     dr.soc_start   = s_soc_start_of_day;
-                    dr.soc_end     = last_hr.soc_end;
+                    dr.soc_end     = got_hr ? last_hr.soc_end : s_acc_soc;
                     dr.flags       = 0x03;
                     if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
                     Cache.pushDaily(dr);
@@ -641,7 +739,27 @@ static void solarmanTask(void* /*pv*/) {
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS));   // ← dentro del bucle
+        // ── DEYE-09: redescubrir el logger si lleva un rato sin responder ─────
+        // Posible cambio de IP por DHCP. Como máximo cada 5 min, y solo tras
+        // ≥8 fallos seguidos (el aviso de Telegram salta en el 5º).
+        if (s_logger.consecutive >= 8 && g_cfg.logger_serial != 0 &&
+            (s_last_discovery_ms == 0 || millis() - s_last_discovery_ms >= 300000UL)) {
+            s_last_discovery_ms = millis();
+            char found_ip[16];
+            if (logger_discover(g_cfg.logger_serial, MODBUS_UNIT_ID, found_ip, sizeof(found_ip))) {
+                if (strcmp(found_ip, g_cfg.logger_ip) != 0) {
+                    DBGSERIAL.printf("[Discovery] IP del logger: %s -> %s (guardada)\n",
+                                     g_cfg.logger_ip, found_ip);
+                    strncpy(g_cfg.logger_ip, found_ip, sizeof(g_cfg.logger_ip) - 1);
+                    g_cfg.logger_ip[sizeof(g_cfg.logger_ip) - 1] = '\0';
+                    Storage.saveConfig(g_cfg);   // `client` apunta a g_cfg.logger_ip: ya usa la nueva
+                }
+            }
+        }
+
+        // DEYE-08: con el logger caído el intervalo se duplica (hasta 60 s) tras el
+        // 5º fallo, en vez de reintentar cada 5 s indefinidamente.
+        vTaskDelay(pdMS_TO_TICKS(s_logger.nextDelayMs(POLL_INTERVAL_MS, 60000)));
     }
 }
 
@@ -711,26 +829,61 @@ void setup() {
 
         // ── LittleFS ──────────────────────────────────────────────────────────
     splash_update(SplashStep::LITTLEFS, SplashState::RUNNING);
-    if (!LittleFS.begin(false, "/littlefs", 10, "spiffs")) {
-        // Primer arranque o partición corrupta → formatear en Core 0 para que
-        // LVGL siga corriendo en Core 1 y la pantalla no parpadee.
-        splash_update(SplashStep::LITTLEFS, SplashState::WARN, "Formateando flash...");
-        static volatile bool s_fmt_done = false;
-        xTaskCreatePinnedToCore([](void*) {
-            LittleFS.begin(true, "/littlefs", 10, "spiffs");
-            s_fmt_done = true;
-            vTaskDelete(nullptr);
-        }, "lfs_fmt", 4096, nullptr, 1, nullptr, 0);
-        while (!s_fmt_done) {
-            lv_timer_handler();
-            esp_task_wdt_reset();
-            delay(10);
+
+    // DEYE-10: un fallo transitorio de montaje NO debe borrar el histórico.
+    //  1) Se reintenta el montaje 3 veces.
+    //  2) Si NVS dice que este dispositivo ya montó bien alguna vez (fs_ok) y aun
+    //     así falla, no se formatea solo: hay que mantener pulsada la pantalla 2 s
+    //     en los 10 s siguientes. Sin confirmación se arranca sin almacenamiento
+    //     (los datos siguen en flash por si se recuperan al reiniciar).
+    //  3) Si nunca se había montado (primer arranque) se formatea como siempre.
+    bool fs_mounted = false;
+    for (int attempt = 0; attempt < 3 && !fs_mounted; attempt++) {
+        fs_mounted = LittleFS.begin(false, "/littlefs", 10, "spiffs");
+        if (!fs_mounted) delay(300);
+    }
+    if (!fs_mounted) {
+        bool do_format = true;
+        if (Storage.loadFsKnownGood()) {
+            do_format = false;
+            splash_update(SplashStep::LITTLEFS, SplashState::WARN,
+                          "Flash ilegible. Pulsa 2 s para FORMATEAR");
+            uint32_t t_start = millis(), t_press = 0;
+            while (millis() - t_start < 10000 && !do_format) {
+                lv_timer_handler();
+                esp_task_wdt_reset();
+                if (lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
+                    if (!t_press) t_press = millis();
+                    else if (millis() - t_press >= 2000) do_format = true;
+                } else {
+                    t_press = 0;
+                }
+                delay(10);
+            }
+        }
+        if (do_format) {
+            // Primer arranque o formateo confirmado → formatear en Core 0 para que
+            // LVGL siga corriendo en Core 1 y la pantalla no parpadee.
+            splash_update(SplashStep::LITTLEFS, SplashState::WARN, "Formateando flash...");
+            static volatile bool s_fmt_done = false;
+            xTaskCreatePinnedToCore([](void*) {
+                LittleFS.begin(true, "/littlefs", 10, "spiffs");
+                s_fmt_done = true;
+                vTaskDelete(nullptr);
+            }, "lfs_fmt", 4096, nullptr, 1, nullptr, 0);
+            while (!s_fmt_done) {
+                lv_timer_handler();
+                esp_task_wdt_reset();
+                delay(10);
+            }
+            fs_mounted = LittleFS.begin(false, "/littlefs", 10, "spiffs");
         }
     }
-    if (!LittleFS.begin(false, "/littlefs", 10, "spiffs")) {
-        splash_update(SplashStep::LITTLEFS, SplashState::ERROR, "Error montando LittleFS");
+    if (!fs_mounted) {
+        splash_update(SplashStep::LITTLEFS, SplashState::ERROR, "Sin almacenamiento (LittleFS)");
         delay(3000);
     } else {
+        Storage.saveFsKnownGood();   // no escribe si ya estaba marcado
         char detail[48];
         snprintf(detail, sizeof(detail), "%u KB libres",
                  (unsigned)(LittleFS.totalBytes() - LittleFS.usedBytes()) / 1024);
@@ -904,6 +1057,11 @@ void setup() {
     lv_timer_handler();
     splash_finish();
 
+    // DEYE-12: a partir de aquí loop() debe alimentar el watchdog (feedLoopWDT).
+    // Se activa al final de setup() porque el arranque (formateo, carga de
+    // índices) puede tardar más que el timeout del watchdog.
+    enableLoopWDT();
+
     DBGSERIAL.println("[Setup] Completado");
     print_mem_stats("setup finalizado");
 }
@@ -969,6 +1127,11 @@ static void show_ota_overlay() {
 
 // ── Loop (Core 1) ─────────────────────────────────────────────────────────
 void loop() {
+    // DEYE-12: alimentar el watchdog de la tarea loop (suscrita en setup()). Si
+    // LVGL o un mutex dejan de responder, el chip se reinicia en vez de quedarse
+    // con la pantalla congelada. Va el primero para cubrir también el modo OTA.
+    feedLoopWDT();
+
     // Render congelado durante escritura flash OTA
     if (g_ota_active) { delay(10); return; }
 
@@ -1018,15 +1181,23 @@ void loop() {
     screen_banner_tick();
     Backlight.tick();
 
-    // Resto del loop igual
+    // DEYE-11: copiar los datos nuevos bajo el mutex y soltarlo ANTES de tocar
+    // LVGL, para no bloquear a solarmanTask mientras se redibuja.
+    static uint32_t s_seen_energy_seq = 0, s_seen_daily_seq = 0;
+    EnergyData e_copy;
+    DailyStats d_copy;
+    bool new_energy = false, new_daily = false;
     if (xSemaphoreTake(g_mutex, 0) == pdTRUE) {
-        if (g_energy_ready) { dashboard_update(g_energy); g_energy_ready = false; }
-        if (g_daily_ready)  {
-            stats_screen_update(g_daily);
-            g_daily_ready = false;
+        if (g_energy_seq != s_seen_energy_seq) {
+            e_copy = g_energy; s_seen_energy_seq = g_energy_seq; new_energy = true;
+        }
+        if (g_daily_seq != s_seen_daily_seq) {
+            d_copy = g_daily; s_seen_daily_seq = g_daily_seq; new_daily = true;
         }
         xSemaphoreGive(g_mutex);
     }
+    if (new_energy) dashboard_update(e_copy);
+    if (new_daily)  stats_screen_update(d_copy);
 
     dashboard_tick();
     chart_screen_tick();

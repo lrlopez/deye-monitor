@@ -171,3 +171,19 @@ String StorageManager::loadAdminPassword() {
     p.end();
     return s;
 }
+
+bool StorageManager::loadFsKnownGood() {
+    Preferences p;
+    p.begin(NS_CFG, true);
+    bool ok = p.getBool("fs_ok", false);
+    p.end();
+    return ok;
+}
+
+void StorageManager::saveFsKnownGood() {
+    if (loadFsKnownGood()) return;
+    Preferences p;
+    p.begin(NS_CFG, false);
+    p.putBool("fs_ok", true);
+    p.end();
+}

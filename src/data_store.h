@@ -175,6 +175,13 @@ private:
     File _f_hrly;
     File _f_day;
 
+    // Copia en PSRAM del epoch (primer campo uint32 de cada registro) por
+    // posición FÍSICA de los ficheros horario y diario. Permite buscar
+    // (búsqueda binaria / exacta) sin leer flash bajo el mutex (DEYE-04).
+    uint32_t* _hrly_eps = nullptr;   // HourlyRecord::hour_epoch
+    uint32_t* _day_eps  = nullptr;   // DailyRecord::day_epoch
+    bool _load_epochs(File& f, uint32_t* eps, uint32_t capacity, size_t rec_size);
+
     // Índice de días en PSRAM — guarda posición FÍSICA (inmutable) en lugar de
     // lógica, para que no se desfase cuando head avanza al envolver el anillo.
     typedef DayIdxEntry DayIdx;
