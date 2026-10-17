@@ -1,6 +1,7 @@
 #include <WebServer.h>
 #include <Update.h>
 #include <WiFi.h>
+#include <LittleFS.h>
 #include <time.h>
 #include <ArduinoJson.h>
 #include "web_server.h"
@@ -13,6 +14,7 @@
 #include "fw_update.h"
 #include "clock_mode.h"
 
+extern uint32_t      g_uptime_start;   // main.cpp: millis() en el arranque
 extern volatile bool g_ota_cancel;   // main.cpp: retira el overlay OTA si la actualización falla
 
 static WebServer          server(80);
@@ -672,7 +674,9 @@ static void handle_update_get() {
     static const char OTA_PAGE_HTML[] PROGMEM = R"(<!DOCTYPE html><html lang="es"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OTA Update</title>
+<title>Deye – Firmware</title>
+<meta name="theme-color" content="#0d1117">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>
   body{background:#0d1117;color:#eaeaea;font-family:system-ui,sans-serif;
        display:flex;flex-direction:column;align-items:center;
@@ -718,6 +722,14 @@ static void handle_update_get() {
   </div>
   <a id="gh-notes" href="#" target="_blank" rel="noopener" style="display:none">Ver notas de la versión en GitHub</a>
 </div>
+<div class="card" id="sys">
+  <h2>&#9881; Sistema</h2>
+  <div class="row"><span>Tiempo en marcha</span><b id="sy-up">&ndash;</b></div>
+  <div class="row"><span>Memoria libre (m&iacute;n.)</span><b id="sy-heap">&ndash;</b></div>
+  <div class="row"><span>PSRAM libre</span><b id="sy-psram">&ndash;</b></div>
+  <div class="row"><span>Almacenamiento usado</span><b id="sy-fs">&ndash;</b></div>
+  <div class="row"><span>WiFi</span><b id="sy-wifi">&ndash;</b></div>
+</div>
 <div class="sep">&mdash; o sube el fichero a mano &mdash;</div>
 <form id="frm" enctype="multipart/form-data">
   <label>Selecciona el fichero <code>.bin</code></label>
@@ -728,6 +740,19 @@ static void handle_update_get() {
 </form>
 <a href="/">&#8592; Volver al dashboard</a>
 <script>
+function sysFmtUp(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  return (d?d+' d ':'')+h+' h '+m+' min';}
+function sysLoad(){
+  fetch('/api/status').then(r=>r.json()).then(j=>{
+    const $=id=>document.getElementById(id);
+    $('sy-up').textContent=sysFmtUp(j.uptime_s);
+    $('sy-heap').textContent=j.heap_free_kb+' KB ('+j.heap_min_kb+' KB)';
+    $('sy-psram').textContent=Math.round(j.psram_free_kb/1024*10)/10+' MB';
+    $('sy-fs').textContent=Math.round(j.fs_used_kb/1024*10)/10+' / '+Math.round(j.fs_total_kb/1024*10)/10+' MB';
+    $('sy-wifi').textContent=j.wifi_rssi+' dBm · '+j.ip;
+  }).catch(()=>{});
+}
+sysLoad();setInterval(sysLoad,10000);
 function upload(){
   const f=document.getElementById('fw').files[0];
   if(!f){alert('Elige un fichero .bin');return;}
@@ -2492,13 +2517,15 @@ static String epoch_to_date(uint32_t ep) {
 
 // ── GET /api/status ───────────────────────────────────────────────────────
 static void handle_status() {
-    char json[512];
+    char json[768];
     snprintf(json, sizeof(json),
         "{\"version\":\"" APP_VERSION "\","
         "\"raw\":{\"count\":%lu,\"capacity\":%lu},"
         "\"hourly\":{\"count\":%lu,\"capacity\":%lu},"
         "\"daily\":{\"count\":%lu,\"capacity\":%lu},"
         "\"psram_free_kb\":%lu,"
+        "\"uptime_s\":%lu,\"heap_free_kb\":%lu,\"heap_min_kb\":%lu,"
+        "\"fs_total_kb\":%lu,\"fs_used_kb\":%lu,"
         "\"wifi_rssi\":%d,\"ip\":\"%s\"}",
         (unsigned long)Store.getRawCount(),
         (unsigned long)Store.getRawCapacity(),
@@ -2507,6 +2534,11 @@ static void handle_status() {
         (unsigned long)Store.getDailyCount(),
         (unsigned long)Store.getDailyCapacity(),
         (unsigned long)ESP.getFreePsram() / 1024,
+        (unsigned long)((millis() - g_uptime_start) / 1000),
+        (unsigned long)ESP.getFreeHeap() / 1024,
+        (unsigned long)ESP.getMinFreeHeap() / 1024,
+        (unsigned long)LittleFS.totalBytes() / 1024,
+        (unsigned long)LittleFS.usedBytes() / 1024,
         (int)WiFi.RSSI(),
         WiFi.localIP().toString().c_str());
 
