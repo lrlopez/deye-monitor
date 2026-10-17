@@ -25,30 +25,45 @@
 #define C_SOC   lv_color_hex(0x1A56DB)
 #define C_GRID_LINE lv_color_hex(0x21262D)
 
+// ── Rango de tiempo (DEYE-52) ─────────────────────────────────────────────
+// Vista "24h": un día (24 puntos, uno por hora). Vista "7d": los 7 días que
+// terminan en el día seleccionado (168 puntos). Los valores son medias horarias
+// de la caché PSRAM en ambos casos.
+#define PTS_DAY   24
+#define PTS_WEEK  (7 * 24)
+#define RANGE_BTN_W  SX(40)
+
 // ── Estado ────────────────────────────────────────────────────────────────
-static int      s_offset      = 0;    // 0=hoy, -1=ayer, …, -6
+static int      s_offset      = 0;    // día en que TERMINA el rango: 0=hoy, -1=ayer, …
+static bool     s_week        = false;   // false = 24h, true = 7 días
+static int      s_npts        = PTS_DAY;
 static bool     s_active      = false;
 static uint32_t s_last_tick   = -270000UL;
 static bool s_chart_updating = false;
 
-// s_day_recs ya no existe: leemos directo desde la cache PSRAM
-// s_hours también viene de la cache
-static HourAgg  s_hours[24];   // copia local para acceso sin mutex
+// Lectura directa desde la cache PSRAM; copia local para acceso sin mutex
+static HourAgg  s_hours[PTS_WEEK];
 static uint32_t s_day_epoch_loaded = 0;
 
 // ── Widgets ───────────────────────────────────────────────────────────────
 static lv_obj_t           *s_lbl_date;
-static lv_obj_t           *s_btn_prev, *s_btn_next;
+static lv_obj_t           *s_btn_prev, *s_btn_next, *s_btn_range, *s_lbl_range;
 static lv_obj_t           *s_chart_pwr;
 static lv_chart_series_t  *s_spv, *s_sgrid, *s_sbatt, *s_sload, *s_ssoc;
 static lv_obj_t           *s_ylabels_container = nullptr;
 static lv_obj_t           *s_ylabels_right     = nullptr;
+static lv_obj_t           *s_xlabels           = nullptr;
 static lv_obj_t           *s_no_data;
+
+// Series en el orden de la leyenda: PV, Red, Bat, Carga, SOC. La leyenda es
+// tocable (DEYE-52): tocar una entrada oculta/muestra esa serie.
+static lv_chart_series_t  *s_ser[5];
+static bool                s_hidden[5] = {};
 
 // Popup y línea vertical
 static lv_obj_t           *s_popup       = nullptr;
 static lv_obj_t           *s_vline       = nullptr;  // línea vertical
-static int32_t             s_selected_h  = -1;       // hora seleccionada (-1 = ninguna)
+static int32_t             s_selected    = -1;       // punto seleccionado (-1 = ninguno)
 
 static lv_obj_t           *s_popup_vals[5];   // labels de valor de cada serie
 static lv_obj_t           *s_popup_title;     // label del título
@@ -66,34 +81,51 @@ static const char* MESES[] = {
     "Enero","Febrero","Marzo","Abril","Mayo","Junio",
     "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"
 };
+static const char* MESES_C[] = {
+    "Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"
+};
 static const char* DIASEM[] = {
     "Domingo","Lunes","Martes","Miercoles","Jueves","Viernes","Sabado"
 };
+static const char* DIASEM_C[] = { "Dom","Lun","Mar","Mie","Jue","Vie","Sab" };
+
+// Paso y límite de la navegación: 1 día en vista 24h (como siempre); 7 días en la semanal
+static int step_days()   { return s_week ? 7 : 1; }
+static int min_offset()  { return s_week ? -364 : -6; }
 
 static void update_date_label() {
     time_t t = (time_t)day_epoch_from_offset(s_offset);
     struct tm ti; localtime_r(&t, &ti);
 
     char buf[48];
-    if      (s_offset ==  0) snprintf(buf,sizeof(buf),"Hoy, %d de %s",   ti.tm_mday, MESES[ti.tm_mon]);
-    else if (s_offset == -1) snprintf(buf,sizeof(buf),"Ayer, %d de %s",  ti.tm_mday, MESES[ti.tm_mon]);
-    else                     snprintf(buf,sizeof(buf),"%s, %d de %s",
+    if (s_week) {
+        time_t t0 = (time_t)day_epoch_from_offset(s_offset - 6);
+        struct tm t0i; localtime_r(&t0, &t0i);
+        if (s_offset == 0) snprintf(buf, sizeof(buf), "Ultima semana");
+        else               snprintf(buf, sizeof(buf), "%d %s - %d %s",
+                                    t0i.tm_mday, MESES_C[t0i.tm_mon], ti.tm_mday, MESES_C[ti.tm_mon]);
+    } else if (s_offset ==  0) snprintf(buf,sizeof(buf),"Hoy, %d de %s",   ti.tm_mday, MESES[ti.tm_mon]);
+    else if (s_offset == -1)   snprintf(buf,sizeof(buf),"Ayer, %d de %s",  ti.tm_mday, MESES[ti.tm_mon]);
+    else                       snprintf(buf,sizeof(buf),"%s, %d de %s",
                                  DIASEM[ti.tm_wday], ti.tm_mday, MESES[ti.tm_mon]);
     lv_label_set_text(s_lbl_date, buf);
 
     if (s_offset >= 0)  lv_obj_add_state(s_btn_next, LV_STATE_DISABLED);
     else                lv_obj_remove_state(s_btn_next, LV_STATE_DISABLED);
-    if (s_offset <= -6) lv_obj_add_state(s_btn_prev, LV_STATE_DISABLED);
-    else                lv_obj_remove_state(s_btn_prev, LV_STATE_DISABLED);
+    if (s_offset - step_days() < min_offset()) lv_obj_add_state(s_btn_prev, LV_STATE_DISABLED);
+    else                                       lv_obj_remove_state(s_btn_prev, LV_STATE_DISABLED);
 
     lv_obj_set_style_text_color(s_lbl_date,
         s_offset == 0 ? C_WHITE : C_ACCENT, 0);
+
+    // Botón de rango: muestra el rango actual y se resalta en la vista semanal
+    lv_label_set_text(s_lbl_range, s_week ? "7d" : "24h");
+    lv_obj_set_style_bg_color(s_btn_range, s_week ? C_ACCENT : C_GBTN, 0);
 }
 
-// Devuelve la coordenada X absoluta (en pantalla) del punto de hora h
-// dentro del área de contenido del chart.
-static int hour_to_screen_x(int h) {
-    return CHART_HOUR_X_M(h);
+// X en pantalla del punto idx (0..s_npts-1) dentro del área de contenido del chart
+static int idx_to_x(int idx) {
+    return CH_PAD_L + (int)((float)idx * MERGED_CW / (s_npts - 1) + 0.5f);
 }
 
 // ── Etiquetas eje Y izquierda ─────────────────────────────────────────────
@@ -112,10 +144,12 @@ static void add_y_labels(lv_obj_t* parent, int chart_y, int chart_h,
                - FONT_SMALL_SIZE / 2;
 
         char buf[12];
-        // Para potencias (unidad "k"): mostrar como entero de kW
-        if (strcmp(unit, "k") == 0)
-            snprintf(buf, sizeof(buf), "%dk", val / 1000);
-        else
+        // Para potencias (unidad "k"): entero de kW; con un rango corto (p.ej. al
+        // ocultar series y autoescalar) un decimal, o saldrían "0k, 0k, 0k" repetidos
+        if (strcmp(unit, "k") == 0) {
+            if (y_hi - y_lo < 6000) snprintf(buf, sizeof(buf), "%.1fk", val / 1000.0f);
+            else                    snprintf(buf, sizeof(buf), "%dk", val / 1000);
+        } else
             snprintf(buf, sizeof(buf), "%d%s", val, unit);
 
         lv_obj_t* lbl = lv_label_create(parent);
@@ -128,16 +162,51 @@ static void add_y_labels(lv_obj_t* parent, int chart_y, int chart_h,
     }
 }
 
+// ── Etiquetas eje X (dependen del rango) ──────────────────────────────────
+static void rebuild_xlabels() {
+    lv_obj_clean(s_xlabels);
+    if (!s_week) {
+        const struct { int h; const char* s; } xlabs[] = {
+            {0,"00"},{6,"06"},{12,"12"},{18,"18"},{21,"21"}
+        };
+        for (auto& xl : xlabs) {
+            lv_obj_t* l = lv_label_create(s_xlabels);
+            lv_obj_set_pos(l, CHART_HOUR_X_M(xl.h) - SX(8), 0);
+            lv_obj_set_style_text_font(l, &FONT_SMALL, 0);
+            lv_obj_set_style_text_color(l, C_MUTED, 0);
+            lv_label_set_text(l, xl.s);
+        }
+    } else {
+        // Un rótulo por día, centrado en su tramo (mediodía)
+        for (int d = 0; d < 7; d++) {
+            time_t t = (time_t)day_epoch_from_offset(s_offset - 6 + d);
+            struct tm ti; localtime_r(&t, &ti);
+            const bool is_today = (s_offset - 6 + d == 0);
+            lv_obj_t* l = lv_label_create(s_xlabels);
+            lv_obj_set_width(l, SX(32));
+            lv_obj_set_pos(l, idx_to_x(d * 24 + 12) - SX(16), 0);
+            lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_style_text_font(l, &FONT_SMALL, 0);
+            lv_obj_set_style_text_color(l, is_today ? C_WHITE : C_MUTED, 0);
+            lv_label_set_text(l, DIASEM_C[ti.tm_wday]);
+        }
+    }
+}
+
 // ── Rango del chart de potencias ──────────────────────────────────────────
+// El autoescalado solo tiene en cuenta las series VISIBLES: ocultar las que no
+// interesan (leyenda) amplía de hecho la señal que sí se quiere ver.
 static void apply_range() {
     ChartConfig cfg = Storage.loadChartConfig();
     if (cfg.autoscale) {
         int32_t mn = 0, mx = 500;
-        for (int h = 0; h < 24; h++) {
-            if (!s_hours[h].valid) continue;
-            float vals[] = {s_hours[h].pv_w, s_hours[h].grid_w,
-                            s_hours[h].batt_w, s_hours[h].load_w};
-            for (float v : vals) {
+        for (int i = 0; i < s_npts; i++) {
+            if (!s_hours[i].valid) continue;
+            float vals[] = {s_hours[i].pv_w, s_hours[i].grid_w,
+                            s_hours[i].batt_w, s_hours[i].load_w};
+            for (int k = 0; k < 4; k++) {
+                if (s_hidden[k]) continue;
+                float v = vals[k];
                 if ((int32_t)v > mx) mx = (int32_t)v;
                 if ((int32_t)v < mn) mn = (int32_t)v;
             }
@@ -157,35 +226,39 @@ static void apply_range() {
     }
 }
 
-// ── Rellena los charts con s_day ──────────────────────────────────────────
+// ── Rellena el chart con s_hours ──────────────────────────────────────────
 static void update_charts() {
     s_chart_updating = true;
 
-    int cur_hour = 24;
+    // Último punto con datos posibles: hoy llega hasta la hora actual; días pasados, todos
+    int last_idx = s_npts - 1;
     if (s_offset == 0) {
         time_t now; time(&now);
         struct tm t; localtime_r(&now, &t);
-        cur_hour = t.tm_hour;
+        last_idx = (s_npts - 24) + t.tm_hour;
     }
 
+    lv_chart_set_point_count(s_chart_pwr, s_npts);
+    lv_chart_set_div_line_count(s_chart_pwr, 5, s_week ? 8 : 0);   // 8 → una línea por cambio de día
+
     bool has_any = false;
-    for (int h = 0; h < 24; h++) {
-        const HourAgg& a = s_hours[h];
-        bool valid = a.valid && (s_offset < 0 || h <= cur_hour);
+    for (int i = 0; i < s_npts; i++) {
+        const HourAgg& a = s_hours[i];
+        bool valid = a.valid && i <= last_idx;
         if (!valid) {
-            lv_chart_set_value_by_id(s_chart_pwr, s_spv,   h, LV_CHART_POINT_NONE);
-            lv_chart_set_value_by_id(s_chart_pwr, s_sgrid, h, LV_CHART_POINT_NONE);
-            lv_chart_set_value_by_id(s_chart_pwr, s_sbatt, h, LV_CHART_POINT_NONE);
-            lv_chart_set_value_by_id(s_chart_pwr, s_sload, h, LV_CHART_POINT_NONE);
-            lv_chart_set_value_by_id(s_chart_pwr, s_ssoc,  h, LV_CHART_POINT_NONE);
+            lv_chart_set_value_by_id(s_chart_pwr, s_spv,   i, LV_CHART_POINT_NONE);
+            lv_chart_set_value_by_id(s_chart_pwr, s_sgrid, i, LV_CHART_POINT_NONE);
+            lv_chart_set_value_by_id(s_chart_pwr, s_sbatt, i, LV_CHART_POINT_NONE);
+            lv_chart_set_value_by_id(s_chart_pwr, s_sload, i, LV_CHART_POINT_NONE);
+            lv_chart_set_value_by_id(s_chart_pwr, s_ssoc,  i, LV_CHART_POINT_NONE);
         } else {
             has_any = true;
             // Valores en W (medias del periodo)
-            lv_chart_set_value_by_id(s_chart_pwr, s_spv,   h, (int32_t)a.pv_w);
-            lv_chart_set_value_by_id(s_chart_pwr, s_sgrid, h, (int32_t)a.grid_w);
-            lv_chart_set_value_by_id(s_chart_pwr, s_sbatt, h, (int32_t)a.batt_w);
-            lv_chart_set_value_by_id(s_chart_pwr, s_sload, h, (int32_t)a.load_w);
-            lv_chart_set_value_by_id(s_chart_pwr, s_ssoc,  h, (int32_t)a.soc);
+            lv_chart_set_value_by_id(s_chart_pwr, s_spv,   i, (int32_t)a.pv_w);
+            lv_chart_set_value_by_id(s_chart_pwr, s_sgrid, i, (int32_t)a.grid_w);
+            lv_chart_set_value_by_id(s_chart_pwr, s_sbatt, i, (int32_t)a.batt_w);
+            lv_chart_set_value_by_id(s_chart_pwr, s_sload, i, (int32_t)a.load_w);
+            lv_chart_set_value_by_id(s_chart_pwr, s_ssoc,  i, (int32_t)a.soc);
         }
     }
 
@@ -199,64 +272,73 @@ static void update_charts() {
     s_chart_updating = false;
 }
 
-static void load_day() {
-    s_selected_h = -1;
+static void load_range() {
+    s_selected = -1;
     if (s_popup) lv_obj_add_flag(s_popup, LV_OBJ_FLAG_HIDDEN);
     if (s_vline)  lv_obj_add_flag(s_vline,  LV_OBJ_FLAG_HIDDEN);
 
-    uint32_t dep = day_epoch_from_offset(s_offset);
+    s_npts = s_week ? PTS_WEEK : PTS_DAY;
+    s_day_epoch_loaded = day_epoch_from_offset(s_offset);
+    memset(s_hours, 0, sizeof(s_hours));
 
-    s_day_epoch_loaded = dep;
-    
-    // Leer directamente las 24 horas pre-agregadas desde PSRAM
-    const HourlyRecord* hr = Cache.getHourly(dep);
-    if (hr) {
+    // Lee directamente las horas pre-agregadas desde PSRAM, un día tras otro
+    const int days = s_week ? 7 : 1;
+    for (int d = 0; d < days; d++) {
+        uint32_t dep = day_epoch_from_offset(s_offset - (days - 1 - d));
+        const HourlyRecord* hr = Cache.getHourly(dep);
+        if (!hr) continue;
         // Convertir HourlyRecord → HourAgg para compatibilidad con el resto
         for (int h = 0; h < 24; h++) {
-            s_hours[h].valid  = (hr[h].flags & 0x01) && hr[h].sample_count > 0;
-            s_hours[h].pv_w   = hr[h].avg_pv_w;
-            s_hours[h].grid_w = hr[h].avg_grid_w;
-            s_hours[h].batt_w = hr[h].avg_batt_w;
-            s_hours[h].load_w = hr[h].avg_load_w;
-            s_hours[h].soc    = hr[h].soc_end;
+            HourAgg& a = s_hours[d * 24 + h];
+            a.valid  = (hr[h].flags & 0x01) && hr[h].sample_count > 0;
+            a.pv_w   = hr[h].avg_pv_w;
+            a.grid_w = hr[h].avg_grid_w;
+            a.batt_w = hr[h].avg_batt_w;
+            a.load_w = hr[h].avg_load_w;
+            a.soc    = hr[h].soc_end;
         }
-    } else {
-        memset(s_hours, 0, sizeof(s_hours));
     }
 
     update_date_label();
+    rebuild_xlabels();
     update_charts();
 }
 
 // ── Popup con valores del instante clicado ────────────────────────────────
-static void show_popup(int32_t h) {
-    if (h < 0 || h >= 24 || !s_hours[h].valid) {
+static void show_popup(int32_t idx) {
+    if (idx < 0 || idx >= s_npts || !s_hours[idx].valid) {
         lv_obj_add_flag(s_popup, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_vline, LV_OBJ_FLAG_HIDDEN);
-        s_selected_h = -1;
+        s_selected = -1;
         return;
     }
-    if (h == s_selected_h) {
+    if (idx == s_selected) {
         lv_obj_add_flag(s_popup, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_vline, LV_OBJ_FLAG_HIDDEN);
-        s_selected_h = -1;
+        s_selected = -1;
         return;
     }
-    s_selected_h = h;
+    s_selected = idx;
 
-    const HourAgg& a = s_hours[h];
+    const HourAgg& a = s_hours[idx];
 
     // Línea vertical
-    int line_x = hour_to_screen_x((int)h);
+    int line_x = idx_to_x((int)idx);
     lv_obj_set_pos(s_vline, line_x, CHART_PWR_Y);
     lv_obj_set_size(s_vline, 1, MERGED_H);
     lv_obj_remove_flag(s_vline, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_vline);
 
-    // Título
-    char title[24];
-    snprintf(title, sizeof(title), "%02d:00 - %02d:00",
-             (int)h, (int)(h + 1) % 24);
+    // Título: "HH:00 - HH:00" en la vista diaria; "Dia dd, HH:00" en la semanal
+    const int h = (int)(idx % 24);
+    char title[28];
+    if (s_week) {
+        time_t t = (time_t)day_epoch_from_offset(s_offset - 6 + (int)(idx / 24));
+        struct tm ti; localtime_r(&t, &ti);
+        snprintf(title, sizeof(title), "%s %d, %02d:00", DIASEM_C[ti.tm_wday], ti.tm_mday, h);
+    } else {
+        snprintf(title, sizeof(title), "%02d:00 - %02d:00", h, (h + 1) % 24);
+    }
     lv_label_set_text(s_popup_title, title);
 
     // Valores medios W de la hora
@@ -292,8 +374,22 @@ static void show_popup(int32_t h) {
 }
 
 // ── Callbacks ─────────────────────────────────────────────────────────────
-static void prev_cb(lv_event_t*) { if (s_offset > -6) { s_offset--; load_day(); } }
-static void next_cb(lv_event_t*) { if (s_offset <  0) { s_offset++; load_day(); } }
+static void prev_cb(lv_event_t*) {
+    if (s_offset - step_days() >= min_offset()) { s_offset -= step_days(); load_range(); }
+}
+static void next_cb(lv_event_t*) {
+    if (s_offset < 0) {
+        s_offset += step_days();
+        if (s_offset > 0) s_offset = 0;
+        load_range();
+    }
+}
+static void range_cb(lv_event_t*) {
+    s_week = !s_week;
+    // Al pasar a 24h desde una semana lejana, no quedar fuera del límite diario
+    if (!s_week && s_offset < min_offset()) s_offset = min_offset();
+    load_range();
+}
 
 static void chart_click_cb(lv_event_t* e) {
     if (s_chart_updating) return;
@@ -311,7 +407,17 @@ static void chart_click_cb(lv_event_t* e) {
 static void popup_click_cb(lv_event_t*) {
     lv_obj_add_flag(s_popup, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_vline,  LV_OBJ_FLAG_HIDDEN);
-    s_selected_h = -1;
+    s_selected = -1;
+}
+
+// Tocar una entrada de la leyenda oculta/muestra su serie (DEYE-52)
+static void legend_toggle_cb(lv_event_t* e) {
+    const int i = (int)(intptr_t)lv_event_get_user_data(e);
+    s_hidden[i] = !s_hidden[i];
+    lv_chart_hide_series(s_chart_pwr, s_ser[i], s_hidden[i]);
+    lv_obj_set_style_opa(lv_event_get_target_obj(e), s_hidden[i] ? LV_OPA_40 : LV_OPA_COVER, 0);
+    if (i < 4) apply_range();            // el autoescalado ignora las series ocultas
+    lv_obj_invalidate(s_chart_pwr);
 }
 
 // ── Helpers de UI ─────────────────────────────────────────────────────────
@@ -332,18 +438,32 @@ static lv_obj_t* nav_btn(lv_obj_t* p, int x, int y, int w, int h, const char* tx
     return btn;
 }
 
-static lv_obj_t* legend_dot(lv_obj_t* p, int x, int y, lv_color_t c, const char* txt) {
-    lv_obj_t* dot = lv_obj_create(p);
-    lv_obj_set_pos(dot, x, y + 4); lv_obj_set_size(dot, 8, 8);
+// Entrada de leyenda: punto + texto dentro de un contenedor clicable (zona de
+// toque ampliada) que alterna la serie `idx`
+static void legend_item(lv_obj_t* p, int x, int y, lv_color_t c, const char* txt, int idx) {
+    const int w = SX(48), h = FONT_SMALL_SIZE + SY(6);
+    lv_obj_t* box = lv_obj_create(p);
+    lv_obj_set_pos(box, x - SX(3), y - SY(3));
+    lv_obj_set_size(box, w, h);
+    lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(box, 0, 0);
+    lv_obj_set_style_pad_all(box, 0, 0);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(box, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(box, SY(4));
+    lv_obj_add_event_cb(box, legend_toggle_cb, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
+
+    lv_obj_t* dot = lv_obj_create(box);
+    lv_obj_set_pos(dot, SX(3), SY(3) + 4); lv_obj_set_size(dot, 8, 8);
     lv_obj_set_style_bg_color(dot, c, 0); lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(dot, 4, 0);   lv_obj_set_style_border_width(dot, 0, 0);
+    lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t* lbl = lv_label_create(p);
-    lv_obj_set_pos(lbl, x + 11, y + 1);
+    lv_obj_t* lbl = lv_label_create(box);
+    lv_obj_set_pos(lbl, SX(3) + 11, SY(3) + 1);
     lv_obj_set_style_text_font(lbl, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(lbl, C_MUTED, 0);
     lv_label_set_text(lbl, txt);
-    return lbl;
 }
 
 // ── make_chart() — eliminar la línea del axis_tick ────────────────────────
@@ -351,7 +471,7 @@ static lv_obj_t* make_chart(lv_obj_t* parent, int y, int h, int y_lo, int y_hi, 
     lv_obj_t* c = lv_chart_create(parent);
     lv_obj_set_pos(c, 0, y); lv_obj_set_size(c, SCREEN_WIDTH, h);
     lv_chart_set_type(c, LV_CHART_TYPE_LINE);
-    lv_chart_set_point_count(c, 24);
+    lv_chart_set_point_count(c, PTS_DAY);
     lv_chart_set_range(c, LV_CHART_AXIS_PRIMARY_Y, y_lo, y_hi);
     lv_chart_set_div_line_count(c, hdiv, 0);
 
@@ -388,8 +508,8 @@ void chart_screen_init(lv_obj_t* parent) {
                         NAV_BTN_W, NAV_BTN_H, LV_SYMBOL_RIGHT, next_cb);
 
     // Botón calendario
-    lv_obj_t* btn_cal = nav_btn(parent,
-        SCREEN_WIDTH-NAV_BTN_W-SX(4)-SX(34), SY(2),
+    const int cal_x = SCREEN_WIDTH-NAV_BTN_W-SX(4)-SX(34);
+    lv_obj_t* btn_cal = nav_btn(parent, cal_x, SY(2),
         SX(34), NAV_BTN_H, LV_SYMBOL_CALENDAR, nullptr);
     lv_obj_add_event_cb(btn_cal, [](lv_event_t*) {
         calendar_show(
@@ -402,14 +522,21 @@ void chart_screen_init(lv_obj_t* parent) {
                 tm_now.tm_sec=0;tm_now.tm_isdst=-1;
                 uint32_t today = (uint32_t)mktime(&tm_now);
                 s_offset = local_day_offset(dep, today);
-                load_day();
+                load_range();
             });
     }, LV_EVENT_CLICKED, nullptr);
+
+    // Botón de rango 24h / 7d (DEYE-52), a la izquierda del calendario
+    s_btn_range = nav_btn(parent, cal_x - SX(4) - RANGE_BTN_W, SY(2),
+        RANGE_BTN_W, NAV_BTN_H, "24h", range_cb);
+    s_lbl_range = lv_obj_get_child(s_btn_range, 0);
+    lv_obj_set_style_text_font(s_lbl_range, &FONT_SMALL, 0);
 
     s_lbl_date = lv_label_create(parent);
     lv_obj_set_pos(s_lbl_date, NAV_BTN_W+SX(6), SY(7));
     lv_obj_set_width(s_lbl_date,
-        SCREEN_WIDTH - 2*NAV_BTN_W - SX(34) - SX(12));
+        SCREEN_WIDTH - 2*NAV_BTN_W - SX(34) - RANGE_BTN_W - SX(16));
+    lv_label_set_long_mode(s_lbl_date, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(s_lbl_date, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(s_lbl_date, &FONT_NORMAL, 0);
     lv_obj_set_style_text_color(s_lbl_date, C_WHITE, 0);
@@ -418,7 +545,7 @@ void chart_screen_init(lv_obj_t* parent) {
     lv_obj_add_event_cb(s_lbl_date, [](lv_event_t*) {
         if (s_offset == 0) return;
         s_offset = 0;
-        load_day();
+        load_range();
     }, LV_EVENT_CLICKED, nullptr);
 
     // ── Chart de potencias (altura ampliada, SOC en eje secundario) ──────────
@@ -470,25 +597,26 @@ void chart_screen_init(lv_obj_t* parent) {
     s_sgrid = lv_chart_add_series(s_chart_pwr, C_GRID, LV_CHART_AXIS_PRIMARY_Y);
     s_spv   = lv_chart_add_series(s_chart_pwr, C_PV,   LV_CHART_AXIS_PRIMARY_Y);
     s_ssoc  = lv_chart_add_series(s_chart_pwr, C_SOC,  LV_CHART_AXIS_SECONDARY_Y);
+    s_ser[0] = s_spv; s_ser[1] = s_sgrid; s_ser[2] = s_sbatt; s_ser[3] = s_sload; s_ser[4] = s_ssoc;
 
     lv_obj_add_flag(s_chart_pwr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_chart_pwr, chart_click_cb, LV_EVENT_PRESSED, nullptr);
     lv_obj_remove_flag(s_chart_pwr, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
-    // ── Etiquetas eje X ───────────────────────────────────────────────────
-    const struct { int h; const char* s; } xlabs[] = {
-        {0,"00"},{6,"06"},{12,"12"},{18,"18"},{21,"21"}
-    };
-    for (auto& xl : xlabs) {
-        int px = CHART_HOUR_X_M(xl.h) - SX(8);
-        lv_obj_t* l = lv_label_create(parent);
-        lv_obj_set_pos(l, px, MERGED_XLAB_Y);
-        lv_obj_set_style_text_font(l, &FONT_SMALL, 0);
-        lv_obj_set_style_text_color(l, C_MUTED, 0);
-        lv_label_set_text(l, xl.s);
-    }
+    // ── Etiquetas eje X (se rehacen según el rango en load_range) ────────
+    s_xlabels = lv_obj_create(parent);
+    lv_obj_set_pos(s_xlabels, 0, MERGED_XLAB_Y);
+    lv_obj_set_size(s_xlabels, SCREEN_WIDTH, FONT_SMALL_SIZE + SY(2));
+    lv_obj_set_style_bg_opa(s_xlabels, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_xlabels, 0, 0);
+    lv_obj_set_style_pad_all(s_xlabels, 0, 0);
+    lv_obj_set_scrollbar_mode(s_xlabels, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_remove_flag(s_xlabels, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(s_xlabels, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_xlabels, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    rebuild_xlabels();
 
-    // ── Leyenda ───────────────────────────────────────────────────────────
+    // ── Leyenda (tocable: oculta/muestra la serie) ────────────────────────
     struct LegDef { int x; lv_color_t c; const char* txt; };
     LegDef ldefs[] = {
         {SX(5),  C_PV,   "PV"},
@@ -497,8 +625,8 @@ void chart_screen_init(lv_obj_t* parent) {
         {SX(155),C_LOAD, "Carga"},
         {SX(220),C_SOC,  "SOC"},
     };
-    for (auto& ld : ldefs) {
-        legend_dot(parent, ld.x, MERGED_LEG_Y, ld.c, ld.txt);
+    for (int i = 0; i < 5; i++) {
+        legend_item(parent, ldefs[i].x, MERGED_LEG_Y, ldefs[i].c, ldefs[i].txt, i);
     }
 
     // ── Sin datos ─────────────────────────────────────────────────────────
@@ -576,7 +704,7 @@ void chart_screen_init(lv_obj_t* parent) {
 // ── API pública ───────────────────────────────────────────────────────────
 void chart_screen_set_active(bool active) {
     s_active = active;
-    if (active) { load_day(); s_last_tick = millis(); }
+    if (active) { load_range(); s_last_tick = millis(); }
 }
 
 void chart_screen_tick() {
@@ -587,7 +715,7 @@ void chart_screen_tick() {
         uint32_t current_today = day_epoch_from_offset(0);
         if (current_today != s_day_epoch_loaded) {
             DBGSERIAL.println("[Chart] Cambio de dia, recargando...");
-            load_day();
+            load_range();
             s_last_tick = millis();
             return;
         }
@@ -596,7 +724,7 @@ void chart_screen_tick() {
     // ── Refresco periódico solo cuando es hoy ─────────────────────────────
     if (s_offset != 0) return;
     if (millis() - s_last_tick >= 300000UL) {
-        load_day();
+        load_range();
         s_last_tick = millis();
     }
 }
