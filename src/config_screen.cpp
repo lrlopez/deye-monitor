@@ -420,15 +420,37 @@ static void do_data_wipe() {
     ESP.restart();
 }
 
-static void data_wipe_confirm_yes_cb(lv_event_t* e) {
+// DEYE-58: el borrado es irreversible, así que pide DOS confirmaciones seguidas.
+// El segundo diálogo deja "Cancelar" como primer botón y exige pulsar el texto
+// completo "Sí, borrar definitivamente": un toque de más no basta.
+static void data_wipe_confirm_no_cb(lv_event_t* e) {
+    lv_obj_t* mbox = (lv_obj_t*)lv_event_get_user_data(e);
+    lv_msgbox_close(mbox);
+}
+
+static void data_wipe_final_yes_cb(lv_event_t* e) {
     lv_obj_t* mbox = (lv_obj_t*)lv_event_get_user_data(e);
     lv_msgbox_close(mbox);
     do_data_wipe();
 }
 
-static void data_wipe_confirm_no_cb(lv_event_t* e) {
+static void data_wipe_step2() {
+    lv_obj_t* mbox = lv_msgbox_create(nullptr);   // NULL = modal en layer_top
+    lv_msgbox_add_title(mbox, LV_SYMBOL_WARNING " CONFIRMACI\xC3\x93N FINAL");   // sin "Ú": no está en todas las fuentes
+    lv_msgbox_add_text(mbox,
+        "El historial NO se podrá recuperar. ¿Borrarlo definitivamente?");
+    lv_obj_t* btn_no  = lv_msgbox_add_footer_button(mbox, "No, cancelar");
+    lv_obj_t* btn_yes = lv_msgbox_add_footer_button(mbox, "Sí, borrar definitivamente");
+    lv_obj_set_style_bg_color(btn_yes, lv_color_hex(0x7D2020), 0);
+    lv_obj_add_event_cb(btn_no,  data_wipe_confirm_no_cb, LV_EVENT_CLICKED, mbox);
+    lv_obj_add_event_cb(btn_yes, data_wipe_final_yes_cb,  LV_EVENT_CLICKED, mbox);
+}
+
+// Paso 1: cierra su diálogo y abre el segundo
+static void data_wipe_confirm_yes_cb(lv_event_t* e) {
     lv_obj_t* mbox = (lv_obj_t*)lv_event_get_user_data(e);
     lv_msgbox_close(mbox);
+    data_wipe_step2();
 }
 
 static void data_wipe_btn_cb(lv_event_t* /*e*/) {

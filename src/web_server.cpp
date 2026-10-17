@@ -1884,8 +1884,11 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
         "(WiFi, inversor, Telegram...) no se ve afectada. Esta acci&oacute;n no "
         "se puede deshacer.</p>"
         "<form method='post' action='/api/data/wipe' "
+        // DEYE-58: acción irreversible → confirmación en DOS pasos
         "onsubmit=\"return confirm('Esto BORRA TODO el historial registrado en "
-        "este dispositivo de forma permanente. ¿Continuar?');\">"
+        "este dispositivo de forma permanente. ¿Continuar?') &amp;&amp; "
+        "confirm('CONFIRMACIÓN FINAL: el historial no se podrá recuperar. "
+        "¿Borrarlo definitivamente?');\">"
         "<div class='actions'>"
         "<button type='submit' class='btn btn-danger'>&#128465; Borrar todo el "
         "historial</button>"

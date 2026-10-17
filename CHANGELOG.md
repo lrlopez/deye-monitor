@@ -22,6 +22,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Mejorado
 
+- **Borrar el historial pide dos confirmaciones (DEYE-58):** tanto en la pantalla táctil (segundo diálogo «Confirmación final» con «No, cancelar» como primer botón) como en la web (segundo `confirm`). Antes bastaba un solo diálogo, a pesar de que el CHANGELOG de la v3.5.0 hablaba de «doble confirmación». Reiniciar sigue con una confirmación (no es destructivo).
 - **Contraste del texto secundario (DEYE-55):** los grises de las etiquetas pasan de 2,5:1 y 4,0:1 a 5,8:1 y 7,0:1 sobre las tarjetas (WCAG AA exige 4,5:1).
 
 ### Corregido
