@@ -368,8 +368,10 @@ void wizard_start() {
     // Cabecera
     mk_label(s_ov, WZ_MARGIN, SY(7), 0, LV_SYMBOL_SETTINGS "  Asistente de configuraci\xC3\xB3n",
              &FONT_NORMAL, C_WHITE);
-    s_lbl_step = mk_label(s_ov, 0, SY(9), SCREEN_WIDTH, "", &FONT_SMALL, C_MUTED);
-    lv_obj_set_style_text_align(s_lbl_step, LV_TEXT_ALIGN_CENTER, 0);
+    // A la derecha, junto a «Omitir»: centrado chocaba con el título en 480 px
+    s_lbl_step = mk_label(s_ov, SCREEN_WIDTH - WZ_MARGIN - SX(70) - SX(100), SY(9), SX(90), "",
+                          &FONT_SMALL, C_MUTED);
+    lv_obj_set_style_text_align(s_lbl_step, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_t* skip = mk_label(s_ov, SCREEN_WIDTH - WZ_MARGIN - SX(70), SY(9), SX(70), "Omitir",
                               &FONT_SMALL, C_RUN);
     lv_obj_set_style_text_align(skip, LV_TEXT_ALIGN_RIGHT, 0);
