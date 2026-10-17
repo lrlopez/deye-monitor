@@ -34,8 +34,17 @@ static uint16_t s_load_max_w = INV_MAX_W_DEF;
 
 // ── Estado para indicadores ───────────────────────────────────────────────
 static uint32_t s_last_update_ms  = 0;
+static uint32_t s_init_ms         = 0;     // arranque del dashboard: referencia si aún no llegó ningún dato
 static int32_t  s_prev_batt_power = INT32_MIN;
 static int32_t  s_prev_grid_power = INT32_MIN;
+
+// DEYE-51: umbrales de frescura de los datos
+#define STALE_WARN_MS   10000   // >10 s sin datos: la hora de la muestra pasa a ámbar
+#define STALE_LOST_MS   30000   // >30 s: datos obsoletos (valores atenuados + aviso persistente)
+
+// Las cuatro tarjetas, para atenuarlas como conjunto cuando los datos están obsoletos
+static lv_obj_t* s_cards[4] = {};
+static bool      s_stale    = false;
 
 // ── Punteros a widgets actualizables ─────────────────────────────────────
 static lv_obj_t *lbl_clock, *lbl_selfcon, *lbl_sample_time, *lbl_wifi;
@@ -147,6 +156,26 @@ static void make_bg_arc(lv_obj_t* parent,
     lv_obj_remove_flag(arc, LV_OBJ_FLAG_CLICKABLE);
 }
 
+// ── DEYE-51: datos obsoletos ──────────────────────────────────────────────
+// Atenúa las cuatro tarjetas como conjunto (los valores siguen visibles, pero se
+// distinguen de un dato vivo). Solo toca el árbol LVGL al cambiar de estado.
+static void apply_stale(bool stale)
+{
+    if (stale == s_stale) return;
+    s_stale = stale;
+    for (int i = 0; i < 4; i++)
+        if (s_cards[i]) lv_obj_set_style_opa(s_cards[i], stale ? LV_OPA_40 : LV_OPA_COVER, 0);
+    if (stale) lv_label_set_text(lbl_selfcon, "--");   // el autoconsumo ya no es fiable (ojo: "—" no está en la fuente)
+}
+
+// "45 s", "3 min", "2 h 05 min"
+static void format_age(char* buf, size_t n, uint32_t sec)
+{
+    if (sec < 60)        snprintf(buf, n, "%u s", (unsigned)sec);
+    else if (sec < 3600) snprintf(buf, n, "%u min", (unsigned)(sec / 60));
+    else                 snprintf(buf, n, "%u h %02u min", (unsigned)(sec / 3600), (unsigned)((sec % 3600) / 60));
+}
+
 // ── Inicialización ────────────────────────────────────────────────────────
 void dashboard_init(lv_obj_t* parent)
 {
@@ -158,6 +187,7 @@ void dashboard_init(lv_obj_t* parent)
         s_load_max_w = s_inv_max_w > s_grid_max_w ? s_inv_max_w : s_grid_max_w;
     }
 
+    s_init_ms = millis();
     lv_obj_set_style_bg_color(parent, C_BG, 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
 
@@ -207,6 +237,7 @@ void dashboard_init(lv_obj_t* parent)
     // ── SOLAR ─────────────────────────────────────────────────────────────
     {
         lv_obj_t* c = make_card(parent, x0, y0, LV_SYMBOL_SUN " SOLAR", C_SOLAR);
+        s_cards[0] = c;
 
         lbl_pv1 = make_info(c, INFO_Y1, "PV1: --- W");
         lbl_pv2 = make_info(c, INFO_Y2, "PV2: --- W");
@@ -225,6 +256,7 @@ void dashboard_init(lv_obj_t* parent)
     // ── RED ───────────────────────────────────────────────────────────────
     {
         lv_obj_t* c = make_card(parent, x1, y0, LV_SYMBOL_PLUG " RED", C_RUN);
+        s_cards[1] = c;
 
         lbl_grid_status = make_info(c, INFO_Y1, "--");
 
@@ -243,6 +275,7 @@ void dashboard_init(lv_obj_t* parent)
     {
         lv_obj_t* c = make_card(parent, x0, y1,
                                  LV_SYMBOL_BATTERY_FULL " BATER\xC3\xAD\x41", C_BATT_OK);
+        s_cards[2] = c;
 
         lbl_batt_status = make_info(c, INFO_Y1, "--");
 
@@ -295,6 +328,7 @@ void dashboard_init(lv_obj_t* parent)
     // ── CARGA ─────────────────────────────────────────────────────────────
     {
         lv_obj_t* c = make_card(parent, x1, y1, LV_SYMBOL_HOME " CARGA", C_CARGA);
+        s_cards[3] = c;
 
         arc_load = make_arc(c, C_CARGA, LV_ARC_MODE_NORMAL);
         lv_arc_set_range(arc_load, 0, (int32_t)s_load_max_w);
@@ -426,6 +460,7 @@ void dashboard_update(const EnergyData& d)
     s_last_update_ms  = millis();
     s_prev_batt_power = d.batt_power;
     s_prev_grid_power = d.grid_power;
+    apply_stale(false);      // dato vivo: quitar la atenuación (el texto "Act. HH:MM:SS" ya se ha repuesto arriba)
 }
 
 // ── Reloj + icono WiFi ────────────────────────────────────────────────────
@@ -447,12 +482,32 @@ void dashboard_tick()
                      ti.tm_mday, MESES[ti.tm_mon],
                      ti.tm_hour, ti.tm_min, ti.tm_sec);
             lv_label_set_text(lbl_clock, buf);
+        }
 
-        // Indicador de frescura de datos — color de "Act. HH:MM:SS"
-        lv_color_t lc = (s_last_update_ms == 0)                       ? C_MUTED :
-                        (millis() - s_last_update_ms < 10000)          ? C_OK    :
-                        (millis() - s_last_update_ms < 30000)          ? C_WARN  : C_ERR;
-        lv_obj_set_style_text_color(lbl_sample_time, lc, 0);
+        // ── Frescura de los datos (DEYE-51) ───────────────────────────────
+        // Referencia: la última muestra o, si aún no llegó ninguna, el arranque
+        // (así un logger que no responde desde el inicio también se avisa).
+        const uint32_t ref = s_last_update_ms ? s_last_update_ms : s_init_ms;
+        const uint32_t age = millis() - ref;
+        const bool wifi_down = (WiFi.status() != WL_CONNECTED);
+
+        if (age >= STALE_LOST_MS) {
+            // Aviso persistente: mientras dure se muestra la causa más probable
+            char t[40];
+            if (wifi_down) {
+                snprintf(t, sizeof(t), LV_SYMBOL_WARNING " Sin conexi\xC3\xB3n WiFi");
+            } else {
+                char a[16]; format_age(a, sizeof(a), age / 1000);
+                snprintf(t, sizeof(t), LV_SYMBOL_WARNING " Sin datos hace %s", a);
+            }
+            lv_label_set_text(lbl_sample_time, t);
+            lv_obj_set_style_text_color(lbl_sample_time, C_ERR, 0);
+            apply_stale(true);
+        } else {
+            // Color de "Act. HH:MM:SS": verde fresco, ámbar con retraso
+            lv_color_t lc = (s_last_update_ms == 0) ? C_MUTED :
+                            (age < STALE_WARN_MS)   ? C_OK    : C_WARN;
+            lv_obj_set_style_text_color(lbl_sample_time, lc, 0);
         }
     }
 
