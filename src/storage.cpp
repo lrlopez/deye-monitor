@@ -23,7 +23,7 @@ static const char* K_SESSION = "session";
 // Config
 // ═════════════════════════════════════════════════════════════════════════
 
-void StorageManager::loadConfig(AppConfig& out) {
+static void readConfigNvs(AppConfig& out) {
     Preferences p;
     p.begin(NS_CFG, /*readOnly=*/true);
 
@@ -49,7 +49,7 @@ void StorageManager::loadConfig(AppConfig& out) {
                   (unsigned long)out.logger_serial, out.mdns_hostname);
 }
 
-void StorageManager::saveConfig(const AppConfig& cfg) {
+static void writeConfigNvs(const AppConfig& cfg) {
     Preferences p;
     p.begin(NS_CFG, /*readOnly=*/false);
     p.putString(K_SSID,    cfg.wifi_ssid);
@@ -65,7 +65,7 @@ void StorageManager::saveConfig(const AppConfig& cfg) {
 }
 
 // ── Config gráfica ────────────────────────────────────────────────────────
-void StorageManager::saveChartConfig(const ChartConfig& cfg) {
+static void writeChartConfigNvs(const ChartConfig& cfg) {
     Preferences p;
     p.begin(NS_CFG, false);
     p.putBool("ch_auto", cfg.autoscale);
@@ -73,7 +73,7 @@ void StorageManager::saveChartConfig(const ChartConfig& cfg) {
     p.end();
 }
 
-ChartConfig StorageManager::loadChartConfig() {
+static ChartConfig readChartConfigNvs() {
     Preferences p;
     p.begin(NS_CFG, true);
     ChartConfig cfg;
@@ -99,7 +99,7 @@ bool StorageManager::loadSessionState(SessionState& s) {
     return ok && s.valid;
 }
 
-void StorageManager::saveTelegramConfig(const TelegramConfig& cfg) {
+static void writeTelegramConfigNvs(const TelegramConfig& cfg) {
     Preferences p;
     p.begin(NS_CFG, false);
     p.putString("tg_token",  cfg.token);
@@ -112,7 +112,7 @@ void StorageManager::saveTelegramConfig(const TelegramConfig& cfg) {
     p.end();
 }
 
-TelegramConfig StorageManager::loadTelegramConfig() {
+static TelegramConfig readTelegramConfigNvs() {
     TelegramConfig cfg{};
     Preferences p;
     p.begin(NS_CFG, true);
@@ -129,7 +129,7 @@ TelegramConfig StorageManager::loadTelegramConfig() {
     return cfg;
 }
 
-void StorageManager::saveBacklightConfig(const BacklightConfig& cfg) {
+static void writeBacklightConfigNvs(const BacklightConfig& cfg) {
     Preferences p; p.begin(NS_CFG, false);
     p.putUChar("bl_op",    cfg.op_pct);
     p.putUChar("bl_norm",   cfg.normal_pct);
@@ -142,7 +142,7 @@ void StorageManager::saveBacklightConfig(const BacklightConfig& cfg) {
     p.end();
 }
 
-BacklightConfig StorageManager::loadBacklightConfig() {
+static BacklightConfig readBacklightConfigNvs() {
     BacklightConfig cfg{};
     Preferences p; p.begin(NS_CFG, true);
     cfg.op_pct             = p.getUChar("bl_op",    100);
@@ -157,14 +157,14 @@ BacklightConfig StorageManager::loadBacklightConfig() {
     return cfg;
 }
 
-void StorageManager::saveAdminPassword(const char* password) {
+static void writeAdminPasswordNvs(const char* password) {
     Preferences p;
     p.begin(NS_CFG, false);
     p.putString("web_pass", password);
     p.end();
 }
 
-String StorageManager::loadAdminPassword() {
+static String readAdminPasswordNvs() {
     Preferences p;
     p.begin(NS_CFG, true);
     String s = p.getString("web_pass", "");
@@ -186,4 +186,78 @@ void StorageManager::saveFsKnownGood() {
     p.begin(NS_CFG, false);
     p.putBool("fs_ok", true);
     p.end();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Caché en RAM de la configuración (DEYE-43, DEYE-22)
+// ═════════════════════════════════════════════════════════════════════════
+// Antes cada loadXxx() abría Preferences y leía NVS: la tarea de red recargaba
+// la config de Telegram cada 60 s y cada petición web protegida releía la
+// contraseña. Ahora la primera lectura puebla la caché y las siguientes
+// devuelven una copia desde RAM. Cualquier save* la invalida; la siguiente
+// lectura vuelve a NVS, así la caché nunca difiere de lo realmente guardado
+// (p.ej. cadenas truncadas al guardar). Se llama desde varias tareas
+// (red, Telegram, web, LVGL), de ahí el mutex.
+namespace {
+struct ConfigCache {
+    SemaphoreHandle_t mtx;
+    bool cfg_ok = false, chart_ok = false, tg_ok = false, bl_ok = false, pw_ok = false;
+    AppConfig       cfg{};
+    ChartConfig     chart{};
+    TelegramConfig  tg{};
+    BacklightConfig bl{};
+    String          pw;
+    ConfigCache() : mtx(xSemaphoreCreateMutex()) {}
+};
+ConfigCache& cache() { static ConfigCache c; return c; }   // inicialización thread-safe (C++11)
+
+struct CacheLock {
+    CacheLock()  { xSemaphoreTake(cache().mtx, portMAX_DELAY); }
+    ~CacheLock() { xSemaphoreGive(cache().mtx); }
+};
+}  // namespace
+
+void StorageManager::loadConfig(AppConfig& out) {
+    CacheLock l; ConfigCache& c = cache();
+    if (!c.cfg_ok) { readConfigNvs(c.cfg); c.cfg_ok = true; }
+    out = c.cfg;
+}
+void StorageManager::saveConfig(const AppConfig& cfg) {
+    CacheLock l; writeConfigNvs(cfg); cache().cfg_ok = false;
+}
+
+ChartConfig StorageManager::loadChartConfig() {
+    CacheLock l; ConfigCache& c = cache();
+    if (!c.chart_ok) { c.chart = readChartConfigNvs(); c.chart_ok = true; }
+    return c.chart;
+}
+void StorageManager::saveChartConfig(const ChartConfig& cfg) {
+    CacheLock l; writeChartConfigNvs(cfg); cache().chart_ok = false;
+}
+
+TelegramConfig StorageManager::loadTelegramConfig() {
+    CacheLock l; ConfigCache& c = cache();
+    if (!c.tg_ok) { c.tg = readTelegramConfigNvs(); c.tg_ok = true; }
+    return c.tg;
+}
+void StorageManager::saveTelegramConfig(const TelegramConfig& cfg) {
+    CacheLock l; writeTelegramConfigNvs(cfg); cache().tg_ok = false;
+}
+
+BacklightConfig StorageManager::loadBacklightConfig() {
+    CacheLock l; ConfigCache& c = cache();
+    if (!c.bl_ok) { c.bl = readBacklightConfigNvs(); c.bl_ok = true; }
+    return c.bl;
+}
+void StorageManager::saveBacklightConfig(const BacklightConfig& cfg) {
+    CacheLock l; writeBacklightConfigNvs(cfg); cache().bl_ok = false;
+}
+
+String StorageManager::loadAdminPassword() {
+    CacheLock l; ConfigCache& c = cache();
+    if (!c.pw_ok) { c.pw = readAdminPasswordNvs(); c.pw_ok = true; }
+    return c.pw;
+}
+void StorageManager::saveAdminPassword(const char* password) {
+    CacheLock l; writeAdminPasswordNvs(password); cache().pw_ok = false;
 }
