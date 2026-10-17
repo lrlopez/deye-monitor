@@ -24,10 +24,8 @@
 #include "pagination_dots.h"
 #include "screen_banner.h"
 #include "web_alerts.h"
-#include "slot_avg.h"
-#include "alerts_logic.h"
-#include "daily_tracker.h"
-#include "logger_discovery.h"
+#include "app_state.h"
+#include "solarman_task.h"
 
 
 /* Change to your screen resolution */
@@ -96,16 +94,16 @@ Arduino_GFX *gfx = new Arduino_RGB_Display(screenWidth, screenHeight, panel);
 #include "touch.h"
 
 static lv_draw_buf_t draw_buf;
+static lv_color_t *disp_draw_buf;
+static lv_color_t *disp_draw_buf2;
 #ifndef LVGL_BUF_LINES
 #define LVGL_BUF_LINES 27           // franjas de ~1/10 de pantalla (Sunton, 270 px de alto)
 #endif
 static size_t disp_buf_bytes = 0;    // tamaño de cada buffer parcial (solo Sunton)
-static lv_color_t *disp_draw_buf;
-static lv_color_t *disp_draw_buf2;
 static lv_display_t *disp_drv;
 static unsigned long last_ms;
 
-static SemaphoreHandle_t s_flash_display_mutex;  // definido más abajo, forward-decl para flush_cb
+SemaphoreHandle_t g_flash_display_mutex = nullptr;   // declarado en app_state.h; se crea en setup() (solo P4)
 
 /* Display flushing */
 void my_disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
@@ -117,23 +115,23 @@ void my_disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map
     // El mutex serializa con las escrituras flash de Core 0.
     // Válido solo con rotation=0: el framebuffer nativo del panel tiene el
     // mismo stride que el buffer de LVGL (panel nativo ya horizontal).
-    if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
+    if (g_flash_display_mutex) xSemaphoreTake(g_flash_display_mutex, portMAX_DELAY);
     esp_lcd_panel_draw_bitmap(dsipanel->getPanelHandle(),
                               area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
-    if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
+    if (g_flash_display_mutex) xSemaphoreGive(g_flash_display_mutex);
 #elif defined(BOARD_GUITION_JC4880P443C)
     // Panel nativo vertical (480x800) girado 90° por software (rotation=1):
     // el framebuffer nativo del panel tiene stride de 480px, distinto del
     // buffer de LVGL (800px). No se puede copiar en bruto con
     // esp_lcd_panel_draw_bitmap (produce la imagen entrelazada/rota) — hay
     // que pasar por draw16bitRGBBitmap(), que aplica la rotación correcta.
-    if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
+    if (g_flash_display_mutex) xSemaphoreTake(g_flash_display_mutex, portMAX_DELAY);
     {
         uint32_t w = (area->x2 - area->x1 + 1);
         uint32_t h = (area->y2 - area->y1 + 1);
         gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t*) px_map, w, h);
     }
-    if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
+    if (g_flash_display_mutex) xSemaphoreGive(g_flash_display_mutex);
 #else
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
@@ -180,8 +178,8 @@ SemaphoreHandle_t        g_mutex;
 // vio y copia el dato bajo el mutex, liberándolo ANTES de tocar LVGL (antes
 // se mantenía durante dashboard_update() y podía bloquear/descartar lecturas
 // de solarmanTask).
-static uint32_t          g_energy_seq   = 0;
-static uint32_t          g_daily_seq    = 0;
+uint32_t                 g_energy_seq   = 0;
+uint32_t                 g_daily_seq    = 0;
 static lv_obj_t*         g_tileview     = nullptr;
 static lv_obj_t*         g_tile_dash    = nullptr;
 static lv_obj_t*         g_tile_chart   = nullptr;
@@ -190,9 +188,9 @@ static lv_obj_t*         g_tile_energy  = nullptr;
 static lv_obj_t*         g_tile_config  = nullptr;
 
 // Config en RAM cargada desde NVS al arrancar
-static AppConfig g_cfg;
+AppConfig g_cfg;
 // Flag: WiFi conectado (escrito por solarmanTask, leído por loop)
-static volatile bool g_wifi_connected = false;
+volatile bool g_wifi_connected = false;
 // Flags OTA (protocolo Core0→Core1):
 //   g_ota_request: webserver pide mostrar overlay
 //   g_ota_active:  loop confirma que el overlay está pintado y el render está congelado
@@ -202,571 +200,8 @@ volatile bool g_ota_active  = false;
 // Pantalla principal (tileview vive aquí)
 lv_obj_t* g_main_screen = nullptr;
 
-static inline uint16_t kwh_to_10wh(float kwh) { return (uint16_t)(kwh * 10.0f + 0.5f); }
-
-// Medianoche local del día de `t`
-static uint32_t local_midnight_of(time_t t) {
-    struct tm tm_r; localtime_r(&t, &tm_r);
-    tm_r.tm_hour = 0; tm_r.tm_min = 0; tm_r.tm_sec = 0; tm_r.tm_isdst = -1;
-    return (uint32_t)mktime(&tm_r);
-}
-
-// ── Tarea de red (Core 0) ─────────────────────────────────────────────────
-static void solarmanTask(void* /*pv*/) {
-    SolarmanClient client(g_cfg.logger_ip, LOGGER_PORT,
-                          g_cfg.logger_serial, MODBUS_UNIT_ID);
-    EnergyData  local_e{};
-    DailyStats  local_d{};
-
-    // DEYE-01: última lectura diaria BUENA por día local (ver daily_tracker.h)
-    static DailyTracker<DailyStats> s_dtrack;
-    // DEYE-09: último intento de redescubrir el logger
-    static uint32_t s_last_discovery_ms = 0;
-
-    static int32_t  s_cur_5min_slot = -1;
-    static int32_t  s_cur_hour      = -1;
-    static int32_t  s_cur_day       = -1;
-    static bool     s_startup_done  = false;
-
-    static float    s_acc_pv = 0, s_acc_grid = 0;
-    static float    s_acc_batt = 0, s_acc_load = 0;
-    static int      s_acc_n   = 0;
-    static uint8_t  s_acc_soc = 0;
-
-    // DEYE-02: media de las muestras del slot de 5 min en curso
-    static SlotAverager s_slot;
-    // DEYE-03: último guardado del estado de sesión en NVS (epoch)
-    static uint32_t s_session_saved_ep = 0;
-
-    static uint16_t s_snap_day_pv = 0, s_snap_day_exp = 0;
-    static uint16_t s_snap_day_imp = 0, s_snap_day_load = 0;
-    static uint16_t s_snap_day_bchg = 0, s_snap_day_bdis = 0;
-    static bool     s_snap_valid = false;
-
-    // ── Estado de alertas ─────────────────────────────────────────────────
-    static SolarMonitor       s_solar;
-    static bool               s_solar_restored = false;  // cargado desde NVS una sola vez
-    static BatteryMonitor     s_batt;
-    static LoggerFailMonitor  s_logger;
-    static GridMonitor        s_grid;
-
-    // Config Telegram cacheada — se recarga desde NVS cada 60 s
-    static bool           s_tgcfg_loaded  = false;
-    static TelegramConfig s_tgcfg{};
-    static uint32_t       s_tgcfg_last_ms = 0;
-
-    static uint8_t  s_soc_start_of_day = 0;
-
-    static bool s_wifi_ever_connected = false;
-
-    for (;;) {
-        // ── Reconexión WiFi ───────────────────────────────────────────────
-        if (WiFi.status() != WL_CONNECTED) {
-            g_wifi_connected = false;
-            // Sin SSID configurado no hay nada que intentar
-            if (g_cfg.wifi_ssid[0] == '\0') {
-                vTaskDelay(pdMS_TO_TICKS(5000));
-                continue;
-            }
-            static uint32_t last_reconnect = 0;
-            if (millis() - last_reconnect > 15000) {
-                DBGSERIAL.println("[WiFi] Reconectando...");
-                // Solo desconectar si alguna vez estuvo conectado;
-                // en P4 llamar disconnect() antes de la primera conexión puede crashear.
-                if (s_wifi_ever_connected) WiFi.disconnect();
-                WiFi.begin(g_cfg.wifi_ssid, g_cfg.wifi_pass);
-                last_reconnect = millis();
-            }
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
-        }
-
-        // ── WiFi recién conectado ─────────────────────────────────────────
-        if (!g_wifi_connected) {
-            g_wifi_connected = true;
-            s_wifi_ever_connected = true;
-            DBGSERIAL.printf("[WiFi] Conectado: %s\n",
-                          WiFi.localIP().toString().c_str());
-            uint32_t ntp_wait = millis();
-            while (time(nullptr) < 1700000000UL &&
-                   millis() - ntp_wait < 10000)
-                vTaskDelay(pdMS_TO_TICKS(500));
-            if (time(nullptr) > 1700000000UL) {
-                DBGSERIAL.println("[NTP] Sincronizado");
-                // Corregir los slots del cache que se inicializaron en begin()
-                // con el reloj en 1970 (antes de tener WiFi/NTP).
-                Cache.reinitAfterNtp();
-            } else {
-                DBGSERIAL.println("[NTP] Timeout");
-            }
-            if (MDNS.begin(g_cfg.mdns_hostname)) {
-                MDNS.addService("http", "tcp", 80);
-                DBGSERIAL.printf("[mDNS] Activo: %s.local\n", g_cfg.mdns_hostname);
-            } else {
-                DBGSERIAL.println("[mDNS] Error al iniciar");
-            }
-        }
-
-        // ── 1+2. Lectura del logger: UNA conexión TCP (DEYE-08) ───────────
-        // Diarios cada POLL_DAILY_MS; en los minutos alrededor de medianoche cada
-        // 10 s, para que la última lectura del día esté lo más cerca posible del
-        // cambio de día (DEYE-01).
-        static uint32_t last_daily_ms = millis() - POLL_DAILY_MS + POLL_INTERVAL_MS;
-        uint32_t daily_period = POLL_DAILY_MS;
-        bool     near_midnight_end = false;   // últimos minutos del día: rechazar contadores a cero
-        {
-            time_t t_now = time(nullptr);
-            if (t_now > 1700000000L) {
-                struct tm lt; localtime_r(&t_now, &lt);
-                if (lt.tm_hour == 23 && lt.tm_min >= 55) near_midnight_end = true;
-                if ((lt.tm_hour == 23 && lt.tm_min >= 58) ||
-                    (lt.tm_hour == 0  && lt.tm_min < 2))
-                    daily_period = 10000;
-            }
-        }
-        const bool want_daily = (millis() - last_daily_ms >= daily_period);
-        bool daily_ok = false;
-
-        if (client.fetchAll(local_e, local_d, want_daily, daily_ok)) {
-            s_logger.onSuccess();
-            DBGSERIAL.printf("[Live] PV:%dW Grid:%dW Bat:%dW(%d%%) Load:%dW\n",
-                (int)local_e.pv_power, (int)local_e.grid_power,
-                (int)local_e.batt_power, (int)local_e.batt_soc,
-                (int)local_e.load_power);
-            if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
-                g_energy = local_e;
-                g_energy_seq++;
-                xSemaphoreGive(g_mutex);
-            } else {
-                DBGSERIAL.println("[Live] mutex ocupado: lectura no publicada");
-            }
-        } else {
-            // 5 fallos consecutivos (~25 s) → notificar una sola vez
-            if (s_logger.onFailure() && Telegram.isConfigured()) {
-                if (!s_tgcfg_loaded) {
-                    s_tgcfg = Storage.loadTelegramConfig();
-                    s_tgcfg_loaded  = true;
-                    s_tgcfg_last_ms = millis();
-                }
-                if (s_tgcfg.notify_logger)
-                    Telegram.enqueueAlert(AlertType::LOGGER_FAIL);
-                screen_banner_enqueue(AlertType::LOGGER_FAIL);
-                s_logger.markNotified();
-            }
-        }
-
-        // ── Datos diarios (leídos arriba en la misma conexión) ─────────────
-        if (daily_ok) {
-            {
-                last_daily_ms = millis();
-                // Actualizar g_daily para el servidor web
-                if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
-                    g_daily = local_d;
-                    g_daily_seq++;
-                    xSemaphoreGive(g_mutex);
-                }
-                // DEYE-01: guardar la lectura buena etiquetada con su día local
-                if (time(nullptr) > 1700000000L) {
-                    s_dtrack.onFetch(local_d, local_midnight_of(time(nullptr)), near_midnight_end);
-                }
-                // Inicialización tardía de snaps si el startup ocurrió sin daily data
-                if (s_startup_done && !s_snap_valid) {
-                    s_snap_day_pv   = (uint16_t)(local_d.pv_kwh            * 10.0f + 0.5f);
-                    s_snap_day_exp  = (uint16_t)(local_d.export_kwh         * 10.0f + 0.5f);
-                    s_snap_day_imp  = (uint16_t)(local_d.import_kwh         * 10.0f + 0.5f);
-                    s_snap_day_load = (uint16_t)(local_d.load_kwh           * 10.0f + 0.5f);
-                    s_snap_day_bchg = (uint16_t)(local_d.batt_charge_kwh    * 10.0f + 0.5f);
-                    s_snap_day_bdis = (uint16_t)(local_d.batt_discharge_kwh * 10.0f + 0.5f);
-                    s_snap_valid    = true;
-                    DBGSERIAL.println("[Record] Snaps diarios inicializados tardíamente");
-                }
-            }
-        }
-
-        // ── 3. Grabación ──────────────────────────────────────────────────
-        uint32_t now_ep    = (uint32_t)time(nullptr);
-        uint32_t slot_5min = now_ep / 300;
-
-        if (now_ep < 1700000000UL) goto end_record;   // NTP no listo
-
-        // Startup: inicializar estado desde la primera lectura válida de energía.
-        // Los datos diarios (local_d) son opcionales aquí; si aún no están disponibles
-        // se inicializarán cuando lleguen (ver bloque fetchDailyStats más arriba).
-        if (!s_startup_done) {
-            if (!local_e.valid) goto end_record;
-            s_startup_done  = true;
-            s_cur_5min_slot = (int32_t)slot_5min;
-
-            struct tm now_tm; getLocalTime(&now_tm, 500);
-            s_cur_hour = now_tm.tm_hour;
-            s_cur_day  = now_tm.tm_mday;
-
-            // DEYE-01: tras un reinicio a mitad de hora, sembrar el acumulador horario
-            // con los registros de 5 min ya guardados en esta hora. Cada uno es la media
-            // de ~60 muestras de 5 s, de ahí el peso 60: así el HourlyRecord no se
-            // calcula solo con lo posterior al arranque.
-            {
-                struct tm hs = now_tm;
-                hs.tm_min = 0; hs.tm_sec = 0; hs.tm_isdst = -1;
-                const uint32_t hour_start = (uint32_t)mktime(&hs);
-                const uint32_t dep_today  = local_midnight_of((time_t)now_ep);
-                uint32_t cnt = 0, seeded = 0;
-                Cache.lock();
-                const Record5Min* rr = Cache.getRawDay(dep_today, cnt);
-                for (uint32_t i = 0; rr && i < cnt; i++) {
-                    // El registro con ts = hour_start cubre la hora anterior
-                    if (rr[i].timestamp <= hour_start || rr[i].timestamp > now_ep) continue;
-                    s_acc_pv   += rr[i].pv_w   * 60.0f;
-                    s_acc_grid += rr[i].grid_w * 60.0f;
-                    s_acc_batt += rr[i].batt_w * 60.0f;
-                    s_acc_load += rr[i].load_w * 60.0f;
-                    s_acc_n    += 60;
-                    seeded++;
-                }
-                Cache.unlock();
-                if (seeded) DBGSERIAL.printf("[Record] Acumulador horario sembrado con %lu registros de 5 min\n",
-                                             (unsigned long)seeded);
-            }
-
-            if (local_d.valid) {
-                s_snap_day_pv   = (uint16_t)(local_d.pv_kwh             * 10.0f + 0.5f);
-                s_snap_day_exp  = (uint16_t)(local_d.export_kwh          * 10.0f + 0.5f);
-                s_snap_day_imp  = (uint16_t)(local_d.import_kwh          * 10.0f + 0.5f);
-                s_snap_day_load = (uint16_t)(local_d.load_kwh            * 10.0f + 0.5f);
-                s_snap_day_bchg = (uint16_t)(local_d.batt_charge_kwh     * 10.0f + 0.5f);
-                s_snap_day_bdis = (uint16_t)(local_d.batt_discharge_kwh  * 10.0f + 0.5f);
-                s_snap_valid    = true;
-            }
-            s_soc_start_of_day = (uint8_t)local_e.batt_soc;
-
-            // Publicar en cache el primer valor del día
-            {
-                struct tm today_tm = now_tm;
-                today_tm.tm_hour = 0; today_tm.tm_min = 0;
-                today_tm.tm_sec  = 0; today_tm.tm_isdst = -1;
-                uint32_t dep = (uint32_t)mktime(&today_tm);
-                DailyRecord dr{};
-                dr.day_epoch   = dep;
-                dr.pv_10wh     = s_snap_day_pv;
-                dr.export_10wh = s_snap_day_exp;
-                dr.import_10wh = s_snap_day_imp;
-                dr.load_10wh   = s_snap_day_load;
-                dr.bchg_10wh   = s_snap_day_bchg;
-                dr.bdis_10wh   = s_snap_day_bdis;
-                dr.soc_start   = s_soc_start_of_day;
-                dr.soc_end     = (uint8_t)local_e.batt_soc;
-                dr.flags       = 0x01;
-                if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
-                Cache.pushDaily(dr);
-                if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
-            }
-
-            // Restaurar estado solar desde NVS comparando la fecha guardada con hoy.
-            // Si es de otro día, resetear — la producción solar empieza de cero cada día.
-            if (!s_solar_restored) {
-                s_solar_restored = true;
-                SessionState ss{};
-                if (Storage.loadSessionState(ss) && ss.last_record_epoch > 0) {
-                    struct tm saved_tm{};
-                    time_t t = (time_t)ss.last_record_epoch;
-                    localtime_r(&t, &saved_tm);
-                    bool same_day = (saved_tm.tm_mday == now_tm.tm_mday &&
-                                     saved_tm.tm_mon  == now_tm.tm_mon  &&
-                                     saved_tm.tm_year == now_tm.tm_year);
-                    s_solar.active = same_day ? ss.solar_active : false;
-                    DBGSERIAL.printf("[Solar] Estado %s: %s\n",
-                                     same_day ? "restaurado" : "reseteado (día anterior)",
-                                     s_solar.active ? "activo" : "inactivo");
-                }
-            }
-
-            DBGSERIAL.printf("[Record] Startup ok: slot=%lu h=%d d=%d\n",
-                (unsigned long)slot_5min, s_cur_hour, s_cur_day);
-            goto end_record;
-        }
-
-        if (!local_e.valid) goto end_record;
-
-        {
-            struct tm now_tm; getLocalTime(&now_tm, 500);
-            int new_hour = now_tm.tm_hour;
-            int new_day  = now_tm.tm_mday;
-
-            s_acc_pv   += local_e.pv_power;
-            s_acc_grid += local_e.grid_power;
-            s_acc_batt += local_e.batt_power;
-            s_acc_load += local_e.load_power;
-            s_acc_soc   = (uint8_t)local_e.batt_soc;
-            s_acc_n++;
-
-            // ── Nuevo slot de 5 minutos ───────────────────────────────────
-            if ((int32_t)slot_5min != s_cur_5min_slot) {
-                s_cur_5min_slot = (int32_t)slot_5min;
-                uint32_t record_ts = slot_5min * 300;
-                DBGSERIAL.printf("[Record] Slot: ts=%lu\n", (unsigned long)record_ts);
-
-                // DEYE-02: valor medio de las muestras del periodo (no el
-                // instante del cambio de slot). Si por algún motivo no hay
-                // muestras (primer slot tras arranque), se usa la actual.
-                Record5Min r{};
-                r.timestamp  = record_ts;
-                if (!s_slot.empty()) {
-                    r.pv_w   = s_slot.pv();
-                    r.grid_w = s_slot.grid();
-                    r.batt_w = s_slot.batt();
-                    r.load_w = s_slot.load();
-                } else {
-                    r.pv_w   = (int16_t)constrain(local_e.pv_power,  -32767, 32767);
-                    r.grid_w = (int16_t)constrain(local_e.grid_power, -32767, 32767);
-                    r.batt_w = (int16_t)constrain(local_e.batt_power, -32767, 32767);
-                    r.load_w = (int16_t)constrain(local_e.load_power, -32767, 32767);
-                }
-                s_slot.reset();
-                r.soc        = (uint8_t)local_e.batt_soc;
-                r.flags      = 0x01;
-
-                // Serializar con el flush del display en Core 1 (ver s_flash_display_mutex)
-                if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
-                bool push_ok = Store.push(r);
-                // DEYE-03: NVS tiene ciclos de escritura limitados; el estado de
-                // sesión solo se usa para comparar el día al arrancar, así que
-                // basta guardarlo cada hora (los cambios solar ya lo guardan).
-                if (record_ts - s_session_saved_ep >= 3600) {
-                    Storage.saveSessionState({record_ts, true, s_solar.active});
-                    s_session_saved_ep = record_ts;
-                }
-                if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
-                if (push_ok) Cache.pushRaw(r);
-            }
-            // La muestra actual pertenece al slot en curso (se añade tras
-            // cerrar el anterior para que no contamine su media)
-            s_slot.add(local_e.pv_power, local_e.grid_power,
-                       local_e.batt_power, local_e.load_power);
-
-            // ── Cambio de hora ────────────────────────────────────────────
-            if (new_hour != s_cur_hour) {
-                // Hora que se cierra y día local al que pertenece (a las 00:00 es AYER)
-                struct tm mid = now_tm;
-                if (new_hour == 0) mid.tm_mday--;  // mktime() normaliza mday=0 al último día del mes anterior
-                mid.tm_hour = s_cur_hour;
-                mid.tm_min = 0; mid.tm_sec = 0; mid.tm_isdst = -1;
-                struct tm mid_day = mid;
-                mid_day.tm_hour = 0; mid_day.tm_isdst = -1;
-                const uint32_t mid_dep = (uint32_t)mktime(&mid_day);
-
-                // DEYE-01: totales diarios de ESE día (última lectura buena), no la
-                // última lectura a secas: a medianoche puede ser un fallo (valid=false)
-                // o ya la del día nuevo con los contadores a cero.
-                const DailyStats* hd = s_dtrack.forDay(mid_dep);
-
-                if (s_acc_n > 0 && s_snap_valid && hd) {
-                    uint16_t cur_pv   = kwh_to_10wh(hd->pv_kwh);
-                    uint16_t cur_exp  = kwh_to_10wh(hd->export_kwh);
-                    uint16_t cur_imp  = kwh_to_10wh(hd->import_kwh);
-                    uint16_t cur_load = kwh_to_10wh(hd->load_kwh);
-                    uint16_t cur_bchg = kwh_to_10wh(hd->batt_charge_kwh);
-                    uint16_t cur_bdis = kwh_to_10wh(hd->batt_discharge_kwh);
-
-                    HourlyRecord hr{};
-                    hr.hour_epoch   = (uint32_t)mktime(&mid);
-                    hr.avg_pv_w     = (int16_t)(s_acc_pv   / s_acc_n);
-                    hr.avg_grid_w   = (int16_t)(s_acc_grid  / s_acc_n);
-                    hr.avg_batt_w   = (int16_t)(s_acc_batt  / s_acc_n);
-                    hr.avg_load_w   = (int16_t)(s_acc_load  / s_acc_n);
-                    hr.soc_end       = s_acc_soc;
-                    hr.sample_count  = (uint8_t)min(s_acc_n, 255);
-                    hr.flags         = 0x01;
-                    hr.day_pv        = cur_pv;
-                    hr.day_export    = cur_exp;
-                    hr.day_import    = cur_imp;
-                    hr.day_load      = cur_load;
-                    hr.day_bchg      = cur_bchg;
-                    hr.day_bdis      = cur_bdis;
-                    if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
-                    Cache.pushHourly(hr);
-                    if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
-
-                    s_snap_day_pv   = cur_pv;   s_snap_day_exp  = cur_exp;
-                    s_snap_day_imp  = cur_imp;  s_snap_day_load = cur_load;
-                    s_snap_day_bchg = cur_bchg; s_snap_day_bdis = cur_bdis;
-                }
-
-                s_acc_pv = s_acc_grid = s_acc_batt = s_acc_load = 0;
-                s_acc_n  = 0;
-                s_cur_hour = new_hour;
-
-                // Actualizar DailyRecord parcial al cambio de hora (requiere una
-                // lectura diaria buena de HOY: a las 00:00 aún puede ser la de ayer)
-                struct tm today_tm = now_tm;
-                today_tm.tm_hour = 0; today_tm.tm_min = 0;
-                today_tm.tm_sec  = 0; today_tm.tm_isdst = -1;
-                const uint32_t dep_now = (uint32_t)mktime(&today_tm);
-                const DailyStats* td = s_dtrack.forDay(dep_now);
-                if (td) {
-                    uint32_t dep = dep_now;
-                    DailyRecord dr{};
-                    dr.day_epoch   = dep;
-                    dr.pv_10wh     = kwh_to_10wh(td->pv_kwh);
-                    dr.export_10wh = kwh_to_10wh(td->export_kwh);
-                    dr.import_10wh = kwh_to_10wh(td->import_kwh);
-                    dr.load_10wh   = kwh_to_10wh(td->load_kwh);
-                    dr.bchg_10wh   = kwh_to_10wh(td->batt_charge_kwh);
-                    dr.bdis_10wh   = kwh_to_10wh(td->batt_discharge_kwh);
-                    dr.soc_start   = s_soc_start_of_day;
-                    dr.soc_end     = (uint8_t)local_e.batt_soc;
-                    dr.flags       = 0x01;
-                    if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
-                    Cache.pushDaily(dr);
-                    if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
-                }
-            }
-
-            // ── Cambio de día ─────────────────────────────────────────────
-            if (new_day != s_cur_day) {
-                struct tm yesterday = now_tm;
-                yesterday.tm_mday--;  // mktime() normaliza mday=0 al último día del mes anterior
-                yesterday.tm_hour = 0; yesterday.tm_min = 0;
-                yesterday.tm_sec  = 0; yesterday.tm_isdst = -1;
-                uint32_t dep_yesterday = (uint32_t)mktime(&yesterday);
-
-                HourlyRecord last_hr{};
-                if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
-                bool got_hr = Store.getLastHourly(dep_yesterday, last_hr);
-                if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
-
-                // DEYE-01: cerrar el día con la última lectura diaria BUENA de ayer
-                // (como mucho unos segundos antes de medianoche); solo si no la hay
-                // se recurre al último registro horario, que puede estar hasta 1 h atrás.
-                const DailyStats* yd = s_dtrack.forDay(dep_yesterday);
-                if (yd || got_hr) {
-                    DailyRecord dr{};
-                    dr.day_epoch   = dep_yesterday;
-                    if (yd) {
-                        dr.pv_10wh     = kwh_to_10wh(yd->pv_kwh);
-                        dr.export_10wh = kwh_to_10wh(yd->export_kwh);
-                        dr.import_10wh = kwh_to_10wh(yd->import_kwh);
-                        dr.load_10wh   = kwh_to_10wh(yd->load_kwh);
-                        dr.bchg_10wh   = kwh_to_10wh(yd->batt_charge_kwh);
-                        dr.bdis_10wh   = kwh_to_10wh(yd->batt_discharge_kwh);
-                    } else {
-                        dr.pv_10wh     = last_hr.day_pv;
-                        dr.export_10wh = last_hr.day_export;
-                        dr.import_10wh = last_hr.day_import;
-                        dr.load_10wh   = last_hr.day_load;
-                        dr.bchg_10wh   = last_hr.day_bchg;
-                        dr.bdis_10wh   = last_hr.day_bdis;
-                    }
-                    dr.soc_start   = s_soc_start_of_day;
-                    dr.soc_end     = got_hr ? last_hr.soc_end : s_acc_soc;
-                    dr.flags       = 0x03;
-                    if (s_flash_display_mutex) xSemaphoreTake(s_flash_display_mutex, portMAX_DELAY);
-                    Cache.pushDaily(dr);
-                    if (s_flash_display_mutex) xSemaphoreGive(s_flash_display_mutex);
-                }
-
-                s_soc_start_of_day = (uint8_t)local_e.batt_soc;
-                s_cur_day = new_day;
-                // Resetear estado solar al cambiar de día — de noche no hay producción
-                s_solar.resetForNewDay();
-            }
-        }
-
-        end_record:;
-
-        // ── Alertas Telegram ──────────────────────────────────────────────
-        if (s_startup_done && local_e.valid && Telegram.isConfigured()) {
-            // Refrescar config de Telegram desde NVS cada 60 s
-            if (!s_tgcfg_loaded || millis() - s_tgcfg_last_ms >= 60000) {
-                s_tgcfg = Storage.loadTelegramConfig();
-                s_tgcfg_loaded  = true;
-                s_tgcfg_last_ms = millis();
-            }
-
-            // ── Producción solar ──────────────────────────────────────────
-            // Umbral de inicio: 50 W / parada: 20 W — debounce 3 lecturas (15 s)
-            if (s_tgcfg.notify_solar) {
-                switch (s_solar.update(local_e.pv_power)) {
-                case SolarMonitor::Event::START:
-                    Telegram.enqueueAlert(AlertType::SOLAR_START,
-                                          (int32_t)local_e.pv_power);
-                    screen_banner_enqueue(AlertType::SOLAR_START,
-                                          (int32_t)local_e.pv_power);
-                    Storage.saveSessionState({now_ep, true, true});
-                    break;
-                case SolarMonitor::Event::STOP:
-                    Telegram.enqueueAlert(AlertType::SOLAR_STOP);
-                    screen_banner_enqueue(AlertType::SOLAR_STOP);
-                    Storage.saveSessionState({now_ep, true, false});
-                    break;
-                default: break;
-                }
-            }
-
-            // ── Batería ───────────────────────────────────────────────────
-            // Dos niveles: aviso (batt_warn) y crítico (batt_threshold)
-            // Recuperación con histéresis +5% sobre el umbral de aviso
-            {
-                const uint8_t soc = (uint8_t)local_e.batt_soc;
-                switch (s_batt.update(soc, s_tgcfg.batt_warn, s_tgcfg.batt_threshold)) {
-                case BatteryMonitor::Event::CRITICAL:
-                    Telegram.enqueueAlert(AlertType::BATT_CRITICAL, (int32_t)soc);
-                    screen_banner_enqueue(AlertType::BATT_CRITICAL, (int32_t)soc);
-                    break;
-                case BatteryMonitor::Event::WARN_LOW:
-                    Telegram.enqueueAlert(AlertType::BATT_LOW, (int32_t)soc);
-                    screen_banner_enqueue(AlertType::BATT_LOW, (int32_t)soc);
-                    break;
-                case BatteryMonitor::Event::RECOVERED:
-                    Telegram.enqueueAlert(AlertType::BATT_RECOVERED, (int32_t)soc);
-                    screen_banner_enqueue(AlertType::BATT_RECOVERED, (int32_t)soc);
-                    break;
-                default: break;
-                }
-            }
-
-            // ── Red eléctrica ─────────────────────────────────────────────
-            // Corte: |grid_power| = 0 W durante 12 lecturas (60 s)
-            // Solo se evalúa tras haber visto red activa al menos una vez
-            if (s_tgcfg.notify_grid) {
-                switch (s_grid.update(local_e.grid_power)) {
-                case GridMonitor::Event::OUTAGE:
-                    Telegram.enqueueAlert(AlertType::GRID_OUTAGE,
-                                          (int32_t)local_e.grid_power);
-                    screen_banner_enqueue(AlertType::GRID_OUTAGE);
-                    break;
-                case GridMonitor::Event::RESTORED:
-                    Telegram.enqueueAlert(AlertType::GRID_RESTORED);
-                    screen_banner_enqueue(AlertType::GRID_RESTORED);
-                    break;
-                default: break;
-                }
-            }
-        }
-
-        // ── DEYE-09: redescubrir el logger si lleva un rato sin responder ─────
-        // Posible cambio de IP por DHCP. Como máximo cada 5 min, y solo tras
-        // ≥8 fallos seguidos (el aviso de Telegram salta en el 5º).
-        if (s_logger.consecutive >= 8 && g_cfg.logger_serial != 0 &&
-            (s_last_discovery_ms == 0 || millis() - s_last_discovery_ms >= 300000UL)) {
-            s_last_discovery_ms = millis();
-            char found_ip[16];
-            if (logger_discover(g_cfg.logger_serial, MODBUS_UNIT_ID, found_ip, sizeof(found_ip))) {
-                if (strcmp(found_ip, g_cfg.logger_ip) != 0) {
-                    DBGSERIAL.printf("[Discovery] IP del logger: %s -> %s (guardada)\n",
-                                     g_cfg.logger_ip, found_ip);
-                    strncpy(g_cfg.logger_ip, found_ip, sizeof(g_cfg.logger_ip) - 1);
-                    g_cfg.logger_ip[sizeof(g_cfg.logger_ip) - 1] = '\0';
-                    Storage.saveConfig(g_cfg);   // `client` apunta a g_cfg.logger_ip: ya usa la nueva
-                }
-            }
-        }
-
-        // DEYE-08: con el logger caído el intervalo se duplica (hasta 60 s) tras el
-        // 5º fallo, en vez de reintentar cada 5 s indefinidamente.
-        vTaskDelay(pdMS_TO_TICKS(s_logger.nextDelayMs(POLL_INTERVAL_MS, 60000)));
-    }
-}
-
+// La tarea de red (solarmanTask) vive en solarman_task.cpp; el histórico en
+// recorder.cpp y las alertas en alert_engine.cpp (DEYE-41).
 // ── Setup ─────────────────────────────────────────────────────────────────
 void setup() {
     DBGSERIAL.begin(DBG_UART, 115200);
@@ -1048,7 +483,7 @@ void setup() {
         ESP.restart();
     }
 #if defined(BOARD_GUITION_JC1060P470) || defined(BOARD_GUITION_JC4880P443C)
-    s_flash_display_mutex = xSemaphoreCreateMutex();
+    g_flash_display_mutex = xSemaphoreCreateMutex();
 #endif
     webserver_set_data(g_mutex, &g_energy, &g_daily);
     webserver_begin();
