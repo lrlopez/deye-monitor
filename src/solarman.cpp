@@ -17,8 +17,8 @@ int SolarmanClient::buildV5Frame(uint8_t* buf, uint16_t startReg, uint16_t count
 }
 
 bool SolarmanClient::openConn(WiFiClient& client) {
-    client.setTimeout(3);      // segundos — tiempo máximo de espera para recibir datos
-    if (!client.connect(_ip, _port, 3000)) {   // ms — timeout de conexión TCP
+    client.setTimeout((TUNE_LOGGER_TIMEOUT_MS + 999) / 1000);   // segundos — espera máxima al recibir datos
+    if (!client.connect(_ip, _port, TUNE_LOGGER_TIMEOUT_MS)) {  // ms — timeout de conexión TCP
         APP_LOGW("Solarman", "Timeout conectando al datalogger");
         return false;
     }
@@ -41,7 +41,7 @@ bool SolarmanClient::exchange(WiFiClient& client, uint16_t startReg, uint16_t co
     int received = 0;
     int target   = expectedLen;     // se reduce si la propia trama anuncia ser más corta
     uint32_t t0 = millis();
-    while (received < target && (millis() - t0) < 3000) {
+    while (received < target && (millis() - t0) < TUNE_LOGGER_TIMEOUT_MS) {
         int avail = client.available();
         if (avail > 0) {
             // Lectura por bloques (DEYE-07), nunca más allá de lo esperado

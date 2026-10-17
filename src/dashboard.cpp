@@ -39,8 +39,8 @@ static int32_t  s_prev_batt_power = INT32_MIN;
 static int32_t  s_prev_grid_power = INT32_MIN;
 
 // DEYE-51: umbrales de frescura de los datos
-#define STALE_WARN_MS   10000   // >10 s sin datos: la hora de la muestra pasa a ámbar
-#define STALE_LOST_MS   30000   // >30 s: datos obsoletos (valores atenuados + aviso persistente)
+#define STALE_WARN_MS   TUNE_STALE_WARN_MS   // sin datos: la hora de la muestra pasa a ámbar
+#define STALE_LOST_MS   TUNE_STALE_LOST_MS   // datos obsoletos (valores atenuados + aviso persistente)
 
 // Las cuatro tarjetas, para atenuarlas como conjunto cuando los datos están obsoletos
 static lv_obj_t* s_cards[4] = {};
@@ -165,7 +165,7 @@ static void make_bg_arc(lv_obj_t* parent,
 // (> 50 W): la dirección indica el sentido y la velocidad la intensidad.
 // Se alterna tocando la barra superior; la elección se guarda en NVS.
 #define FLOW_DOT        SS(7)
-#define FLOW_ACTIVE_W   50      // por debajo se considera sin flujo
+#define FLOW_ACTIVE_W   TUNE_FLOW_ACTIVE_W   // por debajo se considera sin flujo
 
 struct FlowLink {
     lv_obj_t* line   = nullptr;
@@ -652,11 +652,11 @@ void dashboard_update(const EnergyData& d)
 
         lv_color_t arc_col, txt_col = C_WHITE;
         const char* status;
-        if (d.grid_power > 50) {
+        if (d.grid_power > FLOW_ACTIVE_W) {
             arc_col = C_GRID_IMP;
             status  = "Importando";
             lv_label_set_text_fmt(lbl_grid_val, "+%d W", (int)d.grid_power);
-        } else if (d.grid_power < -50) {
+        } else if (d.grid_power < -FLOW_ACTIVE_W) {
             arc_col = C_GRID_EXP;
             status  = "Exportando";
             lv_label_set_text_fmt(lbl_grid_val, "%d W", (int)d.grid_power);
@@ -688,9 +688,9 @@ void dashboard_update(const EnergyData& d)
 
         lv_color_t pwr_col;
         const char* status;
-        if (d.batt_power < -50) {
+        if (d.batt_power < -FLOW_ACTIVE_W) {
             pwr_col = C_BATT_OK;  status = "Cargando";
-        } else if (d.batt_power > 50) {
+        } else if (d.batt_power > FLOW_ACTIVE_W) {
             pwr_col = C_BATT_DIS; status = "Descargando";
         } else {
             pwr_col = C_BATT_IDL; status = "Reposo";

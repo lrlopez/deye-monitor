@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <math.h>
+#include "tuning.h"
 
 // Máquinas de estado de las alertas (DEYE-60/41), sin dependencias de Arduino
 // ni de Telegram/LVGL: reciben una lectura y devuelven el evento a notificar.
@@ -10,9 +11,9 @@
 // ── Producción solar ──────────────────────────────────────────────────────
 // Inicio > 50 W, parada < 20 W, 3 lecturas consecutivas (15 s a 5 s/lectura)
 struct SolarMonitor {
-    static constexpr float   START_W = 50.0f;
-    static constexpr float   STOP_W  = 20.0f;
-    static constexpr uint8_t DEBOUNCE = 3;
+    static constexpr float   START_W = (float)TUNE_SOLAR_START_W;
+    static constexpr float   STOP_W  = (float)TUNE_SOLAR_STOP_W;
+    static constexpr uint8_t DEBOUNCE = TUNE_SOLAR_DEBOUNCE;
     enum class Event : uint8_t { NONE, START, STOP };
 
     bool    active   = false;
@@ -68,7 +69,7 @@ struct BatteryMonitor {
 // Corte: grid = 0 W exacto durante 12 lecturas (60 s). Solo se evalúa tras
 // haber visto red activa al menos una vez (evita falsos cortes al arrancar).
 struct GridMonitor {
-    static constexpr uint8_t DEBOUNCE = 12;
+    static constexpr uint8_t DEBOUNCE = TUNE_GRID_OUTAGE_READINGS;
     enum class Event : uint8_t { NONE, OUTAGE, RESTORED };
 
     bool    outage   = false;
@@ -97,8 +98,8 @@ struct GridMonitor {
 // histórico en régimen ocupa ~3,9 MB, así que saltar indica algo anómalo
 // (importación, STORE_DAYS ampliado, ficheros residuales…).
 struct FsSpaceMonitor {
-    static constexpr uint8_t WARN_BELOW_PCT   = 10;   // aviso si libre < 10 %
-    static constexpr uint8_t REARM_ABOVE_PCT  = 15;   // se rearma con libre >= 15 %
+    static constexpr uint8_t WARN_BELOW_PCT   = TUNE_FS_WARN_BELOW_PCT;    // aviso si libre < 10 %
+    static constexpr uint8_t REARM_ABOVE_PCT  = TUNE_FS_REARM_ABOVE_PCT;   // se rearma con libre >= 15 %
     enum class Event : uint8_t { NONE, LOW_SPACE };
 
     bool warned = false;
@@ -123,7 +124,7 @@ struct FsSpaceMonitor {
 // `notified` solo se marca con markNotified(): si Telegram no está configurado
 // el aviso se reintentará en el siguiente ciclo que llegue a 5.
 struct LoggerFailMonitor {
-    static constexpr uint8_t THRESHOLD = 5;
+    static constexpr uint8_t THRESHOLD = TUNE_LOGGER_FAIL_READINGS;
     uint8_t  fail_cnt    = 0;
     bool     notified    = false;
     uint16_t consecutive = 0;   // fallos seguidos (satura en 65535), para el backoff

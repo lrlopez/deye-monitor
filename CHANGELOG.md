@@ -50,6 +50,8 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Interno
 
+- **Constantes de ajuste en `tuning.h` (DEYE-64):** los umbrales y tiempos que estaban como números mágicos (inicio/fin de producción solar 50/20 W y 3 lecturas, corte de red 12 lecturas, fallos del logger, avisos de espacio, doble toque 600 ms, timeout del logger 3 s, umbral de flujo 50 W, datos obsoletos 10/30 s) tienen nombre `TUNE_*`, valor por defecto y se pueden sobreescribir con `-DTUNE_xxx=…` desde `platformio.ini`. Sin cambios de comportamiento.
+
 - **`main.cpp` dividido (DEYE-41):** pasa de ~1190 a ~660 líneas. La tarea de red vive en `solarman_task.cpp`; el histórico en `recorder.cpp` (`Recorder`: slots de 5 min, cierre de hora y de día) y las alertas en `alert_engine.cpp` (`AlertEngine`), en lugar de ~470 líneas de una sola función con variables `static`. Estado global compartido declarado en `app_state.h` (`FlashGuard` sustituye a los `if (mutex) Take/Give` repetidos). Sin cambio de comportamiento.
 - 49 tests nativos (+3 del monitor de espacio libre).
 

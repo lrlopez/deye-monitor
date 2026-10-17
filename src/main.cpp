@@ -645,7 +645,7 @@ void loop() {
     lv_timer_handler();
 
     // ── Detectar toque: inactividad + doble-tap para volver al dashboard ──
-    // Se mide desde el primer press hasta el segundo press (< 600 ms).
+    // Se mide desde el primer press hasta el segundo press (< TUNE_DOUBLE_TAP_MS).
     static bool     s_was_pressed  = false;
     static uint32_t s_first_tap_ms = 0;
 
@@ -657,7 +657,7 @@ void loop() {
                 Backlight.onTouch();
                 if (!s_was_pressed) {   // flanco de subida = nuevo press
                     uint32_t now = millis();
-                    if (s_first_tap_ms && now - s_first_tap_ms < 600) {
+                    if (s_first_tap_ms && now - s_first_tap_ms < TUNE_DOUBLE_TAP_MS) {
                         // Segundo press dentro de la ventana → doble tap
                         if (g_tileview) {
                             lv_obj_t* cur = lv_tileview_get_tile_active(g_tileview);

@@ -1,5 +1,6 @@
 #pragma once
 #include "safe_serial.h"
+#include "tuning.h"       // umbrales, antirrebotes y tiempos ajustables (DEYE-64)
 
 // ── WiFi ──────────────────────────────────────────────────────────────────
 #define WIFI_SSID   ""
