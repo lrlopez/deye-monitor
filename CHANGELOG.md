@@ -6,6 +6,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+---
+
+## [v3.6.0] - 2026-10-17
+
 ### Seguridad
 
 - **Contraseña de administración obligatoria (DEYE-20):** sin contraseña definida, `/admin`, `/update` (OTA), importar/exportar/borrar datos, importar/exportar configuración y `/api/restart` responden `403` en lugar de quedar abiertas a toda la LAN. La contraseña se sigue definiendo solo desde la pantalla táctil (Config → Acceso web), que ahora avisa de que la web admin/OTA está bloqueada mientras no exista. **Cambio de comportamiento** para quien usaba la web sin clave.
@@ -14,14 +18,26 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 - **Cambios de hora (DST) (DEYE-05):** los límites de día usaban `+86400 s`, incorrecto el domingo de cambio de hora (23/25 h): la hora 0 del día siguiente aparecía en la gráfica del día de primavera, los slots de caché quedaban desfasados 1 h tras un cambio de hora y el calendario mostraba 30 días en marzo. Nuevo `time_utils.h` con aritmética de días robusta.
 
+- **Cierre de día fiable (DEYE-01):** el `DailyRecord` de ayer y el último `HourlyRecord` (23:00) usaban `local_d`, que a medianoche podía ser un fallo de lectura (`valid=false`) o ya la del día nuevo con contadores a cero, y el cierre salía del último registro horario (hasta 1 h de energía menos). Ahora se guarda la última lectura diaria BUENA por día local (`daily_tracker.h`), se sondea cada 10 s entre 23:58 y 00:02 y se descartan los reinicios anticipados de contadores en los últimos 5 min del día. Tras un reinicio a mitad de hora, el acumulador horario se siembra con los registros de 5 min de esa hora en lugar de empezar de cero.
+
 ### Mejorado
 
+- **Una sola conexión TCP por ciclo (DEYE-08):** los registros instantáneos y los diarios se leen sobre el mismo socket (si el logger lo cierra, se reconecta una vez). Con el logger caído, el intervalo de sondeo se duplica a partir del 5º fallo hasta 60 s (el aviso de Telegram sigue saltando a los ~25 s).
+- **Lectura del logger más rápida y robusta (DEYE-07):** lectura por bloques en vez de byte a byte; una excepción Modbus (FC 0x83…) o un socket cerrado abortan al instante en lugar de esperar los 3 s del timeout; la longitud esperada se ajusta a la que anuncia la propia trama.
+- **Redescubrimiento automático del logger (DEYE-09):** tras ≥8 fallos seguidos (máx. cada 5 min) se lanza un broadcast UDP al puerto 48899 y cada candidato se verifica con una lectura Modbus real firmada con el nº de serie; si es el logger y su IP cambió, se guarda y se usa.
+- **Sin bloqueos entre UI y red (DEYE-11):** `loop()` copia los datos nuevos bajo el mutex y lo suelta antes de redibujar (antes lo mantenía durante `dashboard_update`/`stats_screen_update`, pudiendo bloquear o descartar lecturas de `solarmanTask`); los flags `ready` pasan a contadores de secuencia.
+- **Watchdog en `loop()` (DEYE-12):** la tarea de LVGL se suscribe al watchdog al final de `setup()` y lo alimenta en cada vuelta; si se cuelga, el chip se reinicia (timeout por defecto del core, 5 s).
+- **Búsquedas del histórico sin leer flash (DEYE-04):** `pushDaily`, `readDaily` y la búsqueda binaria horaria usan una copia en PSRAM de los epochs (≈74 KB), construida al arrancar, en lugar de leer de flash bajo el mutex.
 - **Registro de 5 min = media del periodo (DEYE-02):** antes guardaba la lectura puntual del instante de cambio de slot (un pico de nube/carga distorsionaba la curva); ahora promedia las ~60 muestras del slot.
 - **Menos escrituras en flash/NVS (DEYE-03):** el estado de sesión en NVS se guarda como mucho cada hora (antes cada 5 min) y la actualización horaria del `DailyRecord` ya no reescribe `/meta2.bin`.
 
+### Seguridad de datos
+
+- **El histórico ya no se formatea por un fallo de montaje transitorio (DEYE-10):** el montaje de LittleFS se reintenta 3 veces. Si el dispositivo ya había montado bien alguna vez y sigue fallando, NO se formatea solo: hay que mantener pulsada la pantalla 2 s durante los 10 s siguientes; sin confirmación se arranca sin almacenamiento y los datos permanecen en flash. En el primer arranque se formatea como siempre.
+
 ### Interno
 
-- Lógica pura extraída a headers sin dependencias de Arduino (`solarman_proto.h`, `slot_avg.h`, `time_utils.h`, `ring_index.h`, `alerts_logic.h`) y 32 tests unitarios nativos (`pio test -e native`): protocolo, promedio de slot, DST, anillo/índice de días y máquinas de estado de alertas (DEYE-60). `DataStore` y `solarmanTask` usan esos headers sin cambio de comportamiento, salvo lo de abajo.
+- Lógica pura extraída a headers sin dependencias de Arduino (`solarman_proto.h`, `slot_avg.h`, `time_utils.h`, `ring_index.h`, `alerts_logic.h`, `daily_tracker.h`) y 46 tests unitarios nativos (`pio test -e native`): protocolo, promedio de slot, DST, anillo/índice de días, búsqueda por epochs, backoff, cierre de día y máquinas de estado de alertas (DEYE-60). `DataStore` y `solarmanTask` usan esos headers sin cambio de comportamiento, salvo lo de abajo.
 - Índice de días con búsqueda binaria (DEYE-06). Exige epochs estrictamente crecientes: un registro con fecha anterior al último día indexado (reloj que retrocede) ya no se añade al índice, y un `day_idx.bin` desordenado se reconstruye al arrancar.
 - `CLAUDE.md` actualizado con las pantallas y capacidades reales (DEYE-61); `src/.DS_Store` sale del control de versiones (DEYE-62).
 
