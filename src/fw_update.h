@@ -30,7 +30,7 @@ enum class FwState : uint8_t {
 struct FwStatus {
     FwState  state;
     char     env[32];         // placa (nombre del entorno de PlatformIO)
-    char     current[16];     // versión instalada
+    char     current[32];     // versión instalada (en builds de desarrollo: "3.6.0+24.g1a2b3c4.dirty")
     char     latest[24];      // etiqueta de la última release (vacío si no consultada)
     char     notes_url[128];  // página de la release en GitHub
     char     asset[80];       // binario que se instalaría

@@ -16,7 +16,11 @@
 
 // ── Aplicación ────────────────────────────────────────────────────────────
 #define APP_NAME        "Deye Monitor"
-#define APP_VERSION     "3.6.0"
+// Versión por defecto; scripts/git_version.py la sobreescribe con `git describe`
+// al compilar con git y etiquetas disponibles (DEYE-66)
+#ifndef APP_VERSION
+  #define APP_VERSION   "3.6.0"
+#endif
 #define MDNS_HOSTNAME   "inversor"
 
 // ── Actualización desde GitHub (ver fw_update.cpp) ───────────────────────

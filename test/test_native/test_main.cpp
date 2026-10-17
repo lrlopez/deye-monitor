@@ -524,6 +524,10 @@ void test_fw_is_newer() {
     TEST_ASSERT_FALSE(fw_is_newer("3.6.0", "v3.6.0-beta")); // y no al revés
     TEST_ASSERT_FALSE(fw_is_newer("3.6.0", "basura"));      // ilegible: no ofrecer
     TEST_ASSERT_FALSE(fw_is_newer("", "v9.9.9"));
+    // Build de desarrollo (git describe): posterior a su tag, no se ofrece esa misma release
+    TEST_ASSERT_FALSE(fw_is_newer("3.6.0+24.g1a2b3c4", "v3.6.0"));
+    TEST_ASSERT_FALSE(fw_is_newer("3.6.0+24.g1a2b3c4.dirty", "v3.6.0"));
+    TEST_ASSERT_TRUE(fw_is_newer("3.6.0+24.g1a2b3c4", "v3.7.0"));
 }
 
 void test_fw_asset_matches() {

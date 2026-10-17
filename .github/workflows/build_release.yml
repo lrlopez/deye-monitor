@@ -48,6 +48,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historial y etiquetas completos: scripts/git_version.py usa `git describe`
 
       - name: Setup Python
         uses: actions/setup-python@v5
