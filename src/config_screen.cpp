@@ -6,6 +6,9 @@
 #include "config.h"
 #include "backlight.h"
 #include "data_store.h"
+#include "input_validators.h"
+#include "clock_mode.h"
+#include "ui_toast.h"
 
 // Posición absoluta del campo SSID en pantalla (para anclar el dropdown)
 // sec_wifi está en y=28, campo SSID en y=18 dentro de la sección
@@ -66,6 +69,83 @@ static lv_obj_t* slider_kw_global = nullptr;
 
 // ── Timestamp último refresco red ─────────────────────────────────────────
 static uint32_t s_last_net_refresh = 0;
+
+// ═════════════════════════════════════════════════════════════════════════
+// Validación inmediata de campos (DEYE-57)
+// ═════════════════════════════════════════════════════════════════════════
+// Cada campo con regla se pinta con borde rojo en cuanto su contenido no es válido
+// (también al abrir la pantalla si el valor guardado ya lo era) y, al pasar de
+// válido a inválido, muestra el motivo en un aviso flotante superior (la línea de
+// estado queda bajo los botones, fuera de la vista en las subpáginas largas, y el
+// teclado taparía un aviso inferior). Guardar se niega mientras haya algún campo
+// inválido. Las reglas son funciones puras de input_validators.h (con tests nativos).
+struct FieldRule { lv_obj_t* ta; bool (*ok)(const char*); const char* hint; bool last_ok; };
+static FieldRule  s_rules[12];
+static int        s_nrules = 0;
+
+static void rule_apply_style(const FieldRule& r) {
+    const bool ok = r.ok(lv_textarea_get_text(r.ta));
+    lv_obj_set_style_border_color(r.ta, ok ? C_ACCENT : C_ERR, LV_PART_MAIN);
+    lv_obj_set_style_border_width(r.ta, ok ? 1 : 2, LV_PART_MAIN);
+}
+
+static void rule_event_cb(lv_event_t* e) {
+    lv_obj_t* ta = (lv_obj_t*)lv_event_get_target(e);
+    for (int i = 0; i < s_nrules; i++) {
+        if (s_rules[i].ta != ta) continue;
+        rule_apply_style(s_rules[i]);
+        const bool ok = s_rules[i].ok(lv_textarea_get_text(ta));
+        if (!ok && s_rules[i].last_ok) ui_toast_error(s_rules[i].hint);   // solo al empezar a ser inválido, no en cada tecla
+        s_rules[i].last_ok = ok;
+        return;
+    }
+}
+
+// Registra una regla sobre `ta`. `accepted`: caracteres permitidos (los demás ni
+// se pueden teclear); nullptr = cualquiera.
+static void add_rule(lv_obj_t* ta, bool (*ok)(const char*), const char* hint,
+                     const char* accepted = nullptr) {
+    if (s_nrules >= 12) return;
+    if (accepted) lv_textarea_set_accepted_chars(ta, accepted);
+    s_rules[s_nrules] = { ta, ok, hint, ok(lv_textarea_get_text(ta)) };
+    lv_obj_add_event_cb(ta, rule_event_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+    rule_apply_style(s_rules[s_nrules]);
+    s_nrules++;
+}
+
+// Primer campo inválido (para negar el guardado y explicar por qué), o nullptr
+static const FieldRule* first_invalid_rule() {
+    for (int i = 0; i < s_nrules; i++)
+        if (!s_rules[i].ok(lv_textarea_get_text(s_rules[i].ta))) return &s_rules[i];
+    return nullptr;
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Subpáginas (DEYE-57)
+// ═════════════════════════════════════════════════════════════════════════
+// En vez de una lista de 9 secciones que obliga a hacer scroll, la pantalla
+// muestra un MENÚ de rejilla y, al elegir una entrada, solo esa sección. Las
+// secciones se crean una vez y se muestran/ocultan: todos los widgets siguen
+// existiendo, así que Guardar sigue leyendo todos los campos de una vez.
+enum { SEC_WIFI = 0, SEC_INV, SEC_CHART, SEC_NET, SEC_TG, SEC_PANT, SEC_ADMIN, SEC_DATA, SEC_N };
+static lv_obj_t*  s_sec[SEC_N]      = {};     // la tarjeta de cada sección
+static lv_obj_t*  s_menu_btn[SEC_N] = {};     // su botón del menú
+static lv_obj_t*  s_menu_sum[SEC_N] = {};     // línea de resumen del botón
+static const char* SEC_TITLE[SEC_N] = {
+    "WiFi", "Inversor", "Gr\xC3\xA1\x66ica", "Red", "Telegram", "Pantalla", "Acceso web", "Datos"
+};
+static const char* SEC_ICON[SEC_N] = {
+    LV_SYMBOL_WIFI, LV_SYMBOL_EDIT, LV_SYMBOL_CHART, LV_SYMBOL_GPS,
+    LV_SYMBOL_BELL, LV_SYMBOL_EYE_OPEN, LV_SYMBOL_WARNING, LV_SYMBOL_TRASH
+};
+static int        s_cur_sec = -1;             // -1 = menú
+static lv_obj_t*  s_title_lbl   = nullptr;    // título superior; en una subpágina hace de "volver"
+static lv_obj_t*  s_btn_save    = nullptr;
+static lv_obj_t*  s_btn_restart = nullptr;
+static lv_obj_t*  s_cfg_parent  = nullptr;
+static lv_obj_t*  s_cb_clock    = nullptr;    // "Reloj en reposo" (DEYE-54)
+static void       show_section(int idx);      // definida más abajo (la usa save_btn_cb)
+static int        section_of(lv_obj_t* obj);
 
 // ═════════════════════════════════════════════════════════════════════════
 // Helpers genéricos de UI
@@ -472,6 +552,14 @@ static void data_wipe_btn_cb(lv_event_t* /*e*/) {
 static void save_btn_cb(lv_event_t* /*e*/) {
     close_ssid_list();
 
+    // DEYE-57: no guardar con campos inválidos; llevar al usuario a la sección del error
+    if (const FieldRule* bad = first_invalid_rule()) {
+        const int sec = section_of(bad->ta);
+        if (sec >= 0 && s_cur_sec != sec) show_section(sec);
+        ui_toast_error(bad->hint);
+        return;
+    }
+
     // Cargar config actual ANTES de sobreescribirla para poder comparar
     AppConfig old_cfg{};
     Storage.loadConfig(old_cfg);
@@ -544,6 +632,7 @@ static void save_btn_cb(lv_event_t* /*e*/) {
     Storage.saveChartConfig(ccfg);
     Storage.saveTelegramConfig(tgcfg);
     Backlight.setConfig(blcfg);  // guarda en NVS y aplica en caliente
+    if (s_cb_clock) clock_mode_set_enabled(lv_obj_has_state(s_cb_clock, LV_STATE_CHECKED));
 
     // Aplicar credenciales Telegram en caliente
     Telegram.setCredentials(tgcfg.token, tgcfg.chat_id);
@@ -567,6 +656,148 @@ static void save_btn_cb(lv_event_t* /*e*/) {
         lv_label_set_text(lbl_status, LV_SYMBOL_OK " Guardado");
         lv_obj_set_style_text_color(lbl_status, C_OK, 0);
     }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Menú y navegación entre subpáginas (DEYE-57)
+// ═════════════════════════════════════════════════════════════════════════
+#define SEC_TOP        SY(30)             // y de la sección abierta (= la del bloque WiFi, que ancla el desplegable de SSID)
+#define MENU_COLS      2
+#define MENU_GAP       SX(6)
+#define MENU_CELL_H    SY(42)
+#define MENU_Y0        SY(32)
+
+static int s_menu_bottom = 0;             // y inferior de la rejilla del menú
+
+// Botones Guardar / Reiniciar y la línea de estado, 8 px por debajo de `bottom_y`
+static void layout_actions(int bottom_y) {
+    const int y = bottom_y + SY(8);
+    lv_obj_set_pos(s_btn_restart, SX(10), y);
+    lv_obj_set_pos(s_btn_save, SCREEN_WIDTH - SX(140), y);
+    lv_obj_set_pos(lbl_status, SX(10), y + CFG_FIELD_H + SY(4));
+}
+
+// Sección (índice) a la que pertenece un widget, subiendo por sus padres; -1 si ninguna
+static int section_of(lv_obj_t* obj) {
+    for (lv_obj_t* o = obj; o; o = lv_obj_get_parent(o))
+        for (int i = 0; i < SEC_N; i++) if (s_sec[i] == o) return i;
+    return -1;
+}
+
+static void menu_set_summary(int i, const char* txt, lv_color_t col) {
+    lv_label_set_text(s_menu_sum[i], txt);
+    lv_obj_set_style_text_color(s_menu_sum[i], col, 0);
+}
+
+// Resumen de una línea del estado actual de cada sección (lee los widgets en vivo,
+// así refleja también lo editado y aún sin guardar)
+static void menu_update_summaries() {
+    char b[48];
+    bool bad[SEC_N] = {};
+    for (int r = 0; r < s_nrules; r++) {
+        if (!s_rules[r].ok(lv_textarea_get_text(s_rules[r].ta))) {
+            int s = section_of(s_rules[r].ta);
+            if (s >= 0) bad[s] = true;
+        }
+    }
+
+    const char* ssid = lv_textarea_get_text(ta_ssid);
+    menu_set_summary(SEC_WIFI, ssid[0] ? ssid : "Sin configurar", ssid[0] ? C_MUTED : C_WARN);
+    menu_set_summary(SEC_INV, lv_textarea_get_text(ta_logger_ip), C_MUTED);
+    if (lv_obj_has_state(cb_autoscale, LV_STATE_CHECKED)) snprintf(b, sizeof(b), "Autoescalado");
+    else snprintf(b, sizeof(b), "M\xC3\xA1x %d kW", (int)lv_slider_get_value(slider_kw_global));
+    menu_set_summary(SEC_CHART, b, C_MUTED);
+    if (WiFi.status() == WL_CONNECTED) menu_set_summary(SEC_NET, WiFi.localIP().toString().c_str(), C_MUTED);
+    else                               menu_set_summary(SEC_NET, "Sin conexi\xC3\xB3n", C_WARN);
+    const bool tg = lv_textarea_get_text(s_ta_tg_token)[0] != '\0';
+    menu_set_summary(SEC_TG, tg ? "Activo" : "Sin configurar", tg ? C_OK : C_MUTED);
+    snprintf(b, sizeof(b), "Brillo %d%%", (int)lv_slider_get_value(s_slider_bl_op));
+    menu_set_summary(SEC_PANT, b, C_MUTED);
+    const bool pw = !Storage.loadAdminPassword().isEmpty();
+    menu_set_summary(SEC_ADMIN, pw ? "Clave configurada" : "Sin clave: web bloqueada", pw ? C_OK : C_WARN);
+    menu_set_summary(SEC_DATA, "Borrar historial", C_MUTED);
+
+    // Un campo inválido en una sección prevalece sobre su resumen normal
+    for (int i = 0; i < SEC_N; i++)
+        if (bad[i]) menu_set_summary(i, LV_SYMBOL_WARNING " Revisa los campos en rojo", C_ERR);
+}
+
+static void show_menu() {
+    s_cur_sec = -1;
+    close_ssid_list();
+    if (kb) lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < SEC_N; i++) {
+        lv_obj_add_flag(s_sec[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_menu_btn[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    menu_update_summaries();
+    lv_label_set_text(s_title_lbl, LV_SYMBOL_SETTINGS "  Configuraci\xC3\xB3n");
+    lv_obj_set_style_text_color(s_title_lbl, C_MUTED, 0);
+    layout_actions(s_menu_bottom);
+    lv_obj_scroll_to_y(s_cfg_parent, 0, LV_ANIM_OFF);
+}
+
+static void show_section(int idx) {
+    if (idx < 0 || idx >= SEC_N) return;
+    s_cur_sec = idx;
+    close_ssid_list();
+    if (kb) lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < SEC_N; i++) {
+        lv_obj_add_flag(s_menu_btn[i], LV_OBJ_FLAG_HIDDEN);
+        if (i != idx) lv_obj_add_flag(s_sec[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_set_y(s_sec[idx], SEC_TOP);
+    lv_obj_remove_flag(s_sec[idx], LV_OBJ_FLAG_HIDDEN);
+    char t[40];
+    snprintf(t, sizeof(t), LV_SYMBOL_LEFT "  %s", SEC_TITLE[idx]);
+    lv_label_set_text(s_title_lbl, t);
+    lv_obj_set_style_text_color(s_title_lbl, C_ACCENT, 0);
+    layout_actions(SEC_TOP + lv_obj_get_height(s_sec[idx]));
+    lv_obj_scroll_to_y(s_cfg_parent, 0, LV_ANIM_OFF);
+}
+
+static void menu_btn_cb(lv_event_t* e) {
+    show_section((int)(intptr_t)lv_event_get_user_data(e));
+}
+
+static void build_menu(lv_obj_t* parent) {
+    const int cell_w = (SCREEN_WIDTH - 2 * SX(10) - (MENU_COLS - 1) * MENU_GAP) / MENU_COLS;
+    for (int i = 0; i < SEC_N; i++) {
+        const int col = i % MENU_COLS, row = i / MENU_COLS;
+        lv_obj_t* b = lv_obj_create(parent);
+        s_menu_btn[i] = b;
+        lv_obj_set_pos(b, SX(10) + col * (cell_w + MENU_GAP), MENU_Y0 + row * (MENU_CELL_H + MENU_GAP));
+        lv_obj_set_size(b, cell_w, MENU_CELL_H);
+        lv_obj_set_style_bg_color(b, C_CARD, 0);
+        lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(b, C_PRESS, LV_STATE_PRESSED);
+        lv_obj_set_style_border_color(b, C_ACCENT, 0);
+        lv_obj_set_style_border_width(b, 1, 0);
+        lv_obj_set_style_border_opa(b, LV_OPA_30, 0);
+        lv_obj_set_style_radius(b, UI_RADIUS, 0);
+        lv_obj_set_style_pad_hor(b, SX(8), 0);
+        lv_obj_set_style_pad_ver(b, SY(4), 0);
+        lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(b, menu_btn_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+
+        lv_obj_t* t = lv_label_create(b);
+        lv_obj_set_pos(t, 0, 0);
+        lv_obj_set_style_text_font(t, &FONT_NORMAL, 0);
+        lv_obj_set_style_text_color(t, C_WHITE, 0);
+        char buf[40];
+        snprintf(buf, sizeof(buf), "%s  %s", SEC_ICON[i], SEC_TITLE[i]);
+        lv_label_set_text(t, buf);
+
+        s_menu_sum[i] = lv_label_create(b);
+        lv_obj_set_pos(s_menu_sum[i], 0, FONT_NORMAL_SIZE + SY(2));
+        lv_obj_set_width(s_menu_sum[i], cell_w - 2 * SX(8));
+        lv_label_set_long_mode(s_menu_sum[i], LV_LABEL_LONG_CLIP);
+        lv_obj_set_style_text_font(s_menu_sum[i], &FONT_SMALL, 0);
+        lv_obj_set_style_text_color(s_menu_sum[i], C_MUTED, 0);
+        lv_label_set_text(s_menu_sum[i], "");
+    }
+    s_menu_bottom = MENU_Y0 + ((SEC_N + MENU_COLS - 1) / MENU_COLS) * (MENU_CELL_H + MENU_GAP);
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -601,14 +832,21 @@ void config_screen_init(lv_obj_t* parent) {
 
     // ── Título ────────────────────────────────────────────────────────────
     lv_obj_t* title = lv_label_create(parent);
+    s_title_lbl = title;
     lv_obj_set_pos(title, 0, SY(6)); lv_obj_set_width(title, SCREEN_WIDTH);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(title, &FONT_NORMAL, 0);
     lv_obj_set_style_text_color(title, C_MUTED, 0);
     lv_label_set_text(title, LV_SYMBOL_SETTINGS "  Configuraci\xC3\xB3n");
+    // En una subpágina el título hace de "volver al menú" (barra entera, fácil de acertar)
+    lv_obj_add_flag(title, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(title, SY(8));
+    lv_obj_add_event_cb(title, [](lv_event_t*) { if (s_cur_sec >= 0) show_menu(); },
+                        LV_EVENT_CLICKED, nullptr);
 
     // ── Sección WiFi ──────────────────────────────────────────────────────
     lv_obj_t* sec_wifi = make_section(parent, LV_SYMBOL_WIFI "RED WiFi", SEC_WIFI_Y, SEC_WIFI_H);
+    s_sec[SEC_WIFI] = sec_wifi;
 
     make_row_label(sec_wifi, SY(18), "SSID");
     ta_ssid = make_field(sec_wifi, CFG_LBL_W, SY(18), CFG_FIELD_W, false, "Nombre red WiFi");
@@ -638,9 +876,12 @@ void config_screen_init(lv_obj_t* parent) {
     lv_textarea_set_text(ta_pass, cfg.wifi_pass);
     lv_obj_add_event_cb(ta_pass, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_pass, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    lv_textarea_set_max_length(ta_pass, 63);
+    add_rule(ta_pass, valid_wifi_pass, "Clave WiFi: vac\xC3\xAD\x61 (red abierta) o de 8 a 63 caracteres");
 
     // ── Sección Inversor ──────────────────────────────────────────────────
     lv_obj_t* sec_inv = make_section(parent, LV_SYMBOL_EDIT " INVERSOR / DATALOGGER", SEC_INV_Y, SEC_INV_H);
+    s_sec[SEC_INV] = sec_inv;
 
     make_row_label(sec_inv, SY(18), "IP Logger");
     ta_logger_ip = make_field(sec_inv, CFG_LBL_W, SY(18),
@@ -648,6 +889,8 @@ void config_screen_init(lv_obj_t* parent) {
     lv_textarea_set_text(ta_logger_ip, cfg.logger_ip);
     lv_obj_add_event_cb(ta_logger_ip, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_logger_ip, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    lv_textarea_set_max_length(ta_logger_ip, 15);
+    add_rule(ta_logger_ip, valid_logger_ip, "IP del logger no v\xC3\xA1lida (ej. 192.168.1.50)", "0123456789.");
 
     make_row_label(sec_inv, SY(62), "N\xC3\xBAm. Serie");
     ta_logger_serial = make_field(sec_inv, CFG_LBL_W, SY(62),
@@ -657,6 +900,8 @@ void config_screen_init(lv_obj_t* parent) {
     lv_textarea_set_text(ta_logger_serial, sbuf);
     lv_obj_add_event_cb(ta_logger_serial, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_logger_serial, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    lv_textarea_set_max_length(ta_logger_serial, 10);
+    add_rule(ta_logger_serial, valid_logger_serial, "N\xC3\xBAm. de serie: solo d\xC3\xADgitos, de 1 a 4294967295", "0123456789");
 
     // ── Inversor: capacidades de la instalación ───────────────────────────
     const int FW = CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4);
@@ -667,6 +912,7 @@ void config_screen_init(lv_obj_t* parent) {
     lv_textarea_set_max_length(ta_inv_max_w, 5);
     lv_obj_add_event_cb(ta_inv_max_w, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_inv_max_w, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    add_rule(ta_inv_max_w, valid_capacity, "Potencia del inversor: n\xC3\xBAmero entre 1 y 65535", "0123456789");
 
     make_row_label(sec_inv, SY(150), "Red m\xC3\xA1x W");
     lv_obj_t* ta_grid_max_w = make_field(sec_inv, CFG_LBL_W, SY(150), FW, false, "6000");
@@ -675,6 +921,7 @@ void config_screen_init(lv_obj_t* parent) {
     lv_textarea_set_max_length(ta_grid_max_w, 5);
     lv_obj_add_event_cb(ta_grid_max_w, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_grid_max_w, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    add_rule(ta_grid_max_w, valid_capacity, "Potencia de red: n\xC3\xBAmero entre 1 y 65535", "0123456789");
 
     make_row_label(sec_inv, SY(194), "Cap. bat. Wh");
     lv_obj_t* ta_bat_cap_w = make_field(sec_inv, CFG_LBL_W, SY(194), FW, false, "16000");
@@ -683,6 +930,7 @@ void config_screen_init(lv_obj_t* parent) {
     lv_textarea_set_max_length(ta_bat_cap_w, 5);
     lv_obj_add_event_cb(ta_bat_cap_w, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_bat_cap_w, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    add_rule(ta_bat_cap_w, valid_capacity, "Capacidad de la bater\xC3\xAD\x61: n\xC3\xBAmero entre 1 y 65535", "0123456789");
 
     s_ta_inv_max_w  = ta_inv_max_w;
     s_ta_grid_max_w = ta_grid_max_w;
@@ -691,6 +939,7 @@ void config_screen_init(lv_obj_t* parent) {
     // ── Sección Gráfica ───────────────────────────────────────────────────────
     // h=100: fila checkbox(16+10) + fila label/valor(20) + fila slider(24) + padding
     lv_obj_t* sec_chart = make_section(parent, LV_SYMBOL_CHART " GR\xC3\x81\x46ICA", SEC_CHART_Y, SEC_CHART_H);
+    s_sec[SEC_CHART] = sec_chart;
 
     // Fila 1: checkbox autoescalado  (y=16)
     cb_autoscale = lv_checkbox_create(sec_chart);
@@ -739,6 +988,7 @@ void config_screen_init(lv_obj_t* parent) {
 
     // ── Sección Estado red ────────────────────────────────────────────────────
     lv_obj_t* sec_net = make_section(parent, LV_SYMBOL_GPS " ESTADO RED", SEC_NET_Y, SEC_NET_H);
+    s_sec[SEC_NET] = sec_net;
     lbl_ip   = make_info_row(sec_net, SY(18), "IP ESP32");
     lbl_rssi = make_info_row(sec_net, SY(38), "Se\xC3\xB1\x61l WiFi");
 
@@ -749,11 +999,14 @@ void config_screen_init(lv_obj_t* parent) {
     lv_textarea_set_max_length(s_ta_mdns, 31);
     lv_obj_add_event_cb(s_ta_mdns, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(s_ta_mdns, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    add_rule(s_ta_mdns, valid_mdns, "mDNS: letras, n\xC3\xBAmeros y guiones (m\xC3\xA1x. 31), sin guion al principio ni al final",
+             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-");
 
     // ── Sección Telegram ──────────────────────────────────────────────────
     TelegramConfig tgcfg = Storage.loadTelegramConfig();
 
     lv_obj_t* sec_tg = make_section(parent, LV_SYMBOL_BELL " TELEGRAM", SEC_TG_Y, SEC_TG_H);
+    s_sec[SEC_TG] = sec_tg;
 
     // Token
     make_row_label(sec_tg, SY(18), "Bot Token");
@@ -763,6 +1016,7 @@ void config_screen_init(lv_obj_t* parent) {
     lv_textarea_set_text(ta_token, tgcfg.token);
     lv_obj_add_event_cb(ta_token, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_token, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    add_rule(ta_token, valid_tg_token, "Token de Telegram no v\xC3\xA1lido (formato 123456789:AAH...)");
 
     // Chat ID
     make_row_label(sec_tg, SY(62), "Chat ID");
@@ -772,6 +1026,7 @@ void config_screen_init(lv_obj_t* parent) {
     lv_textarea_set_text(ta_chatid, tgcfg.chat_id);
     lv_obj_add_event_cb(ta_chatid, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
     lv_obj_add_event_cb(ta_chatid, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    add_rule(ta_chatid, valid_tg_chat, "Chat ID: un n\xC3\xBAmero (ej. -100123456789)", "-0123456789");
 
     // Umbral de aviso batería
     lv_obj_t* CFG_LBL_warn = lv_label_create(sec_tg);
@@ -887,15 +1142,15 @@ void config_screen_init(lv_obj_t* parent) {
 
     // Altura: igual que antes + 1 fila extra (SS16 + 10) para brillo operación
     const int SEC_BL_Y    = SEC_TG_Y + SEC_TG_H + SY(4);
-    const int SEC_BL_H    = SY(228);
+    const int SEC_BL_H    = SY(252);   // +24: fila "Reloj en reposo" (DEYE-54)
     const int SEC_ADMIN_Y = SEC_BL_Y + SEC_BL_H + SY(4);
     const int SEC_ADMIN_H = CFG_FIELD_H + CFG_SEC_PAD*2 + SY(50);
     const int SEC_DATA_Y  = SEC_ADMIN_Y + SEC_ADMIN_H + SY(4);
     const int SEC_DATA_H  = CFG_FIELD_H + CFG_SEC_PAD*2 + SY(50);
-    const int BTN_Y       = SEC_DATA_Y + SEC_DATA_H + SY(8);
 
     lv_obj_t* sec_bl = make_section(parent,
                         LV_SYMBOL_EYE_OPEN " PANTALLA", SEC_BL_Y, SEC_BL_H);
+    s_sec[SEC_PANT] = sec_bl;
 
     // Fila 1: Brillo de operación (mientras se toca la pantalla)
     const int R1 = SY(18);
@@ -978,6 +1233,17 @@ void config_screen_init(lv_obj_t* parent) {
                              LV_EVENT_VALUE_CHANGED, s_lbl_bl_night);
     }
 
+    // Fila 6: modo reloj en reposo (DEYE-54) — tras el slider del horario nocturno
+    {
+        const int R6 = R5 + SY(24) + SS(16) + SY(8);
+        s_cb_clock = lv_checkbox_create(sec_bl);
+        lv_obj_set_pos(s_cb_clock, 0, R6);
+        lv_checkbox_set_text(s_cb_clock, "Reloj en reposo");
+        lv_obj_set_style_text_font(s_cb_clock, &FONT_SMALL, 0);
+        lv_obj_set_style_text_color(s_cb_clock, C_WHITE, 0);
+        if (clock_mode_enabled()) lv_obj_add_state(s_cb_clock, LV_STATE_CHECKED);
+    }
+
     // ── Sección Acceso Web ────────────────────────────────────────────────────
     {
         String pw_status = Storage.loadAdminPassword().isEmpty()
@@ -986,6 +1252,7 @@ void config_screen_init(lv_obj_t* parent) {
 
         lv_obj_t* sec_admin = make_section(parent,
             LV_SYMBOL_WARNING " ACCESO WEB", SEC_ADMIN_Y, SEC_ADMIN_H);
+        s_sec[SEC_ADMIN] = sec_admin;
 
         lv_obj_t* lbl_pw_st = lv_label_create(sec_admin);
         lv_obj_set_pos(lbl_pw_st, 0, SY(18));
@@ -999,12 +1266,15 @@ void config_screen_init(lv_obj_t* parent) {
             CFG_SECTION_W - CFG_LBL_W - CFG_SEC_PAD*2, true, "Nueva contrase\xC3\xB1\x61 web...");
         lv_obj_add_event_cb(s_ta_admin_pass, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
         lv_obj_add_event_cb(s_ta_admin_pass, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+        lv_textarea_set_max_length(s_ta_admin_pass, 63);
+        add_rule(s_ta_admin_pass, valid_admin_pass, "La clave web debe tener al menos 8 caracteres");
     }
 
     // ── Sección Datos históricos ─────────────────────────────────────────────
     {
         lv_obj_t* sec_data = make_section(parent,
             LV_SYMBOL_TRASH " DATOS HIST\xC3\x93RICOS", SEC_DATA_Y, SEC_DATA_H);
+        s_sec[SEC_DATA] = sec_data;
 
         lv_obj_t* lbl_data_info = lv_label_create(sec_data);
         lv_obj_set_pos(lbl_data_info, 0, SY(18));
@@ -1026,8 +1296,9 @@ void config_screen_init(lv_obj_t* parent) {
     }
 
     // ── Botones acción + status ────────────────────────────────────────────────
+    // (su posición la fija layout_actions() según se esté en el menú o en una subpágina)
     lv_obj_t* btn_rst = lv_btn_create(parent);
-    lv_obj_set_pos(btn_rst, SX(10), BTN_Y);
+    s_btn_restart = btn_rst;
     lv_obj_set_size(btn_rst, SX(200), CFG_FIELD_H);
     lv_obj_set_style_bg_color(btn_rst, lv_color_hex(0x7D2020), 0);
     lv_obj_set_style_radius(btn_rst, 6, 0);
@@ -1038,7 +1309,7 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_center(rst_lbl);
 
     lv_obj_t* btn = lv_btn_create(parent);
-    lv_obj_set_pos(btn,  SCREEN_WIDTH - SX(140), BTN_Y);
+    s_btn_save = btn;
     lv_obj_set_size(btn, SX(130), CFG_FIELD_H);
     lv_obj_set_style_bg_color(btn, C_BTN, 0);
     lv_obj_set_style_radius(btn, 6, 0);
@@ -1049,7 +1320,6 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_center(blbl);
 
     lbl_status = lv_label_create(parent);
-    lv_obj_set_pos(lbl_status, SX(10), BTN_Y + CFG_FIELD_H + SY(4));
     lv_obj_set_width(lbl_status, SCREEN_WIDTH - SX(20));
     lv_obj_set_style_text_font(lbl_status, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(lbl_status, C_MUTED, 0);
@@ -1063,6 +1333,11 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(kb, kb_event_cb, LV_EVENT_READY,  nullptr);
     lv_obj_add_event_cb(kb, kb_event_cb, LV_EVENT_CANCEL, nullptr);
+
+    // ── Menú de subpáginas (DEYE-57) ──────────────────────────────────────
+    s_cfg_parent = parent;
+    build_menu(parent);
+    show_menu();
 }
 
 // ═════════════════════════════════════════════════════════════════════════

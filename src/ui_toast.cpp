@@ -14,7 +14,7 @@ static void toast_timer_cb(lv_timer_t*) {
     if (s_toast) { lv_obj_delete(s_toast); s_toast = nullptr; }
 }
 
-void ui_toast_show(const char* text, uint32_t duration_ms) {
+static void toast_make(const char* text, uint32_t duration_ms, bool error) {
     toast_close();               // uno solo a la vez
 
     lv_obj_t* p = lv_obj_create(lv_layer_top());
@@ -22,18 +22,19 @@ void ui_toast_show(const char* text, uint32_t duration_ms) {
     lv_obj_set_style_max_width(p, SCREEN_WIDTH - 2 * UI_MARGIN, 0);
     lv_obj_set_style_bg_color(p, C_LIST, 0);
     lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(p, C_BORDER, 0);
-    lv_obj_set_style_border_width(p, UI_BORDER, 0);
+    lv_obj_set_style_border_color(p, error ? C_ERR : C_BORDER, 0);
+    lv_obj_set_style_border_width(p, error ? 2 : UI_BORDER, 0);
     lv_obj_set_style_radius(p, UI_RADIUS, 0);
     lv_obj_set_style_pad_hor(p, SX(10), 0);
     lv_obj_set_style_pad_ver(p, SY(6), 0);
     lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(p, LV_OBJ_FLAG_CLICKABLE);       // no intercepta toques
-    lv_obj_align(p, LV_ALIGN_BOTTOM_MID, 0, -(SS(16) + SY(8)));   // por encima de los puntos de paginación
+    if (error) lv_obj_align(p, LV_ALIGN_TOP_MID, 0, SY(2));
+    else       lv_obj_align(p, LV_ALIGN_BOTTOM_MID, 0, -(SS(16) + SY(8)));   // por encima de los puntos de paginación
 
     lv_obj_t* l = lv_label_create(p);
     lv_obj_set_style_text_font(l, &FONT_SMALL, 0);
-    lv_obj_set_style_text_color(l, C_WHITE, 0);
+    lv_obj_set_style_text_color(l, error ? C_ERR : C_WHITE, 0);
     lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(l, text);
@@ -42,3 +43,6 @@ void ui_toast_show(const char* text, uint32_t duration_ms) {
     s_timer = lv_timer_create(toast_timer_cb, duration_ms, nullptr);
     lv_timer_set_repeat_count(s_timer, 1);
 }
+
+void ui_toast_show(const char* text, uint32_t duration_ms)  { toast_make(text, duration_ms, false); }
+void ui_toast_error(const char* text, uint32_t duration_ms) { toast_make(text, duration_ms, true); }

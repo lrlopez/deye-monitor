@@ -11,6 +11,7 @@
 #include "web_assets_chartjs.h"
 #include "web_alerts.h"
 #include "fw_update.h"
+#include "clock_mode.h"
 
 extern volatile bool g_ota_cancel;   // main.cpp: retira el overlay OTA si la actualización falla
 
@@ -1772,7 +1773,10 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
         "<output>");
     { char b[6]; snprintf(b, sizeof(b), "%02dh", (int)blcfg.night_end_h);
       server.sendContent(b); }
-    server.sendContent("</output></div></div>");
+    server.sendContent("</output></div>");
+    // DEYE-54: reloj grande cuando la pantalla está en reposo
+    send_cb("clock_mode", "clk", clock_mode_enabled(), "Reloj en reposo");
+    server.sendContent("</div>");
 
     // ── Botón guardar ─────────────────────────────────────────────────────
     server.sendContent("<div class='actions'>"
@@ -1964,6 +1968,7 @@ static void handle_admin_post() {
     Storage.saveChartConfig(ccfg);
     Storage.saveTelegramConfig(tgcfg);
     Storage.saveBacklightConfig(blcfg);
+    clock_mode_set_enabled(server.hasArg("clock_mode"));
 
     server.sendHeader("Location", "/admin?saved=1");
     server.send(303, "text/plain", "Guardado");
@@ -2012,6 +2017,7 @@ static void handle_config_export() {
     doc["bl_night_enabled"]    = blcfg.night_enabled;
     doc["bl_night_start_h"]    = blcfg.night_start_h;
     doc["bl_night_end_h"]      = blcfg.night_end_h;
+    doc["ui_clock_mode"]       = clock_mode_enabled();
 
     String out;
     serializeJsonPretty(doc, out);
@@ -2106,6 +2112,7 @@ static void handle_config_import() {
     Storage.saveChartConfig(ccfg);
     Storage.saveTelegramConfig(tgcfg);
     Storage.saveBacklightConfig(blcfg);
+    if (doc["ui_clock_mode"].is<bool>()) clock_mode_set_enabled(doc["ui_clock_mode"]);
 
     server.send(200, "text/plain", "OK");
 }

@@ -10,6 +10,7 @@
 #include "alerts_logic.h"
 #include "daily_tracker.h"
 #include "fw_update_logic.h"
+#include "input_validators.h"
 
 // Misma zona horaria que config.h (TIMEZONE)
 static const char* TZ_SPAIN = "CET-1CEST,M3.5.0,M10.5.0/3";
@@ -605,6 +606,74 @@ void test_fw_sha256_and_magic() {
     TEST_ASSERT_FALSE(fw_looks_like_esp_image(good, 0));
 }
 
+// ── DEYE-57: validadores de los campos de configuración ──────────────────
+void test_validate_logger_ip_and_serial() {
+    TEST_ASSERT_TRUE(valid_logger_ip("192.168.1.50"));
+    TEST_ASSERT_FALSE(valid_logger_ip("192.168.1"));
+    TEST_ASSERT_FALSE(valid_logger_ip("192.168.1.300"));
+    TEST_ASSERT_FALSE(valid_logger_ip(""));
+    TEST_ASSERT_FALSE(valid_logger_ip("192.168.1.x"));
+
+    TEST_ASSERT_TRUE(valid_logger_serial("2712345678"));
+    TEST_ASSERT_TRUE(valid_logger_serial("1"));
+    TEST_ASSERT_TRUE(valid_logger_serial("4294967295"));       // máximo de uint32
+    TEST_ASSERT_FALSE(valid_logger_serial("4294967296"));      // desborda
+    TEST_ASSERT_FALSE(valid_logger_serial("0"));
+    TEST_ASSERT_FALSE(valid_logger_serial(""));
+    TEST_ASSERT_FALSE(valid_logger_serial("12ab"));
+    TEST_ASSERT_FALSE(valid_logger_serial("12345678901"));     // 11 dígitos
+}
+
+void test_validate_capacity() {
+    TEST_ASSERT_TRUE(valid_capacity("6000"));
+    TEST_ASSERT_TRUE(valid_capacity("1"));
+    TEST_ASSERT_TRUE(valid_capacity("65535"));
+    TEST_ASSERT_FALSE(valid_capacity("65536"));
+    TEST_ASSERT_FALSE(valid_capacity("0"));
+    TEST_ASSERT_FALSE(valid_capacity(""));
+    TEST_ASSERT_FALSE(valid_capacity("-5"));
+    TEST_ASSERT_FALSE(valid_capacity("6e3"));
+}
+
+void test_validate_passwords() {
+    TEST_ASSERT_TRUE(valid_wifi_pass(""));                      // red abierta
+    TEST_ASSERT_FALSE(valid_wifi_pass("1234567"));              // WPA2 exige 8
+    TEST_ASSERT_TRUE(valid_wifi_pass("12345678"));
+    TEST_ASSERT_TRUE(valid_wifi_pass("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijk")); // 63
+    TEST_ASSERT_FALSE(valid_wifi_pass("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijkl")); // 64
+    TEST_ASSERT_TRUE(valid_admin_pass(""));                     // vacío = no cambiar
+    TEST_ASSERT_FALSE(valid_admin_pass("corta"));
+    TEST_ASSERT_TRUE(valid_admin_pass("una-clave-larga"));
+}
+
+void test_validate_mdns() {
+    TEST_ASSERT_TRUE(valid_mdns(""));
+    TEST_ASSERT_TRUE(valid_mdns("inversor"));
+    TEST_ASSERT_TRUE(valid_mdns("Mi-Inversor2"));
+    TEST_ASSERT_FALSE(valid_mdns("-inversor"));
+    TEST_ASSERT_FALSE(valid_mdns("inversor-"));
+    TEST_ASSERT_FALSE(valid_mdns("mi inversor"));
+    TEST_ASSERT_FALSE(valid_mdns("inversor_1"));
+    TEST_ASSERT_FALSE(valid_mdns("0123456789012345678901234567890123"));   // 34 > 31
+}
+
+void test_validate_telegram() {
+    TEST_ASSERT_TRUE(valid_tg_token(""));
+    TEST_ASSERT_TRUE(valid_tg_token("123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"));
+    TEST_ASSERT_FALSE(valid_tg_token("123456789"));                      // sin ':'
+    TEST_ASSERT_FALSE(valid_tg_token(":AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"));
+    TEST_ASSERT_FALSE(valid_tg_token("12ab:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"));
+    TEST_ASSERT_FALSE(valid_tg_token("123456789:corto"));
+    TEST_ASSERT_FALSE(valid_tg_token("123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALD saw"));  // espacio
+
+    TEST_ASSERT_TRUE(valid_tg_chat(""));
+    TEST_ASSERT_TRUE(valid_tg_chat("123456789"));
+    TEST_ASSERT_TRUE(valid_tg_chat("-100123456789"));
+    TEST_ASSERT_FALSE(valid_tg_chat("-"));
+    TEST_ASSERT_FALSE(valid_tg_chat("12a"));
+    TEST_ASSERT_FALSE(valid_tg_chat("--1"));
+}
+
 // ── DEYE-46: espacio libre en flash ───────────────────────────────────────
 void test_fs_free_percent() {
     TEST_ASSERT_EQUAL_UINT8(100, FsSpaceMonitor::freePercent(8000, 0));
@@ -777,6 +846,11 @@ int main(int, char**) {
     RUN_TEST(test_fw_parse_release_errors);
     RUN_TEST(test_fw_parse_release_without_digest_and_insecure_url);
     RUN_TEST(test_fw_sha256_and_magic);
+    RUN_TEST(test_validate_logger_ip_and_serial);
+    RUN_TEST(test_validate_capacity);
+    RUN_TEST(test_validate_passwords);
+    RUN_TEST(test_validate_mdns);
+    RUN_TEST(test_validate_telegram);
     RUN_TEST(test_fs_free_percent);
     RUN_TEST(test_fs_warns_once_then_rearms_with_hysteresis);
     RUN_TEST(test_fs_unmounted_never_warns);
