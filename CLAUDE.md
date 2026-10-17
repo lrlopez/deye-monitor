@@ -90,6 +90,14 @@ Dos vías en `/update`, ambas tras contraseña de administración:
 
 ---
 
+## CI, versión y constantes de ajuste
+
+- `.github/workflows/ci.yml` (push a main y PR): `pio test -e native`, `pio check -e sunton_4827s043` (cppcheck sobre `src/`, config en `platformio.ini`; falla con defectos altos/medios) y build de las 3 placas con informe de tamaño. `build_release.yml` sigue siendo solo para tags.
+- `APP_VERSION` lo fija `scripts/git_version.py` desde `git describe` (`3.7.0` sobre el tag; `3.6.0+24.gSHA[.dirty]` en desarrollo; el `+…` lo ignora `fw_parse_version`). El valor de `config.h` es el respaldo.
+- Umbrales/antirrebotes/tiempos con nombre en `src/tuning.h` (`TUNE_*`, sobreescribibles con `-D`); no volver a escribir números mágicos en alertas, doble toque o timeouts del logger.
+
+---
+
 ## Tests
 
 `pio test -e native` ejecuta tests Unity en el PC (sin hardware) sobre la lógica pura en headers sin
