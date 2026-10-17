@@ -19,7 +19,7 @@ int SolarmanClient::buildV5Frame(uint8_t* buf, uint16_t startReg, uint16_t count
 bool SolarmanClient::openConn(WiFiClient& client) {
     client.setTimeout(3);      // segundos — tiempo máximo de espera para recibir datos
     if (!client.connect(_ip, _port, 3000)) {   // ms — timeout de conexión TCP
-        DBGSERIAL.println("[Solarman] Timeout conectando al datalogger");
+        APP_LOGW("Solarman", "Timeout conectando al datalogger");
         return false;
     }
     return true;
@@ -64,19 +64,19 @@ bool SolarmanClient::exchange(WiFiClient& client, uint16_t startReg, uint16_t co
     switch (solarman_parse_response(resp, received, count, values)) {
     case SolarmanParse::OK: return true;
     case SolarmanParse::SHORT:
-        DBGSERIAL.printf("[Solarman] Respuesta incompleta: %d/%d bytes\n", received, expectedLen);
+        APP_LOGW("Solarman", "Respuesta incompleta: %d/%d bytes", received, expectedLen);
         break;
     case SolarmanParse::BAD_FRAME:
-        DBGSERIAL.println("[Solarman] Frame V5 inválido");
+        APP_LOGW("Solarman", "Frame V5 inválido");
         break;
     case SolarmanParse::BAD_FC:
-        DBGSERIAL.printf("[Solarman] FC inesperado: 0x%02X\n", resp[DATA_OFFSET - 2]);
+        APP_LOGW("Solarman", "FC inesperado: 0x%02X", resp[DATA_OFFSET - 2]);
         break;
     case SolarmanParse::BAD_CRC:
-        DBGSERIAL.println("[Solarman] CRC Modbus inválido");
+        APP_LOGW("Solarman", "CRC Modbus inválido");
         break;
     case SolarmanParse::EXCEPTION:
-        DBGSERIAL.printf("[Solarman] Excepción Modbus: FC=0x%02X\n", resp[DATA_OFFSET - 2]);
+        APP_LOGW("Solarman", "Excepción Modbus: FC=0x%02X", resp[DATA_OFFSET - 2]);
         break;
     }
     return false;
@@ -116,29 +116,26 @@ void SolarmanClient::decodeDaily(const uint16_t* regs, DailyStats& out) {
                   + out.batt_charge_kwh - out.batt_discharge_kwh;
     float delta = out.pv_kwh - pv_calc;
     if (fabsf(delta) > 0.5f)
-        DBGSERIAL.printf("[Daily] AVISO balance: reg108=%.2f calc=%.2f diff=%.2f kWh\n",
-                      out.pv_kwh, pv_calc, delta);
+        APP_LOGW("Daily", "balance: reg108=%.2f calc=%.2f diff=%.2f kWh",
+                 out.pv_kwh, pv_calc, delta);
 
     out.valid = true;
 
-    DBGSERIAL.printf("[Daily] PV:%.2f Exp:%.2f Imp:%.2f "
-                  "BatC:%.2f BatD:%.2f Load:%.2f kWh\n",
-                  out.pv_kwh, out.export_kwh, out.import_kwh,
-                  out.batt_charge_kwh, out.batt_discharge_kwh, out.load_kwh);
+    APP_LOGD("Daily", "PV:%.2f Exp:%.2f Imp:%.2f BatC:%.2f BatD:%.2f Load:%.2f kWh",
+             out.pv_kwh, out.export_kwh, out.import_kwh,
+             out.batt_charge_kwh, out.batt_discharge_kwh, out.load_kwh);
 }
 
 // ── API pública ───────────────────────────────────────────────────────────
 bool SolarmanClient::fetchEnergyData(EnergyData& out) {
     uint16_t regs[REG_COUNT];
 
-    DBGSERIAL.print("Leyendo del logger... ");
     if (!readRegisters(REG_BASE, REG_COUNT, regs)) {
         out.valid = false;
-        DBGSERIAL.println("error!");
-        return false;
+        return false;     // la causa ya se ha registrado en exchange()/openConn()
     }
 
-    DBGSERIAL.println("ok!");
+    APP_LOGD("Solarman", "lectura instantánea ok");
     decodeEnergy(regs, out);
     return true;
 }
@@ -157,21 +154,18 @@ bool SolarmanClient::fetchAll(EnergyData& e, DailyStats& d, bool want_daily, boo
     daily_ok = false;
 
     WiFiClient client;
-    DBGSERIAL.print("Leyendo del logger... ");
     if (!openConn(client)) {
         e.valid = false;
-        DBGSERIAL.println("error!");
-        return false;
+        return false;     // causa ya registrada en openConn()
     }
 
     uint16_t regs[REG_COUNT];
     if (!exchange(client, REG_BASE, REG_COUNT, regs)) {
         client.stop();
         e.valid = false;
-        DBGSERIAL.println("error!");
-        return false;
+        return false;     // causa ya registrada en exchange()
     }
-    DBGSERIAL.println("ok!");
+    APP_LOGD("Solarman", "lectura instantánea ok");
     decodeEnergy(regs, e);
 
     if (want_daily) {

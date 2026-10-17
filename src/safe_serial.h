@@ -54,3 +54,24 @@ private:
 };
 
 extern SafeSerial DbgSerial;
+
+// ── Niveles de log (DEYE-42) ──────────────────────────────────────────────
+// APP_LOG_LEVEL se fija en compilación (por defecto INFO) y se puede cambiar con
+// `-DAPP_LOG_LEVEL=4` en build_flags para ver también los mensajes de depuración
+// (lecturas cada 5 s, slots, etc.). Los mensajes por encima del nivel ni
+// se compilan en la rama activa (el `if` es constante y el compilador lo elimina).
+//   APP_LOGE: error · APP_LOGW: aviso · APP_LOGI: eventos relevantes · APP_LOGD: depuración
+#define APP_LOG_NONE   0
+#define APP_LOG_ERROR  1
+#define APP_LOG_WARN   2
+#define APP_LOG_INFO   3
+#define APP_LOG_DEBUG  4
+#ifndef APP_LOG_LEVEL
+#define APP_LOG_LEVEL  APP_LOG_INFO
+#endif
+#define APP_LOG(lvl, tag, fmt, ...) \
+    do { if (APP_LOG_LEVEL >= (lvl)) DBGSERIAL.printf("[" tag "] " fmt "\n", ##__VA_ARGS__); } while (0)
+#define APP_LOGE(tag, fmt, ...) APP_LOG(APP_LOG_ERROR, tag, fmt, ##__VA_ARGS__)
+#define APP_LOGW(tag, fmt, ...) APP_LOG(APP_LOG_WARN,  tag, fmt, ##__VA_ARGS__)
+#define APP_LOGI(tag, fmt, ...) APP_LOG(APP_LOG_INFO,  tag, fmt, ##__VA_ARGS__)
+#define APP_LOGD(tag, fmt, ...) APP_LOG(APP_LOG_DEBUG, tag, fmt, ##__VA_ARGS__)
