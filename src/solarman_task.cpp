@@ -9,6 +9,7 @@
 #include "solarman.h"
 #include "recorder.h"
 #include "alert_engine.h"
+#include "battery_estimate.h"
 #include "logger_discovery.h"
 #include "psram_cache.h"
 #include "safe_serial.h"
@@ -95,6 +96,7 @@ void solarmanTask(void* /*pv*/) {
     DailyStats local_d{};   // última lectura diaria buena (fetchAll no la toca si falla)
     Recorder    recorder;
     AlertEngine alerts;
+    BatteryEstimator batt_est;   // autonomía estimada (DEYE-33)
 
     // Los diarios se leen cada POLL_DAILY_MS; el primero justo tras la primera
     // lectura instantánea
@@ -128,6 +130,8 @@ void solarmanTask(void* /*pv*/) {
                      (int)local_e.pv_power, (int)local_e.grid_power,
                      (int)local_e.batt_power, (int)local_e.batt_soc,
                      (int)local_e.load_power);
+            g_batt_eta = battery_eta_pack(batt_est.update((int)local_e.batt_soc, (int)local_e.batt_power,
+                                                          (uint32_t)g_cfg.bat_cap_w));
             if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
                 g_energy = local_e;
                 g_energy_seq++;
@@ -137,6 +141,8 @@ void solarmanTask(void* /*pv*/) {
             }
         } else {
             alerts.onLoggerFail();
+            batt_est.reset();
+            g_batt_eta = 0;   // sin datos vivos no hay estimación
         }
 
         const uint32_t now_ep = (uint32_t)time(nullptr);

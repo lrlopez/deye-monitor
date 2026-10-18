@@ -14,6 +14,9 @@ extern DailyStats        g_daily;
 // Contadores de secuencia: se incrementan SIEMPRE bajo g_mutex al publicar un
 // dato nuevo. loop() recuerda el último visto y copia el dato bajo el mutex
 // (DEYE-11).
+// Autonomía estimada de la batería (battery_estimate.h, DEYE-33), empaquetada con
+// battery_eta_pack(). La calcula solarmanTask tras cada lectura buena; 0 = sin estimación.
+extern volatile uint32_t g_batt_eta;
 extern uint32_t          g_energy_seq;
 extern uint32_t          g_daily_seq;
 extern volatile bool     g_wifi_connected;

@@ -3,6 +3,9 @@
 #include "ui_constants.h"
 #include "config.h"
 #include "storage.h"
+#include "battery_estimate.h"
+
+extern volatile uint32_t g_batt_eta;   // main.cpp: autonomía estimada de la batería (DEYE-33)
 
 // ── Colores ───────────────────────────────────────────────────────────────
 // Los comunes (C_BG, C_CARD, C_WHITE, C_MUTED, C_OK, C_ERR, C_WARN, C_RUN)
@@ -56,7 +59,7 @@ static lv_obj_t *arc_grid,      *lbl_grid_val, *lbl_grid_status;
 
 // Batería: 3 arcos de fondo (gradiente) + 1 máscara dinámica
 static lv_obj_t *arc_batt_mask;
-static lv_obj_t *lbl_batt_soc,  *lbl_batt_pwr, *lbl_batt_status;
+static lv_obj_t *lbl_batt_soc,  *lbl_batt_pwr, *lbl_batt_status, *lbl_batt_eta;
 
 static lv_obj_t *arc_load,      *lbl_load_val;
 
@@ -548,6 +551,7 @@ void dashboard_init(lv_obj_t* parent)
         s_cards[2] = c;
 
         lbl_batt_status = make_info(c, INFO_Y1, "--");
+        lbl_batt_eta    = make_info(c, INFO_Y2, "");   // autonomía estimada (DEYE-33)
 
         // Arcos de fondo del degradado — 24 segmentos rojo→amarillo→verde.
         // Cada segmento (excepto el último) se extiende 1° sobre el siguiente para
@@ -705,6 +709,15 @@ void dashboard_update(const EnergyData& d)
             }
             char buf[32]; snprintf(buf, sizeof(buf), "%s%s", status, tr);
             lv_label_set_text(lbl_batt_status, buf);
+
+            // DEYE-33: autonomía estimada en la línea de debajo (hasta vaciarse / hasta llenarse)
+            const BatteryEta be = battery_eta_unpack(g_batt_eta);
+            if (be.mode != BatteryEta::Mode::NONE) {
+                char t[12]; battery_eta_format(be.minutes, t, sizeof t);
+                lv_label_set_text_fmt(lbl_batt_eta, be.mode == BatteryEta::Mode::EMPTY ? "Quedan %s" : "Llena en %s", t);
+            } else {
+                lv_label_set_text(lbl_batt_eta, "");
+            }
         }
     }
 

@@ -34,6 +34,17 @@
   #define TUNE_CO2_KG_PER_KWH     0.15f    // kg CO2 por kWh del mix eléctrico (orden de magnitud para España)
 #endif
 
+// ── Autonomía de la batería (battery_estimate.h) ─────────────────────────
+#ifndef TUNE_BATT_MIN_SOC
+  #define TUNE_BATT_MIN_SOC         10     // %: límite de descarga del inversor (ajústalo al de tu instalación)
+#endif
+#ifndef TUNE_BATT_ETA_MIN_W
+  #define TUNE_BATT_ETA_MIN_W      100     // W: por debajo no se estima (batería en reposo)
+#endif
+#ifndef TUNE_BATT_ETA_MAX_H
+  #define TUNE_BATT_ETA_MAX_H       48     // h: estimaciones mayores no se muestran
+#endif
+
 // ── Comunicación con el logger (solarman.cpp) ────────────────────────────
 #ifndef TUNE_LOGGER_TIMEOUT_MS
   #define TUNE_LOGGER_TIMEOUT_MS  3000     // ms: conexión TCP y espera de la respuesta

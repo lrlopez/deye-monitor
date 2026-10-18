@@ -182,6 +182,7 @@ SemaphoreHandle_t        g_mutex;
 // vio y copia el dato bajo el mutex, liberándolo ANTES de tocar LVGL (antes
 // se mantenía durante dashboard_update() y podía bloquear/descartar lecturas
 // de solarmanTask).
+volatile uint32_t        g_batt_eta     = 0;
 uint32_t                 g_energy_seq   = 0;
 uint32_t                 g_daily_seq    = 0;
 static lv_obj_t*         g_tileview     = nullptr;

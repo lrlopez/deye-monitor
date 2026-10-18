@@ -13,9 +13,11 @@
 #include "web_alerts.h"
 #include "fw_update.h"
 #include "clock_mode.h"
+#include "battery_estimate.h"
 #include "time_utils.h"
 
 extern uint32_t      g_uptime_start;   // main.cpp: millis() en el arranque
+extern volatile uint32_t g_batt_eta;   // main.cpp: autonomía estimada de la batería (DEYE-33)
 extern volatile bool g_ota_cancel;   // main.cpp: retira el overlay OTA si la actualización falla
 
 static WebServer          server(80);
@@ -539,7 +541,13 @@ async function refresh(){
     // Batería
     const soc=l.batt_soc, bw=l.batt_w;
     ip('a-soc-t').textContent=soc+'%';
-    ip('batt-sub').textContent=Math.abs(bw)+' W \xb7 '+(bw<0?'Cargando':bw>0?'Descargando':'En reposo');
+    // DEYE-33: autonomía estimada (modo 1 = hasta vaciarse, 2 = hasta llenarse)
+    let eta='';
+    if(l.batt_eta_mode>0){
+      const m=l.batt_eta_min, t=m<60?m+' min':Math.floor(m/60)+' h '+String(m%60).padStart(2,'0')+' min';
+      eta=' \xb7 '+(l.batt_eta_mode===1?'quedan ':'llena en ')+t;
+    }
+    ip('batt-sub').textContent=Math.abs(bw)+' W \xb7 '+(bw<0?'Cargando':bw>0?'Descargando':'En reposo')+eta;
     setBatt(soc);
 
     // Carga
@@ -2494,15 +2502,18 @@ static void handle_api_data() {
         if (Cache.getDaily(today_ep, dr)) d = daily_record_to_stats(dr);
     }
 
-    char json[512];
+    const BatteryEta eta = battery_eta_unpack(g_batt_eta);
+    char json[576];
     snprintf(json, sizeof(json),
         R"({"live":{"pv_w":%d,"pv1_w":%d,"pv2_w":%d,)"
-        R"("grid_w":%d,"batt_w":%d,"batt_soc":%d,"load_w":%d},)"
+        R"("grid_w":%d,"batt_w":%d,"batt_soc":%d,"load_w":%d,)"
+        R"("batt_eta_mode":%d,"batt_eta_min":%u},)"
         R"("daily":{"pv_kwh":%.2f,"export_kwh":%.2f,"import_kwh":%.2f,)"
         R"("load_kwh":%.2f,"batt_charge_kwh":%.2f,"batt_discharge_kwh":%.2f,)"
         R"("valid":%s}})",
         (int)e.pv_power, (int)e.pv1_power, (int)e.pv2_power,
         (int)e.grid_power, (int)e.batt_power, (int)e.batt_soc, (int)e.load_power,
+        (int)eta.mode, (unsigned)eta.minutes,
         d.pv_kwh, d.export_kwh, d.import_kwh,
         d.load_kwh, d.batt_charge_kwh, d.batt_discharge_kwh,
         d.valid ? "true" : "false");

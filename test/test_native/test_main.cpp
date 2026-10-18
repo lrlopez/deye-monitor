@@ -13,6 +13,7 @@
 #include "input_validators.h"
 #include "tz_presets.h"
 #include "energy_metrics.h"
+#include "battery_estimate.h"
 
 // Misma zona horaria que config.h (TIMEZONE)
 static const char* TZ_SPAIN = "CET-1CEST,M3.5.0,M10.5.0/3";
@@ -528,6 +529,55 @@ void test_energy_metrics() {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 10.0f * TUNE_CO2_KG_PER_KWH, co2_avoided_kg(10.0f));
 }
 
+// DEYE-33: autonomía estimada de la batería
+void test_battery_eta() {
+    BatteryEstimator est;
+    // 10 kWh, SOC 60 %, descargando 1 kW constante: (60-10)% de 10 kWh = 5 kWh -> 5 h
+    BatteryEta e = est.update(60, 1000, 10000);
+    TEST_ASSERT_TRUE(e.mode == BatteryEta::Mode::EMPTY);
+    TEST_ASSERT_EQUAL_UINT16(300, e.minutes);
+    // Cargando 2 kW desde el 50 %: 5 kWh a 2 kW = 2,5 h
+    est.reset();
+    e = est.update(50, -2000, 10000);
+    TEST_ASSERT_TRUE(e.mode == BatteryEta::Mode::FULL);
+    TEST_ASSERT_EQUAL_UINT16(150, e.minutes);
+    // Reposo (< TUNE_BATT_ETA_MIN_W): sin estimación
+    est.reset();
+    TEST_ASSERT_TRUE(est.update(50, 40, 10000).mode == BatteryEta::Mode::NONE);
+    // Ya en el límite de descarga o llena: sin estimación
+    est.reset();
+    TEST_ASSERT_TRUE(est.update(TUNE_BATT_MIN_SOC, 1000, 10000).mode == BatteryEta::Mode::NONE);
+    est.reset();
+    TEST_ASSERT_TRUE(est.update(100, -1000, 10000).mode == BatteryEta::Mode::NONE);
+    // Capacidad 0 o estimación absurda (> 48 h)
+    est.reset();
+    TEST_ASSERT_TRUE(est.update(60, 1000, 0).mode == BatteryEta::Mode::NONE);
+    est.reset();
+    TEST_ASSERT_TRUE(est.update(100, 150, 60000).mode == BatteryEta::Mode::NONE);
+    // La media suaviza picos: tras muchas lecturas de 1 kW, un pico de 5 kW apenas mueve el resultado
+    est.reset();
+    for (int i = 0; i < 100; i++) est.update(60, 1000, 10000);
+    e = est.update(60, 5000, 10000);
+    TEST_ASSERT_TRUE(e.minutes > 240 && e.minutes < 300);
+    // Un cambio de sentido reinicia la media al valor nuevo
+    est.reset();
+    for (int i = 0; i < 100; i++) est.update(60, 1000, 10000);
+    e = est.update(60, -2000, 10000);
+    TEST_ASSERT_TRUE(e.mode == BatteryEta::Mode::FULL);
+    TEST_ASSERT_EQUAL_UINT16(120, e.minutes);   // 4 kWh a 2 kW
+}
+
+void test_battery_eta_format_and_pack() {
+    char b[16];
+    battery_eta_format(45, b, sizeof b);  TEST_ASSERT_EQUAL_STRING("45 min", b);
+    battery_eta_format(320, b, sizeof b); TEST_ASSERT_EQUAL_STRING("5h20", b);
+    battery_eta_format(720, b, sizeof b); TEST_ASSERT_EQUAL_STRING("12h", b);
+    BatteryEta e; e.mode = BatteryEta::Mode::FULL; e.minutes = 1234;
+    BatteryEta u = battery_eta_unpack(battery_eta_pack(e));
+    TEST_ASSERT_TRUE(u.mode == BatteryEta::Mode::FULL);
+    TEST_ASSERT_EQUAL_UINT16(1234, u.minutes);
+}
+
 // DEYE-74: las zonas horarias predefinidas son cadenas TZ válidas y la 0 es la de config.h
 static int tz_hour_at(const char* posix, time_t utc) {
     setenv("TZ", posix, 1); tzset();
@@ -887,6 +937,8 @@ int main(int, char**) {
     RUN_TEST(test_fw_is_newer);
     RUN_TEST(test_tz_presets);
     RUN_TEST(test_energy_metrics);
+    RUN_TEST(test_battery_eta);
+    RUN_TEST(test_battery_eta_format_and_pack);
     RUN_TEST(test_fw_asset_matches);
     RUN_TEST(test_fw_parse_release_picks_this_board);
     RUN_TEST(test_fw_parse_release_errors);
