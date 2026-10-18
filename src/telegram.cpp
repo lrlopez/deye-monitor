@@ -538,29 +538,33 @@ void TelegramBot::task(void* pv) {
 
     UniversalTelegramBot bot(self->_token, client);
 
-    // Registrar comandos en BotFather solo cuando la lista cambia (evita TLS en cada boot)
-    static constexpr uint8_t BOT_CMDS_VER = 1;
+    // Registrar comandos en BotFather solo cuando la lista cambia (evita TLS en cada boot).
+    // Se compara un hash del JSON: al añadir o editar un comando se vuelve a registrar solo.
+    static const char BOT_CMDS_JSON[] =
+        "[{\"command\":\"estado\",\"description\":\"Valores instantáneos\"},"
+        "{\"command\":\"bateria\",\"description\":\"Estado de la batería\"},"
+        "{\"command\":\"hoy\",\"description\":\"Totales del día\"},"
+        "{\"command\":\"dia\",\"description\":\"Totales de una fecha (YYYYMMDD)\"},"
+        "{\"command\":\"semana\",\"description\":\"Resumen semanal\"},"
+        "{\"command\":\"mes\",\"description\":\"Resumen del mes (YYYYMM)\"},"
+        "{\"command\":\"anio\",\"description\":\"Resumen del año (YYYY)\"},"
+        "{\"command\":\"sistema\",\"description\":\"Info del dispositivo\"},"
+        "{\"command\":\"umbral\",\"description\":\"Cambiar umbral alerta batería\"},"
+        "{\"command\":\"silenciar\",\"description\":\"Silenciar alertas 1h\"},"
+        "{\"command\":\"activar\",\"description\":\"Reactivar alertas\"},"
+        "{\"command\":\"ayuda\",\"description\":\"Lista de comandos\"}]";
     {
+        uint32_t h = 2166136261u;                       // FNV-1a
+        for (const char* p = BOT_CMDS_JSON; *p; ++p) h = (h ^ (uint8_t)*p) * 16777619u;
         Preferences prefs;
         prefs.begin("cfg", true);
-        uint8_t stored = prefs.getUChar("bot_ver", 0);
+        uint32_t stored = prefs.getULong("bot_hash", 0);
         prefs.end();
-        if (stored != BOT_CMDS_VER) {
-            bool ok = bot.setMyCommands(
-                "[{\"command\":\"estado\",\"description\":\"Valores instantáneos\"},"
-                "{\"command\":\"bateria\",\"description\":\"Estado de la batería\"},"
-                "{\"command\":\"hoy\",\"description\":\"Totales del día\"},"
-                "{\"command\":\"dia\",\"description\":\"Totales de una fecha (YYYYMMDD)\"},"
-                "{\"command\":\"semana\",\"description\":\"Resumen semanal\"},"
-                "{\"command\":\"sistema\",\"description\":\"Info del dispositivo\"},"
-                "{\"command\":\"umbral\",\"description\":\"Cambiar umbral alerta batería\"},"
-                "{\"command\":\"silenciar\",\"description\":\"Silenciar alertas 1h\"},"
-                "{\"command\":\"activar\",\"description\":\"Reactivar alertas\"},"
-                "{\"command\":\"ayuda\",\"description\":\"Lista de comandos\"}]"
-            );
+        if (stored != h) {
+            bool ok = bot.setMyCommands(BOT_CMDS_JSON);
             if (ok) {
                 prefs.begin("cfg", false);
-                prefs.putUChar("bot_ver", BOT_CMDS_VER);
+                prefs.putULong("bot_hash", h);
                 prefs.end();
                 DBGSERIAL.println("[Bot] Comandos registrados en BotFather.");
             }
