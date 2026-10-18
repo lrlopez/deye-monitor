@@ -19,7 +19,7 @@
 // Versión por defecto; scripts/git_version.py la sobreescribe con `git describe`
 // al compilar con git y etiquetas disponibles (DEYE-66)
 #ifndef APP_VERSION
-  #define APP_VERSION   "4.0.0"
+  #define APP_VERSION   "4.0.1"
 #endif
 #define MDNS_HOSTNAME   "inversor"
 
