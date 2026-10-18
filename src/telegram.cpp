@@ -195,7 +195,7 @@ static String fmt_daily_stats(uint32_t dep, const DailyStats& d,
         "🔋 Descarga bat.: *%.2f kWh*\n\n"
         "📊 Autoconsumo: *%.0f%%*\n"
         "📊 Autosuficiencia: *%.0f%%*\n"
-        "🌱 CO2 evitado: *%.1f kg*",
+        "🌱 CO2 ahorrado: *%.1f kg*",
         title, fmt_date(dep).c_str(),
         d.pv_kwh, d.load_kwh,
         d.export_kwh, d.import_kwh,
@@ -295,7 +295,7 @@ String TelegramBot::cmdPeriodo(bool year, const String& arg) const {
     pos += snprintf(buf + pos, sizeof(buf) - pos,
         "☀️ Producción: *%.1f kWh*\n🏠 Consumo: *%.1f kWh*\n"
         "🔌 Exportado: *%.1f kWh*\n🔌 Importado: *%.1f kWh*\n"
-        "📊 Autoconsumo: *%.0f%%*\n📊 Autosuficiencia: *%.0f%%*\n🌱 CO2 evitado: *%.0f kg*\n",
+        "📊 Autoconsumo: *%.0f%%*\n📊 Autosuficiencia: *%.0f%%*\n🌱 CO2 ahorrado: *%.0f kg*\n",
         cur.pv, cur.load, cur.export_kwh, cur.import_kwh,
         cur.autoconsumption() < 0 ? 0 : cur.autoconsumption(),
         cur.autosufficiency() < 0 ? 0 : cur.autosufficiency(), cur.co2_kg());

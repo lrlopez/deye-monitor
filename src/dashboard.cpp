@@ -324,14 +324,15 @@ static void flow_create(lv_obj_t* parent)
 
     // Nodos
     flow_make_node(s_flow, cx - nw / 2, top_y, nw, nh, LV_SYMBOL_SUN " SOLAR", C_SOLAR, &fl_solar_val, nullptr);
-    flow_make_node(s_flow, UI_MARGIN, hub_cy - nh / 2, nw, nh, LV_SYMBOL_PLUG " RED", C_RUN, &fl_grid_val, &fl_grid_st);
-    flow_make_node(s_flow, cw - UI_MARGIN - nw, hub_cy - nh / 2, nw, nh,
+    // Batería a la izquierda y red a la derecha
+    flow_make_node(s_flow, UI_MARGIN, hub_cy - nh / 2, nw, nh,
                    LV_SYMBOL_BATTERY_FULL " BATER\xC3\xAD\x41", C_BATT_OK, &fl_batt_val, &fl_batt_st);
+    flow_make_node(s_flow, cw - UI_MARGIN - nw, hub_cy - nh / 2, nw, nh, LV_SYMBOL_PLUG " RED", C_RUN, &fl_grid_val, &fl_grid_st);
 
     // Enlaces (origen → hub). Se crean ANTES que el hub para que este los tape en los extremos.
     flow_make_link(s_fl_solar, s_pts_solar, s_flow, cx, top_y + nh, cx, hub_cy - hub / 2, C_SOLAR);
-    flow_make_link(s_fl_grid,  s_pts_grid,  s_flow, UI_MARGIN + nw, hub_cy, cx - hub / 2, hub_cy, C_RUN);
-    flow_make_link(s_fl_batt,  s_pts_batt,  s_flow, cw - UI_MARGIN - nw, hub_cy, cx + hub / 2, hub_cy, C_BATT_OK);
+    flow_make_link(s_fl_batt,  s_pts_batt,  s_flow, UI_MARGIN + nw, hub_cy, cx - hub / 2, hub_cy, C_BATT_OK);
+    flow_make_link(s_fl_grid,  s_pts_grid,  s_flow, cw - UI_MARGIN - nw, hub_cy, cx + hub / 2, hub_cy, C_RUN);
 
     // Hub "Casa"
     lv_obj_t* h = lv_obj_create(s_flow);

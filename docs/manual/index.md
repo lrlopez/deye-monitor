@@ -13,7 +13,7 @@ servidor, ni nube, ni suscripción: solo tu red WiFi.
 
 - **Ver de un vistazo** cuánto produce tu instalación, cuánto consumes, cómo está la batería y si
   estás importando o exportando energía a la red ([Panel principal](02-panel-principal.md)).
-- **Entender el día**: totales de consumo y producción, autoconsumo, autosuficiencia, CO2 evitado y
+- **Entender el día**: totales de consumo y producción, autoconsumo, autosuficiencia, CO2 ahorrado y
   comparación con ayer y con la semana anterior ([Estadísticas](03-estadisticas.md)).
 - **Revisar el historial**: gráfica de potencias de las últimas 24 horas o de la semana, y balance
   diario de todo el mes ([Gráfica](04-grafica.md), [Perfil de energía](05-perfil-de-energia.md)).

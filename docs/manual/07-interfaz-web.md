@@ -32,7 +32,7 @@ solo cada cinco segundos, sin recargar la página:
 - Cuatro **medidores**: **Solar** (con PV1 y PV2), **Red** (negativo = exportando), **Batería** (con
   la potencia, el estado, la estimación de autonomía —«llena en 2 h 10 min»— y, si el inversor lo
   informa, la **tensión** y la **temperatura del inversor**) y **Carga**.
-- Bajo ellos, el bloque **Hoy**: **autosuficiencia**, **autoconsumo** y **CO2 evitado** del día, y
+- Bajo ellos, el bloque **Hoy**: **autosuficiencia**, **autoconsumo** y **CO2 ahorrado** del día, y
   los dos anillos de consumo y producción con el desglose en kWh.
 - El **pie** enlaza a la gráfica, a la administración, a la actualización de firmware y al panel
   de descarga **CSV**, y muestra la versión instalada.

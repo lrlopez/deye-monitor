@@ -2,7 +2,7 @@
 #include "tuning.h"
 
 // Indicadores derivados de los totales diarios (DEYE-35): autosuficiencia, autoconsumo y
-// CO2 evitado. Sin dependencias de Arduino; probado en `pio test -e native`. Los usan la
+// CO2 ahorrado. Sin dependencias de Arduino; probado en `pio test -e native`. Los usan la
 // pantalla Estadísticas, el bot de Telegram y la web.
 
 // % del consumo cubierto sin importar de la red (cualquier origen: solar directo + batería).

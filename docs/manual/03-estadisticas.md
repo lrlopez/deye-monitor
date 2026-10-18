@@ -26,13 +26,13 @@ con comparaciones frente a ayer y a la semana anterior.
 En el centro de cada anillo está el total del día en kWh, y debajo cada segmento muestra su valor en
 kWh y su porcentaje.
 
-## Autosuficiencia y CO2 evitado
+## Autosuficiencia y CO2 ahorrado
 
 En los títulos de cada columna ves dos indicadores del día:
 
 - **Autosuficiencia** (junto a «Consumo»): qué porcentaje de lo que has consumido **no ha salido de
   la red**. Al 100 % no has importado nada.
-- **CO2 evitado** (junto a «Producción»): lo que habría emitido la red eléctrica para generar la
+- **CO2 ahorrado** (junto a «Producción»): lo que habría emitido la red eléctrica para generar la
   energía solar que has producido. Se calcula con un factor de emisión de **0,15 kg de CO2 por kWh**,
   un valor orientativo del mix eléctrico; si quieres otro, lo fija quien compila el firmware.
 

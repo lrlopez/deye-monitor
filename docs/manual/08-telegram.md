@@ -30,7 +30,7 @@ Escríbelos en la conversación con tu bot:
 |---|---|
 | `/estado` | Los valores instantáneos: producción solar, red, batería y consumo. |
 | `/bateria` | Nivel, estado, potencia, tensión (si el inversor la informa) y **autonomía estimada** (cuánto queda o cuánto falta para llenarse). |
-| `/hoy` | Totales del día: producción, consumo, importación, exportación, carga y descarga de batería, y los porcentajes de **autoconsumo** y **autosuficiencia**, además del **CO2 evitado**. |
+| `/hoy` | Totales del día: producción, consumo, importación, exportación, carga y descarga de batería, y los porcentajes de **autoconsumo** y **autosuficiencia**, además del **CO2 ahorrado**. |
 | `/dia AAAAMMDD` | Lo mismo que `/hoy` para una fecha pasada, p. ej. `/dia 20260508`. |
 | `/semana` | Resumen de los últimos siete días. |
 | `/mes [AAAAMM]` | Resumen del mes (por defecto, el actual) con totales, autoconsumo, autosuficiencia y CO2, y su **variación respecto al mismo mes del año anterior** si hay datos. |

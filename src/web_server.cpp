@@ -364,7 +364,7 @@ footer a{color:var(--accent);text-decoration:none}
     </div>
     <div class="kpi">
       <div class="kpi-v" id="kpi-co2" style="color:#4a9eff">-- kg</div>
-      <div class="kpi-l">CO2 evitado</div>
+      <div class="kpi-l">CO2 ahorrado</div>
     </div>
   </div>
   <div class="donut-row">

@@ -9,7 +9,7 @@ a la red).
 **Batería (SOC).** Nivel de carga de la batería, de 0 a 100 %. *SOC* viene del inglés *state of
 charge*.
 
-**CO2 evitado.** Emisiones de dióxido de carbono que se habrían producido generando en la red
+**CO2 ahorrado.** Emisiones de dióxido de carbono que se habrían producido generando en la red
 eléctrica la energía que han producido tus paneles. Es una estimación a partir de un factor medio.
 
 **Datalogger / stick WiFi (LSW3).** Pequeño dispositivo enchufado al inversor que lo conecta a tu

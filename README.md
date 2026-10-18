@@ -246,6 +246,10 @@ Vista principal con datos en tiempo real actualizados cada 5 segundos. La barra 
                     ● ○ ○ ○ ○
 ```
 
+Tocando el icono de la derecha de la barra superior se alterna a la **vista de flujo de energía**: batería a la izquierda, red a la derecha y solar arriba, alrededor de «Casa», con puntos animados que muestran hacia dónde va la energía.
+
+![Vista de flujo de energía](docs/manual/img/pantalla-flujo.png)
+
 El icono WiFi (📶) cambia de color según la señal: **verde** > −60 dBm · **naranja** −75…−60 dBm · **rojo** ≤ −75 dBm · **gris** sin conexión.
 
 La hora «Act.» cambia de color según la antigüedad: **verde** < 10 s · **amarillo** 10–30 s · **rojo** > 30 s.
