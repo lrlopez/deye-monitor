@@ -4,6 +4,12 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [v4.0.3] - 2026-10-18
+
+### Corregido
+
+- **El menú de comandos del bot de Telegram no mostraba `/mes` ni `/anio`:** el registro de comandos dependía de un número de versión manual que no se había subido. Ahora se guarda un hash de la lista y el menú se vuelve a registrar solo cuando cambia, y se añaden `/mes` y `/anio`.
+
 ## [v4.0.2] - 2026-10-18
 
 ### Corregido
