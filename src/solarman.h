@@ -11,6 +11,7 @@ struct EnergyData {
     int32_t batt_soc;    // %
     int32_t load_power;  // W
     int32_t grid_power;  // W  (>0 importando, <0 exportando)
+    float   batt_voltage_v;   // V; 0 = no disponible (DEYE-36, registro sin verificar)
     bool    valid;
 };
 
@@ -21,8 +22,15 @@ struct DailyStats {
     float batt_charge_kwh;
     float batt_discharge_kwh;
     float load_kwh;
+    float inv_temp_c;    // °C del radiador; -999 = no disponible (DEYE-36, registro sin verificar)
     bool  valid;
 };
+
+// La temperatura solo es utilizable si el bloque diario se leyó (valid) y el registro era
+// verosímil; los DailyStats a cero (sin lectura aún) tienen inv_temp_c = 0 exacto → no disponible.
+inline bool inv_temp_available(const DailyStats& d) {
+    return d.valid && d.inv_temp_c > -100.0f && d.inv_temp_c != 0.0f;
+}
 
 class SolarmanClient {
 public:

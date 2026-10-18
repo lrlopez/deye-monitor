@@ -55,6 +55,9 @@
 #define IDX_PV1_POWER     (186 - REG_BASE)  // 17 – W
 #define IDX_PV2_POWER     (187 - REG_BASE)  // 19 – W
 #define IDX_BATT_POWER    (190 - REG_BASE)  // 21 – W signed (+descarga / −carga)
+// DEYE-36: tensión de batería (0,01 V). Convención de la familia Deye híbrida (SG0xLP/SG05);
+// SIN verificar en un SUN-6K-SG05 real: si el valor no es verosímil (< 20 V o > 100 V) se ignora.
+#define IDX_BATT_VOLTAGE  (183 - REG_BASE)  // 14 – 0,01 V
 
 // ── Registros energía diaria (FC=03, unidad: 0.1 kWh) ────────────────────
 #define REG_DAILY_BASE    70
@@ -66,6 +69,9 @@
 #define IDX_D_GRID_SELL  (77 - REG_DAILY_BASE)  // 6  exportado
 #define IDX_D_LOAD       (84 - REG_DAILY_BASE)  // 14 consumo carga
 #define IDX_D_PV         (108 - REG_DAILY_BASE)  // 23 producción FV total
+// DEYE-36: temperatura del radiador del inversor = (valor − 1000) × 0,1 °C. Misma salvedad:
+// sin verificar en hardware; fuera de −40…150 °C se ignora.
+#define IDX_D_TEMP_RAD   (91 - REG_DAILY_BASE)   // 21
 // ── Polling ───────────────────────────────────────────────────────────────
 #define POLL_INTERVAL_MS  5000
 #define POLL_DAILY_MS     60000UL

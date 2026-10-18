@@ -547,7 +547,8 @@ async function refresh(){
       const m=l.batt_eta_min, t=m<60?m+' min':Math.floor(m/60)+' h '+String(m%60).padStart(2,'0')+' min';
       eta=' \xb7 '+(l.batt_eta_mode===1?'quedan ':'llena en ')+t;
     }
-    ip('batt-sub').textContent=Math.abs(bw)+' W \xb7 '+(bw<0?'Cargando':bw>0?'Descargando':'En reposo')+eta;
+    ip('batt-sub').textContent=Math.abs(bw)+' W \xb7 '+(bw<0?'Cargando':bw>0?'Descargando':'En reposo')+eta
+      +(l.batt_v>0?' \xb7 '+l.batt_v.toFixed(1)+' V':'')+(l.temp_c!==null&&l.temp_c!==undefined?' \xb7 inv. '+l.temp_c.toFixed(0)+' \xb0C':'');
     setBatt(soc);
 
     // Carga
@@ -2503,17 +2504,23 @@ static void handle_api_data() {
     }
 
     const BatteryEta eta = battery_eta_unpack(g_batt_eta);
-    char json[576];
+    // DEYE-36: temperatura del inversor leída del último bloque diario (null si no hay dato verosímil)
+    char temp_json[16] = "null";
+    if (s_daily && s_mutex && xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+        if (inv_temp_available(*s_daily)) snprintf(temp_json, sizeof(temp_json), "%.1f", (double)s_daily->inv_temp_c);
+        xSemaphoreGive(s_mutex);
+    }
+    char json[640];
     snprintf(json, sizeof(json),
         R"({"live":{"pv_w":%d,"pv1_w":%d,"pv2_w":%d,)"
         R"("grid_w":%d,"batt_w":%d,"batt_soc":%d,"load_w":%d,)"
-        R"("batt_eta_mode":%d,"batt_eta_min":%u},)"
+        R"("batt_eta_mode":%d,"batt_eta_min":%u,"batt_v":%.1f,"temp_c":%s},)"
         R"("daily":{"pv_kwh":%.2f,"export_kwh":%.2f,"import_kwh":%.2f,)"
         R"("load_kwh":%.2f,"batt_charge_kwh":%.2f,"batt_discharge_kwh":%.2f,)"
         R"("valid":%s}})",
         (int)e.pv_power, (int)e.pv1_power, (int)e.pv2_power,
         (int)e.grid_power, (int)e.batt_power, (int)e.batt_soc, (int)e.load_power,
-        (int)eta.mode, (unsigned)eta.minutes,
+        (int)eta.mode, (unsigned)eta.minutes, (double)e.batt_voltage_v, temp_json,
         d.pv_kwh, d.export_kwh, d.import_kwh,
         d.load_kwh, d.batt_charge_kwh, d.batt_discharge_kwh,
         d.valid ? "true" : "false");

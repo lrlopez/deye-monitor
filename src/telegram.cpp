@@ -6,6 +6,7 @@
 #include "storage.h"
 #include "energy_metrics.h"
 #include "period_totals.h"
+#include "battery_estimate.h"
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
 #include <ArduinoJson.h>
@@ -46,6 +47,7 @@ LPAvTK33sefOT6jEm0pUBsV/fdUID+Ic/n4XuKxe9tQWskMJDE32p2u0mYRlynqI
 // ── Datos compartidos del inversor (extern desde main.cpp) ─────────────────
 extern EnergyData g_energy;
 extern DailyStats g_daily;
+extern volatile uint32_t g_batt_eta;   // autonomía estimada (DEYE-33)
 extern SemaphoreHandle_t g_mutex;
 extern uint32_t g_uptime_start;   // millis() en el arranque
 
@@ -147,28 +149,26 @@ String TelegramBot::cmdBateria() const {
     AppConfig acfg{}; Storage.loadConfig(acfg);
     float bat_cap = (float)(acfg.bat_cap_w > 0 ? acfg.bat_cap_w : BAT_CAP_W_DEF);
 
+    (void)bat_cap;
+    // Misma estimación (con media móvil) que el dashboard y la web — DEYE-33
     String autonomia = "N/A";
-    if (e.batt_power > 50) {
-        float wh_left = e.batt_soc / 100.0f * bat_cap;
-        float hours = wh_left / e.batt_power;
-        char tmp[24];
-        snprintf(tmp, sizeof(tmp), "~%.1f h", hours);
-        autonomia = tmp;
-    } else if (e.batt_power < -50) {
-        float wh_empty = (100 - e.batt_soc) / 100.0f * bat_cap;
-        float hours = wh_empty / (-e.batt_power);
-        char tmp[24];
-        snprintf(tmp, sizeof(tmp), "~%.1f h para carga completa", hours);
-        autonomia = tmp;
+    const BatteryEta eta = battery_eta_unpack(g_batt_eta);
+    if (eta.mode != BatteryEta::Mode::NONE) {
+        char t[12]; battery_eta_format(eta.minutes, t, sizeof t);
+        autonomia = String(eta.mode == BatteryEta::Mode::EMPTY ? "quedan ~" : "llena en ~") + t;
     }
+
+    char volt[24] = "";
+    if (e.batt_voltage_v > 0) snprintf(volt, sizeof(volt), "Tensión: *%.1f V*\n", e.batt_voltage_v);   // DEYE-36
 
     snprintf(buf, sizeof(buf),
         "🔋 *Batería*\n\n"
         "SOC: *%d%%*\n"
         "Estado: %s\n"
         "Potencia: *%+d W*\n"
+        "%s"
         "Estimación: %s",
-        (int)e.batt_soc, estado, (int)e.batt_power, autonomia.c_str());
+        (int)e.batt_soc, estado, (int)e.batt_power, volt, autonomia.c_str());
     return String(buf);
 }
 
@@ -368,9 +368,18 @@ String TelegramBot::cmdSistema() const {
     uint32_t h = uptime_s / 3600;
     uint32_t m = (uptime_s % 3600) / 60;
 
-    char buf[512];
+    // DEYE-36: temperatura del radiador del inversor (si el registro es verosímil)
+    char temp[40] = "";
+    {
+        DailyStats gd{};
+        if (g_mutex && xSemaphoreTake(g_mutex, pdMS_TO_TICKS(200)) == pdTRUE) { gd = g_daily; xSemaphoreGive(g_mutex); }
+        if (inv_temp_available(gd)) snprintf(temp, sizeof(temp), "🌡️ Inversor: %.1f °C\n", gd.inv_temp_c);
+    }
+
+    char buf[560];
     snprintf(buf, sizeof(buf),
         "🖥️ *Sistema*\n\n"
+        "%s"
         "📡 IP: `%s`\n"
         "📶 WiFi: %d dBm\n"
         "⏱️ Uptime: %luh %lum\n\n"
@@ -378,6 +387,7 @@ String TelegramBot::cmdSistema() const {
         "💾 PSRAM libre: %lu KB\n"
         "📂 Flash usada: %lu KB / %lu KB\n\n"
         "📊 Registros: raw=%lu hrly=%lu day=%lu",
+        temp,
         WiFi.localIP().toString().c_str(),
         (int)WiFi.RSSI(),
         (unsigned long)h, (unsigned long)m,

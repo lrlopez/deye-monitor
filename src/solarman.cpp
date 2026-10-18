@@ -99,6 +99,8 @@ void SolarmanClient::decodeEnergy(const uint16_t* regs, EnergyData& out) {
     out.batt_power = (int32_t)(int16_t) regs[IDX_BATT_POWER];  // signed!
     out.load_power = (int32_t)(uint16_t)regs[IDX_LOAD_POWER];
     out.grid_power = (int32_t)(int16_t) regs[IDX_GRID_POWER];  // signed!
+    const float bv = (uint16_t)regs[IDX_BATT_VOLTAGE] * 0.01f;
+    out.batt_voltage_v = (bv >= 20.0f && bv <= 100.0f) ? bv : 0.0f;   // fuera de rango: registro no válido
     out.valid      = true;
 }
 
@@ -109,6 +111,8 @@ void SolarmanClient::decodeDaily(const uint16_t* regs, DailyStats& out) {
     out.export_kwh         = regs[IDX_D_GRID_SELL] * 0.1f;
     out.load_kwh           = regs[IDX_D_LOAD]       * 0.1f;
     out.pv_kwh             = regs[IDX_D_PV]         * 0.1f;
+    const float tc = ((int)(uint16_t)regs[IDX_D_TEMP_RAD] - 1000) * 0.1f;
+    out.inv_temp_c = (tc >= -40.0f && tc <= 150.0f) ? tc : -999.0f;
 
     // Verificación por balance energético (solo log, no sobreescribe)
     // PV_calc = Load + Export − Import + BatCarga − BatDescarga
