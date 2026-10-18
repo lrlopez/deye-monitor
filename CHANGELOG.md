@@ -4,6 +4,12 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [v4.0.2] - 2026-10-18
+
+### Corregido
+
+- **La actualización de firmware desde GitHub reiniciaba la placa a mitad de la descarga en las ESP32-P4** (`assert failed: sdio_push_data_to_queue`): el driver WiFi (coprocesador por SDIO) se quedaba sin memoria al acumularse paquetes mientras se escribía en flash. Ahora se hace una pausa tras cada bloque (`TUNE_FW_CHUNK_DELAY_MS`, 4 ms por defecto) y se registra la memoria libre cada 256 KB. **Sin verificar en hardware.**
+
 ## [v4.0.1] - 2026-10-18
 
 ### Añadido
