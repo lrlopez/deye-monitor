@@ -45,6 +45,20 @@
   #define TUNE_BATT_ETA_MAX_H       48     // h: estimaciones mayores no se muestran
 #endif
 
+// ── Temperatura del inversor y informe diario (alerts_logic.h, alert_engine.cpp) ──
+#ifndef TUNE_OVERTEMP_C
+  #define TUNE_OVERTEMP_C           65     // °C del radiador: aviso por encima de esto
+#endif
+#ifndef TUNE_OVERTEMP_REARM_C
+  #define TUNE_OVERTEMP_REARM_C     60     // °C: el aviso se rearma por debajo de esto (histéresis)
+#endif
+#ifndef TUNE_OVERTEMP_READINGS
+  #define TUNE_OVERTEMP_READINGS     2     // lecturas seguidas (la temperatura se lee cada 60 s)
+#endif
+#ifndef TUNE_DAILY_REPORT_HOUR
+  #define TUNE_DAILY_REPORT_HOUR    21     // hora local a la que sale el informe diario de Telegram
+#endif
+
 // ── Comunicación con el logger (solarman.cpp) ────────────────────────────
 #ifndef TUNE_LOGGER_TIMEOUT_MS
   #define TUNE_LOGGER_TIMEOUT_MS  3000     // ms: conexión TCP y espera de la respuesta

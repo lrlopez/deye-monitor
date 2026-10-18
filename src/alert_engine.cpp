@@ -101,6 +101,34 @@ void AlertEngine::evaluate(const EnergyData& e, uint32_t now_ep) {
     }
 }
 
+// ── Temperatura del inversor ──────────────────────────────────────────────
+void AlertEngine::evaluateTemp(const DailyStats& d) {
+    if (!inv_temp_available(d)) return;
+    const int t = (int)(d.inv_temp_c + (d.inv_temp_c >= 0 ? 0.5f : -0.5f));
+    switch (_temp.update(d.inv_temp_c)) {
+    case TempMonitor::Event::OVER:
+        APP_LOGW("Temp", "Radiador a %d C", t);
+        screen_banner_enqueue(AlertType::OVERTEMP, t);
+        if (Telegram.isConfigured()) Telegram.enqueueAlert(AlertType::OVERTEMP, t);
+        break;
+    case TempMonitor::Event::RECOVERED:
+        screen_banner_enqueue(AlertType::TEMP_OK, t);
+        if (Telegram.isConfigured()) Telegram.enqueueAlert(AlertType::TEMP_OK, t);
+        break;
+    default: break;
+    }
+}
+
+// ── Informe diario ────────────────────────────────────────────────────────
+void AlertEngine::checkDailyReport(uint32_t now_ep) {
+    if (!Telegram.isConfigured() || !Storage.loadTelegramConfig().notify_report) return;
+    time_t t = (time_t)now_ep;
+    struct tm lt; localtime_r(&t, &lt);
+    const uint32_t day_key = (uint32_t)(lt.tm_year + 1900) * 1000u + (uint32_t)lt.tm_yday;
+    if (daily_report_due(lt.tm_hour, day_key, _report_day_key, TUNE_DAILY_REPORT_HOUR))
+        Telegram.enqueueAlert(AlertType::DAILY_REPORT);
+}
+
 // ── Espacio libre en flash ────────────────────────────────────────────────
 void AlertEngine::checkFlashSpace() {
     const uint32_t now = millis();

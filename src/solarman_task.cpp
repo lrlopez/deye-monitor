@@ -172,6 +172,8 @@ void solarmanTask(void* /*pv*/) {
         if (recorder.started() && local_e.valid)
             alerts.evaluate(local_e, now_ep);
         alerts.checkFlashSpace();            // DEYE-46 (como mucho cada 15 min)
+        if (daily_ok) alerts.evaluateTemp(local_d);       // DEYE-71 (cada lectura diaria, ~60 s)
+        if (now_ep >= NTP_VALID_EPOCH) alerts.checkDailyReport(now_ep);   // DEYE-71
 
         maybe_rediscover_logger(alerts.loggerFailures());
 

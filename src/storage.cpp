@@ -110,6 +110,7 @@ static void writeTelegramConfigNvs(const TelegramConfig& cfg) {
     p.putBool("tg_solar",    cfg.notify_solar);
     p.putBool("tg_grid",     cfg.notify_grid);
     p.putBool("tg_logger",   cfg.notify_logger);
+    p.putBool("tg_report",   cfg.notify_report);
     p.end();
 }
 
@@ -126,6 +127,7 @@ static TelegramConfig readTelegramConfigNvs() {
     cfg.notify_solar   = p.getBool("tg_solar",  true);
     cfg.notify_grid    = p.getBool("tg_grid",   true);
     cfg.notify_logger  = p.getBool("tg_logger", true);
+    cfg.notify_report  = p.getBool("tg_report", false);
     p.end();
     return cfg;
 }

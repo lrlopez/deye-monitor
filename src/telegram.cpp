@@ -448,6 +448,13 @@ String TelegramBot::fmtAlert(const AlertMsg& msg) const {
     case AlertType::FS_LOW:
         return "💾 *Poco espacio en la memoria flash*\nLibre: *" + String(msg.value) + "%*\n"
                "El histórico podría dejar de guardarse. Revisa la sección de datos en /admin.";
+    case AlertType::OVERTEMP:
+        return "🌡️ *Inversor muy caliente*\nRadiador: *" + String(msg.value) + " °C*\n"
+               "Comprueba la ventilación del inversor.";
+    case AlertType::TEMP_OK:
+        return "✅ *Temperatura del inversor normalizada*\nRadiador: *" + String(msg.value) + " °C*";
+    case AlertType::DAILY_REPORT:
+        return cmdHoy();
     default:
         return "📡 Evento";
     }

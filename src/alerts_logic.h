@@ -119,6 +119,38 @@ struct FsSpaceMonitor {
     }
 };
 
+// ── Sobretemperatura del inversor (DEYE-71) ───────────────────────────────
+// Aviso al superar TUNE_OVERTEMP_C durante TUNE_OVERTEMP_READINGS lecturas seguidas;
+// recuperación por debajo de TUNE_OVERTEMP_REARM_C (histéresis, no repite el aviso con la
+// temperatura oscilando en el límite). Entre ambos umbrales no cambia nada.
+struct TempMonitor {
+    enum class Event : uint8_t { NONE, OVER, RECOVERED };
+    bool    over  = false;
+    uint8_t count = 0;
+
+    Event update(float temp_c) {
+        if (!over) {
+            if (temp_c > (float)TUNE_OVERTEMP_C) {
+                if (++count >= TUNE_OVERTEMP_READINGS) { over = true; count = 0; return Event::OVER; }
+            } else count = 0;
+        } else if (temp_c < (float)TUNE_OVERTEMP_REARM_C) {
+            over = false; count = 0; return Event::RECOVERED;
+        }
+        return Event::NONE;
+    }
+};
+
+// ── Informe diario programado (DEYE-71) ───────────────────────────────────
+// true UNA vez por día natural: la primera llamada con hora local >= `hour` y un día
+// distinto del último en que salió. `day_key` identifica el día (p. ej. año*1000+yday).
+// `last_day_key` lo guarda el llamador (en RAM; tras un reinicio posterior a la hora
+// de envío puede repetirse un informe, lo que se prefiere a perderlo).
+inline bool daily_report_due(int local_hour, uint32_t day_key, uint32_t& last_day_key, int hour) {
+    if (local_hour < hour || day_key == last_day_key) return false;
+    last_day_key = day_key;
+    return true;
+}
+
 // ── Fallo del datalogger ──────────────────────────────────────────────────
 // 5 fallos consecutivos (~25 s) → un solo aviso hasta que haya una lectura OK.
 // `notified` solo se marca con markNotified(): si Telegram no está configurado

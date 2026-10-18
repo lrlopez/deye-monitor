@@ -1793,6 +1793,8 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
             "Notificar corte/restauraci&oacute;n red");
     send_cb("tg_log",   "tgl", tgcfg.notify_logger,
             "Notificar fallo logger");
+    send_cb("tg_rep",   "tgr", tgcfg.notify_report,
+            "Informe diario a las 21:00");
     server.sendContent("</div>");
 
     // ── Pantalla ──────────────────────────────────────────────────────────
@@ -2005,6 +2007,7 @@ static void handle_admin_post() {
     tgcfg.notify_solar   = server.hasArg("tg_solar");
     tgcfg.notify_grid    = server.hasArg("tg_grid");
     tgcfg.notify_logger  = server.hasArg("tg_log");
+    tgcfg.notify_report  = server.hasArg("tg_rep");
 
     // ── Pantalla ──────────────────────────────────────────────────────────
     auto clamp = [](int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; };
@@ -2064,6 +2067,7 @@ static void handle_config_export() {
     doc["tg_notify_solar"]     = tgcfg.notify_solar;
     doc["tg_notify_grid"]      = tgcfg.notify_grid;
     doc["tg_notify_logger"]    = tgcfg.notify_logger;
+    doc["tg_notify_report"]    = tgcfg.notify_report;
     doc["bl_op_pct"]           = blcfg.op_pct;
     doc["bl_normal_pct"]       = blcfg.normal_pct;
     doc["bl_reduced_pct"]      = blcfg.reduced_pct;
@@ -2148,6 +2152,7 @@ static void handle_config_import() {
     if (doc["tg_notify_solar"].is<bool>())  tgcfg.notify_solar  = doc["tg_notify_solar"];
     if (doc["tg_notify_grid"].is<bool>())   tgcfg.notify_grid   = doc["tg_notify_grid"];
     if (doc["tg_notify_logger"].is<bool>()) tgcfg.notify_logger = doc["tg_notify_logger"];
+    if (doc["tg_notify_report"].is<bool>()) tgcfg.notify_report = doc["tg_notify_report"];
 
     // ── Pantalla ──────────────────────────────────────────────────────────
     auto clamp = [](int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; };

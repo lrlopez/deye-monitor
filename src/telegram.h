@@ -13,7 +13,10 @@ enum class AlertType : uint8_t {
     GRID_OUTAGE,
     GRID_RESTORED,
     TEST,
-    FS_LOW          // poco espacio libre en la flash (value = % libre)
+    FS_LOW,         // poco espacio libre en la flash (value = % libre)
+    OVERTEMP,       // radiador del inversor por encima del umbral (value = °C) — DEYE-71
+    TEMP_OK,        // temperatura de vuelta a la normalidad (value = °C)
+    DAILY_REPORT    // informe diario programado (solo Telegram; el texto es el de /hoy)
 };
 
 struct AlertMsg {

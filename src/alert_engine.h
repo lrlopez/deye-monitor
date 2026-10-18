@@ -31,6 +31,14 @@ public:
     // banners de pantalla de estas alertas también dependen de ello).
     void evaluate(const EnergyData& e, uint32_t now_ep);
 
+    // ── Temperatura del inversor (DEYE-71) ────────────────────────────────
+    // Llamar con cada lectura diaria buena (cada ~60 s); ignora temperaturas no disponibles.
+    void evaluateTemp(const DailyStats& d);
+
+    // ── Informe diario por Telegram (DEYE-71) ─────────────────────────────
+    // Sale una vez al día a partir de TUNE_DAILY_REPORT_HOUR si está activado en Telegram.
+    void checkDailyReport(uint32_t now_ep);
+
     // ── Espacio libre en flash (DEYE-46) ──────────────────────────────────
     // Comprueba como mucho cada 15 min; llamar libremente desde el bucle.
     void checkFlashSpace();
@@ -41,6 +49,8 @@ private:
     GridMonitor       _grid;
     LoggerFailMonitor _logger;
     FsSpaceMonitor    _fs;
+    TempMonitor       _temp;
+    uint32_t          _report_day_key = 0;
     bool              _solar_restored = false;
     uint32_t          _fs_checked_ms  = 0;
 };

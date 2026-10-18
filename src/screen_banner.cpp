@@ -93,6 +93,14 @@ static void format_and_show(const BannerMsg& m) {
         snprintf(text, sizeof(text), LV_SYMBOL_SD_CARD " Memoria flash casi llena: %d%% libre", (int)m.value);
         bg = lv_color_hex(0xB7770D);
         break;
+    case AlertType::OVERTEMP:
+        snprintf(text, sizeof(text), LV_SYMBOL_WARNING " Inversor caliente: %d C", (int)m.value);   // sin «°»: no está en las fuentes
+        bg = lv_color_hex(0xB7770D);
+        break;
+    case AlertType::TEMP_OK:
+        snprintf(text, sizeof(text), LV_SYMBOL_OK " Temperatura del inversor normal");
+        bg = lv_color_hex(0x1A5C2E);
+        break;
     default:
         snprintf(text, sizeof(text), LV_SYMBOL_BELL " Alerta del sistema");
         bg = lv_color_hex(0x21262D);

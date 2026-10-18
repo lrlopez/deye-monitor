@@ -595,6 +595,30 @@ void test_period_totals() {
     TEST_ASSERT_TRUE(isnan(period_change_pct(50.0f, 0.0f)));
 }
 
+// DEYE-71: sobretemperatura con histéresis e informe diario
+void test_temp_monitor() {
+    TempMonitor m;
+    TEST_ASSERT_TRUE(m.update(50) == TempMonitor::Event::NONE);
+    TEST_ASSERT_TRUE(m.update(TUNE_OVERTEMP_C + 1) == TempMonitor::Event::NONE);   // 1ª lectura: aún no
+    TEST_ASSERT_TRUE(m.update(TUNE_OVERTEMP_C + 1) == TempMonitor::Event::OVER);   // 2ª: aviso
+    TEST_ASSERT_TRUE(m.update(TUNE_OVERTEMP_C + 5) == TempMonitor::Event::NONE);   // sigue alto: no repite
+    TEST_ASSERT_TRUE(m.update(TUNE_OVERTEMP_REARM_C + 1) == TempMonitor::Event::NONE);   // en la banda de histéresis
+    TEST_ASSERT_TRUE(m.update(TUNE_OVERTEMP_REARM_C - 1) == TempMonitor::Event::RECOVERED);
+    // Un pico aislado no avisa
+    TEST_ASSERT_TRUE(m.update(TUNE_OVERTEMP_C + 3) == TempMonitor::Event::NONE);
+    TEST_ASSERT_TRUE(m.update(40) == TempMonitor::Event::NONE);
+    TEST_ASSERT_TRUE(m.update(TUNE_OVERTEMP_C + 3) == TempMonitor::Event::NONE);
+}
+
+void test_daily_report_due() {
+    uint32_t last = 0;
+    TEST_ASSERT_FALSE(daily_report_due(20, 2026100, last, 21));   // aún no es la hora
+    TEST_ASSERT_TRUE(daily_report_due(21, 2026100, last, 21));    // llega la hora: sale
+    TEST_ASSERT_FALSE(daily_report_due(22, 2026100, last, 21));   // el mismo día no se repite
+    TEST_ASSERT_FALSE(daily_report_due(3, 2026101, last, 21));    // día nuevo pero de madrugada
+    TEST_ASSERT_TRUE(daily_report_due(21, 2026101, last, 21));    // al día siguiente, otra vez
+}
+
 // DEYE-74: las zonas horarias predefinidas son cadenas TZ válidas y la 0 es la de config.h
 static int tz_hour_at(const char* posix, time_t utc) {
     setenv("TZ", posix, 1); tzset();
@@ -955,6 +979,8 @@ int main(int, char**) {
     RUN_TEST(test_tz_presets);
     RUN_TEST(test_energy_metrics);
     RUN_TEST(test_period_totals);
+    RUN_TEST(test_temp_monitor);
+    RUN_TEST(test_daily_report_due);
     RUN_TEST(test_battery_eta);
     RUN_TEST(test_battery_eta_format_and_pack);
     RUN_TEST(test_fw_asset_matches);

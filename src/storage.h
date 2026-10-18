@@ -52,6 +52,7 @@ struct TelegramConfig {
     bool    notify_solar;     // notificar inicio/fin de producción
     bool    notify_grid;      // notificar corte/restauración de red
     bool    notify_logger;    // notificar fallo de comunicación
+    bool    notify_report;    // informe diario a las TUNE_DAILY_REPORT_HOUR (DEYE-71; desactivado por defecto)
 };
 
 class StorageManager {

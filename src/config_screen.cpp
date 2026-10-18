@@ -36,6 +36,7 @@ static lv_obj_t* s_slider_tg_thr  = nullptr;
 static lv_obj_t* s_cb_tg_solar   = nullptr;
 static lv_obj_t* s_cb_tg_grid    = nullptr;
 static lv_obj_t* s_cb_tg_logger  = nullptr;
+static lv_obj_t* s_cb_tg_report  = nullptr;   // informe diario (DEYE-71)
 
 static lv_obj_t* s_slider_bl_op      = nullptr;
 static lv_obj_t* s_lbl_bl_op         = nullptr;
@@ -613,6 +614,7 @@ static void save_btn_cb(lv_event_t* /*e*/) {
     tgcfg.notify_solar   = lv_obj_has_state(s_cb_tg_solar,  LV_STATE_CHECKED);
     tgcfg.notify_grid    = lv_obj_has_state(s_cb_tg_grid,   LV_STATE_CHECKED);
     tgcfg.notify_logger  = lv_obj_has_state(s_cb_tg_logger, LV_STATE_CHECKED);
+    tgcfg.notify_report  = lv_obj_has_state(s_cb_tg_report, LV_STATE_CHECKED);
 
     BacklightConfig blcfg{};
     blcfg.op_pct             = (uint8_t)lv_slider_get_value(s_slider_bl_op);
@@ -834,7 +836,7 @@ void config_screen_init(lv_obj_t* parent) {
     const int SEC_NET_Y    = SEC_CHART_Y + SEC_CHART_H + SY(4);
     const int SEC_NET_H    = SY(106) + CFG_FIELD_H + CFG_SEC_PAD;   // +44: fila «Zona horaria» (DEYE-74)
     const int SEC_TG_Y     = SEC_NET_Y   + SEC_NET_H   + SY(4);
-    const int SEC_TG_H     = CFG_FIELD_H*2 + SS(16) + CFG_SEC_PAD*2 + SY(76) + SY(20);
+    const int SEC_TG_H     = CFG_FIELD_H*2 + SS(16) + CFG_SEC_PAD*2 + SY(76) + SY(20) + SY(30);   // +30: «Informe diario»
 
 
     // ── Título ────────────────────────────────────────────────────────────
@@ -1148,6 +1150,15 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_text_font(cb_logger, &FONT_SMALL, 0);
     lv_obj_set_style_text_color(cb_logger, C_WHITE, 0);
     if (tgcfg.notify_logger) lv_obj_add_state(cb_logger, LV_STATE_CHECKED);
+
+    // Informe diario (DEYE-71), en una fila propia debajo de los avisos
+    lv_obj_t* cb_report = lv_checkbox_create(sec_tg);
+    lv_obj_set_pos(cb_report, SX(90), SY(188));
+    lv_checkbox_set_text(cb_report, "Informe diario (21:00)");
+    lv_obj_set_style_text_font(cb_report, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(cb_report, C_WHITE, 0);
+    if (tgcfg.notify_report) lv_obj_add_state(cb_report, LV_STATE_CHECKED);
+    s_cb_tg_report = cb_report;
 
     // Botón de prueba
     lv_obj_t* btn_test = lv_btn_create(sec_tg);
