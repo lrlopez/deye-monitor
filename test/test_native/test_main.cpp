@@ -14,6 +14,7 @@
 #include "tz_presets.h"
 #include "energy_metrics.h"
 #include "battery_estimate.h"
+#include "period_totals.h"
 
 // Misma zona horaria que config.h (TIMEZONE)
 static const char* TZ_SPAIN = "CET-1CEST,M3.5.0,M10.5.0/3";
@@ -578,6 +579,22 @@ void test_battery_eta_format_and_pack() {
     TEST_ASSERT_EQUAL_UINT16(1234, u.minutes);
 }
 
+// DEYE-32: totales por periodo y variación interanual
+void test_period_totals() {
+    PeriodTotals t;
+    t.add(10, 4, 2, 8, 1, 2);
+    t.add(5, 1, 3, 7, 0, 1);
+    TEST_ASSERT_EQUAL_INT(2, t.days);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 15.0f, t.pv);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 15.0f, t.load);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 66.67f, t.autosufficiency());   // (15-5)/15
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 66.67f, t.autoconsumption());   // (15-5)/15
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 15.0f * TUNE_CO2_KG_PER_KWH, t.co2_kg());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 20.0f, period_change_pct(120.0f, 100.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -50.0f, period_change_pct(50.0f, 100.0f));
+    TEST_ASSERT_TRUE(isnan(period_change_pct(50.0f, 0.0f)));
+}
+
 // DEYE-74: las zonas horarias predefinidas son cadenas TZ válidas y la 0 es la de config.h
 static int tz_hour_at(const char* posix, time_t utc) {
     setenv("TZ", posix, 1); tzset();
@@ -937,6 +954,7 @@ int main(int, char**) {
     RUN_TEST(test_fw_is_newer);
     RUN_TEST(test_tz_presets);
     RUN_TEST(test_energy_metrics);
+    RUN_TEST(test_period_totals);
     RUN_TEST(test_battery_eta);
     RUN_TEST(test_battery_eta_format_and_pack);
     RUN_TEST(test_fw_asset_matches);

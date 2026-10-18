@@ -5,6 +5,7 @@
 #include "data_store.h"
 #include "storage.h"
 #include "energy_metrics.h"
+#include "period_totals.h"
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
 #include <ArduinoJson.h>
@@ -235,6 +236,78 @@ String TelegramBot::cmdDia(const String& date_str) const {
     return fmt_daily_stats(dep, d, "📅 *Energía del día*");
 }
 
+// ── Resumen mensual / anual con comparación interanual (DEYE-32) ──────────
+static PeriodTotals sum_period(uint32_t start, uint32_t end_excl) {
+    PeriodTotals t;
+    for (uint32_t d = start; d < end_excl; d = next_local_midnight(d)) {
+        DailyRecord dr{};
+        if (!Cache.getDaily(d, dr)) continue;
+        const DailyStats s = daily_record_to_stats(dr);
+        if (!s.valid) continue;
+        t.add(s.pv_kwh, s.export_kwh, s.import_kwh, s.load_kwh, s.batt_charge_kwh, s.batt_discharge_kwh);
+    }
+    return t;
+}
+
+// Medianoche local del día 1 del mes `mon` (0-11, puede desbordar) del año `year`;
+// year_only: día 1 de enero
+static uint32_t period_start(int year, int mon) {
+    struct tm t{}; t.tm_year = year - 1900; t.tm_mon = mon; t.tm_mday = 1; t.tm_isdst = -1;
+    return (uint32_t)mktime(&t);
+}
+
+static void append_change(char* buf, size_t n, int& pos, const char* label, float cur, float prev) {
+    const float c = period_change_pct(cur, prev);
+    if (isnan(c)) return;
+    pos += snprintf(buf + pos, n - pos, "%s %s%.0f%%\n", label, c >= 0 ? "▲ +" : "▼ ", c);
+}
+
+String TelegramBot::cmdPeriodo(bool year, const String& arg) const {
+    time_t now; time(&now);
+    struct tm tn; localtime_r(&now, &tn);
+    int y = tn.tm_year + 1900, m = tn.tm_mon;   // por defecto: el periodo en curso
+
+    if (arg.length()) {
+        if (year) {
+            if (arg.length() != 4 || arg.toInt() < 2020 || arg.toInt() > 2100) return "❌ Formato: /anio YYYY";
+            y = arg.toInt();
+        } else {
+            if (arg.length() != 6 || arg.substring(0, 4).toInt() < 2020 ||
+                arg.substring(4, 6).toInt() < 1 || arg.substring(4, 6).toInt() > 12)
+                return "❌ Formato: /mes YYYYMM";
+            y = arg.substring(0, 4).toInt(); m = arg.substring(4, 6).toInt() - 1;
+        }
+    }
+
+    const uint32_t a  = year ? period_start(y, 0) : period_start(y, m);
+    const uint32_t b  = year ? period_start(y + 1, 0) : period_start(y, m + 1);
+    const uint32_t pa = year ? period_start(y - 1, 0) : period_start(y - 1, m);
+    const uint32_t pb = year ? period_start(y, 0) : period_start(y - 1, m + 1);
+    const PeriodTotals cur = sum_period(a, b), prev = sum_period(pa, pb);
+    if (cur.days == 0) return "ℹ️ Sin datos para ese periodo.";
+
+    static const char* MES[] = {"Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio",
+                                "Agosto","Septiembre","Octubre","Noviembre","Diciembre"};
+    char buf[640];
+    int pos = 0;
+    if (year) pos += snprintf(buf, sizeof(buf), "📆 *Resumen de %d*\n_%d días con datos_\n\n", y, cur.days);
+    else      pos += snprintf(buf, sizeof(buf), "📆 *Resumen de %s %d*\n_%d días con datos_\n\n", MES[m], y, cur.days);
+    pos += snprintf(buf + pos, sizeof(buf) - pos,
+        "☀️ Producción: *%.1f kWh*\n🏠 Consumo: *%.1f kWh*\n"
+        "🔌 Exportado: *%.1f kWh*\n🔌 Importado: *%.1f kWh*\n"
+        "📊 Autoconsumo: *%.0f%%*\n📊 Autosuficiencia: *%.0f%%*\n🌱 CO2 evitado: *%.0f kg*\n",
+        cur.pv, cur.load, cur.export_kwh, cur.import_kwh,
+        cur.autoconsumption() < 0 ? 0 : cur.autoconsumption(),
+        cur.autosufficiency() < 0 ? 0 : cur.autosufficiency(), cur.co2_kg());
+    if (prev.days > 0) {
+        pos += snprintf(buf + pos, sizeof(buf) - pos, "\n_Frente al mismo periodo de %d:_\n", y - 1);
+        append_change(buf, sizeof(buf), pos, "☀️ Producción", cur.pv, prev.pv);
+        append_change(buf, sizeof(buf), pos, "🏠 Consumo", cur.load, prev.load);
+        append_change(buf, sizeof(buf), pos, "🔌 Importado", cur.import_kwh, prev.import_kwh);
+    }
+    return String(buf);
+}
+
 String TelegramBot::cmdSemana() const {
     uint32_t today = today_midnight();
     static const char* DIAS[] = {"Dom","Lun","Mar","Mié","Jue","Vie","Sáb"};
@@ -326,6 +399,8 @@ String TelegramBot::cmdAyuda() const {
         "/hoy — Totales del día con %%\n"
         "/dia _YYYYMMDD_ — Totales de una fecha\n"
         "/semana — Resumen de los últimos 7 días\n"
+        "/mes _[YYYYMM]_ — Resumen del mes y comparación con el año anterior\n"
+        "/anio _[YYYY]_ — Resumen del año y comparación con el anterior\n"
         "/sistema — Info del dispositivo\n"
         "/umbral _N_ — Cambiar umbral alerta bat. (%%)\n"
         "/silenciar — Silenciar alertas 1 hora\n"
@@ -393,6 +468,12 @@ void TelegramBot::handleCommand(const String& text, const String& from_id) {
         response = cmdDia(arg);
     } else if (cmd == "/semana") {
         response = cmdSemana();
+    } else if (cmd.startsWith("/mes")) {
+        String arg = cmd.substring(4); arg.trim();
+        response = cmdPeriodo(false, arg);
+    } else if (cmd.startsWith("/anio") || cmd.startsWith("/año")) {
+        String arg = cmd.substring(cmd.startsWith("/anio") ? 5 : 5); arg.trim();   // "/año" ocupa 5 bytes en UTF-8
+        response = cmdPeriodo(true, arg);
     } else if (cmd == "/sistema") {
         response = cmdSistema();
     } else if (cmd.startsWith("/umbral")) {

@@ -64,6 +64,7 @@ private:
     String cmdHoy()      const;
     String cmdDia(const String& date_str) const;
     String cmdSemana()   const;
+    String cmdPeriodo(bool year, const String& arg) const;   // /mes /anio (DEYE-32)
     String cmdBateria()  const;
     String cmdSistema()  const;
     String cmdAyuda()    const;
