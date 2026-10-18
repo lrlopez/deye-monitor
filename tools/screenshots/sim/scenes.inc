@@ -1,4 +1,5 @@
 #include "pagination_dots.h"
+#include "home_button.h"
 #include "ui_toast.h"
 #include "clock_mode.h"
 #include "stats_screen.h"
@@ -179,4 +180,11 @@ static void build_scene(const char* name, lv_obj_t* scr) {
         lv_obj_t* ip = find_ta(scr, "192.168.1.50"); if (ip) { lv_textarea_set_text(ip, "192.168.1.30"); lv_textarea_add_text(ip, "0"); }
         run(300);
     }
+    // Las pantallas que no son el dashboard llevan el botón «inicio» (como en main.cpp)
+    static const char* const with_home[] = { "chart", "stats", "profile", "config", "cfg" };
+    for (const char* p : with_home)
+        if (!strncmp(name, p, strlen(p))) {
+            home_button_init(scr, []() {}); home_button_set_dashboard(false); run(100);
+            break;
+        }
 }

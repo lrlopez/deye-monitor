@@ -3,3 +3,4 @@
 
 void config_screen_init(lv_obj_t* parent);
 void config_screen_tick();   // llamar desde loop() para refrescar señal/IP
+bool config_keyboard_visible();   // el teclado en pantalla está abierto

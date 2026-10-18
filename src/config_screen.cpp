@@ -416,6 +416,10 @@ static void scan_btn_cb(lv_event_t* /*e*/) {
 // ═════════════════════════════════════════════════════════════════════════
 // Teclado
 // ═════════════════════════════════════════════════════════════════════════
+bool config_keyboard_visible() {
+    return kb && !lv_obj_has_flag(kb, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void kb_event_cb(lv_event_t* e) {
     if (lv_event_get_code(e) == LV_EVENT_READY ||
         lv_event_get_code(e) == LV_EVENT_CANCEL)

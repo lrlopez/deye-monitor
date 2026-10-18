@@ -22,6 +22,7 @@
 #include "psram_cache.h"
 #include "backlight.h"
 #include "pagination_dots.h"
+#include "home_button.h"
 #include "screen_banner.h"
 #include "web_alerts.h"
 #include "app_state.h"
@@ -475,6 +476,12 @@ void setup() {
 
     pagination_dots_init(g_main_screen, 5);
 
+    // Botón «inicio»: visible fuera del dashboard (sustituirá al doble toque)
+    home_button_init(g_main_screen, []() {
+        if (g_tileview && g_tile_dash)
+            lv_tileview_set_tile(g_tileview, g_tile_dash, LV_ANIM_ON);
+    });
+
     // DEYE-56: tocar un punto de paginación salta a esa pantalla
     pagination_dots_set_handler([](int idx) {
         lv_obj_t* tiles[] = {g_tile_dash, g_tile_chart,
@@ -493,12 +500,13 @@ void setup() {
             if (tiles[i] == tile) { idx = i; break; }
         }
         pagination_dots_set(idx);
+        home_button_set_dashboard(idx == 0);
 
         // DEYE-56: la primera vez que se sale del dashboard, explicar cómo volver
         if (idx != 0 && !(s_hints & HINT_DOUBLE_TAP)) {
             s_hints |= HINT_DOUBLE_TAP;
             Storage.saveHints(s_hints);
-            ui_toast_show("Toca dos veces la pantalla para volver al inicio");
+            ui_toast_show("Toca la casa o dos veces la pantalla para volver al inicio");
         }
 
         chart_screen_set_active(tile == g_tile_chart);
@@ -655,6 +663,10 @@ void loop() {
     // Se mide desde el primer press hasta el segundo press (< TUNE_DOUBLE_TAP_MS).
     static bool     s_was_pressed  = false;
     static uint32_t s_first_tap_ms = 0;
+    // Teclear en el teclado en pantalla son toques seguidos: no son «doble toque». Se mantiene la
+    // exclusión durante la ventana tras cerrarlo (el OK se procesa al soltar)
+    static uint32_t s_kb_seen_ms = 0;
+    if (config_keyboard_visible()) { s_kb_seen_ms = millis(); s_first_tap_ms = 0; }
 
     lv_indev_t* indev = lv_indev_get_next(nullptr);
     while (indev) {
@@ -664,7 +676,9 @@ void loop() {
                 Backlight.onTouch();
                 if (!s_was_pressed) {   // flanco de subida = nuevo press
                     uint32_t now = millis();
-                    if (s_first_tap_ms && now - s_first_tap_ms < TUNE_DOUBLE_TAP_MS) {
+                    if (s_kb_seen_ms && now - s_kb_seen_ms < TUNE_DOUBLE_TAP_MS) {
+                        s_first_tap_ms = 0;
+                    } else if (s_first_tap_ms && now - s_first_tap_ms < TUNE_DOUBLE_TAP_MS) {
                         // Segundo press dentro de la ventana → doble tap
                         if (g_tileview) {
                             lv_obj_t* cur = lv_tileview_get_tile_active(g_tileview);

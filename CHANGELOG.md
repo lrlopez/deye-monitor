@@ -6,6 +6,19 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Añadido
+
+- **Botón «inicio» (casa) en las pantallas:** un icono de casa en el extremo izquierdo de la barra superior lleva al panel principal desde la gráfica, estadísticas, perfil de energía y configuración (se oculta en el panel). En gráfica y estadísticas el calendario pasa al extremo derecho y las flechas «‹» «›» quedan dentro: `[casa][‹] título [›][calendario]`. El doble toque se mantiene por ahora; la idea es retirarlo si el botón funciona bien. El aviso de la primera vez lo menciona.
+
+### Cambiado
+
+- **Vista de flujo de energía:** la batería pasa a la izquierda y la red a la derecha (solar sigue arriba).
+- **«CO2 ahorrado» en lugar de «CO2 evitado»** en la pantalla de estadísticas, la web y Telegram. En Estadísticas, si el subtítulo de la columna no cabe a su tamaño normal se reduce lo justo para que quepa.
+
+### Corregido
+
+- **Escribir en el teclado de Configuración podía devolver a la pantalla de inicio:** dos teclas seguidas en menos de 600 ms contaban como el «doble toque». Ahora no se detecta el doble toque con el teclado abierto ni durante la ventana siguiente a cerrarlo.
+
 ## [v4.0.0] - 2026-10-18
 
 ### Añadido

@@ -502,15 +502,15 @@ void chart_screen_init(lv_obj_t* parent) {
     lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_OFF);
 
     // ── Barra de navegación ───────────────────────────────────────────────
-    s_btn_prev = nav_btn(parent, SX(2), SY(2), NAV_BTN_W, NAV_BTN_H,
+    // [casa (home_button)][‹] título [24h][›][calendario]
+    s_btn_prev = nav_btn(parent, NAV_PREV_X, SY(2), NAV_BTN_W, NAV_BTN_H,
                         LV_SYMBOL_LEFT, prev_cb);
-    s_btn_next = nav_btn(parent, SCREEN_WIDTH-NAV_BTN_W-SX(2), SY(2),
+    s_btn_next = nav_btn(parent, NAV_NEXT_X, SY(2),
                         NAV_BTN_W, NAV_BTN_H, LV_SYMBOL_RIGHT, next_cb);
 
-    // Botón calendario
-    const int cal_x = SCREEN_WIDTH-NAV_BTN_W-SX(4)-SX(34);
-    lv_obj_t* btn_cal = nav_btn(parent, cal_x, SY(2),
-        SX(34), NAV_BTN_H, LV_SYMBOL_CALENDAR, nullptr);
+    // Botón calendario, en el extremo derecho
+    lv_obj_t* btn_cal = nav_btn(parent, NAV_CAL_X, SY(2),
+        NAV_CAL_W, NAV_BTN_H, LV_SYMBOL_CALENDAR, nullptr);
     lv_obj_add_event_cb(btn_cal, [](lv_event_t*) {
         calendar_show(
             day_epoch_from_offset(s_offset),
@@ -526,16 +526,16 @@ void chart_screen_init(lv_obj_t* parent) {
             });
     }, LV_EVENT_CLICKED, nullptr);
 
-    // Botón de rango 24h / 7d (DEYE-52), a la izquierda del calendario
-    s_btn_range = nav_btn(parent, cal_x - SX(4) - RANGE_BTN_W, SY(2),
+    // Botón de rango 24h / 7d (DEYE-52), a la izquierda del «›»
+    s_btn_range = nav_btn(parent, NAV_NEXT_X - SX(4) - RANGE_BTN_W, SY(2),
         RANGE_BTN_W, NAV_BTN_H, "24h", range_cb);
     s_lbl_range = lv_obj_get_child(s_btn_range, 0);
     lv_obj_set_style_text_font(s_lbl_range, &FONT_SMALL, 0);
 
     s_lbl_date = lv_label_create(parent);
-    lv_obj_set_pos(s_lbl_date, NAV_BTN_W+SX(6), SY(7));
+    lv_obj_set_pos(s_lbl_date, NAV_PREV_X + NAV_BTN_W + SX(4), SY(7));
     lv_obj_set_width(s_lbl_date,
-        SCREEN_WIDTH - 2*NAV_BTN_W - SX(34) - RANGE_BTN_W - SX(16));
+        NAV_NEXT_X - SX(4) - RANGE_BTN_W - SX(4) - (NAV_PREV_X + NAV_BTN_W + SX(4)));
     lv_label_set_long_mode(s_lbl_date, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(s_lbl_date, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(s_lbl_date, &FONT_NORMAL, 0);

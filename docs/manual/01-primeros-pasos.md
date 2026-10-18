@@ -102,10 +102,11 @@ Panel  ←→  Gráfica  ←→  Estadísticas  ←→  Perfil de energía  ←�
 
 - Los **puntos** del borde inferior indican en cuál estás. **Se pueden tocar** para saltar
   directamente a esa pantalla.
-- Un **doble toque** en cualquier pantalla te devuelve al panel principal. Para que no tengas que
-  adivinarlo, el equipo te lo recuerda con un aviso la primera vez que cambias de pantalla (y te
-  avisa también de que la barra superior del panel cambia la vista). Cada pista se muestra una sola
-  vez.
+- El botón de la **casa**, en la esquina superior izquierda de todas las pantallas salvo el panel,
+  te devuelve al panel principal. Un **doble toque** en la pantalla hace lo mismo (no funciona
+  mientras escribes con el teclado). El equipo te lo recuerda con un aviso la primera vez que
+  cambias de pantalla (y te avisa también de que la barra superior del panel cambia la vista).
+  Cada pista se muestra una sola vez.
 - Los **avisos temporales** (confirmaciones, errores de un campo) aparecen en una franja sobre la
   pantalla y desaparecen solos.
 

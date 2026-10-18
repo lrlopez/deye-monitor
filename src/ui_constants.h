@@ -35,6 +35,13 @@
 #define NAV_H             (FONT_NORMAL_SIZE + SY(10))
 #define NAV_BTN_W         SX(44)
 #define NAV_BTN_H         (NAV_H - 4)
+// Disposición de la barra (gráfica, estadísticas, perfil): [casa][‹] título [›][calendario].
+// Casa y calendario en los extremos; las flechas, dentro.
+#define NAV_CAL_W         SX(34)
+#define NAV_HOME_X        SX(2)
+#define NAV_PREV_X        (SX(2) + NAV_BTN_W + SX(4))
+#define NAV_CAL_X         (SCREEN_WIDTH - NAV_CAL_W - SX(2))
+#define NAV_NEXT_X        (NAV_CAL_X - SX(4) - NAV_BTN_W)
 
 // ── Barra superior del dashboard ──────────────────────────────────────────
 #define TOP_BAR_H         (FONT_NORMAL_SIZE + SY(8))

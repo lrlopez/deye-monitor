@@ -160,6 +160,24 @@ static void make_legend_row(lv_obj_t* p, int x, int y, lv_color_t col,
 }
 
 // ── Renderizado central ───────────────────────────────────────────────────
+// El subtítulo de cada columna (título + autosuficiencia / CO2) debe caber en su mitad de la
+// pantalla: si no cabe a tamaño normal se reduce (escala alrededor de su centro) lo justo
+static void fit_subtitle(lv_obj_t* lbl, int col) {
+    // Ancho propio (sin saltar de línea), centrado en su columna y escalado desde su centro
+    lv_obj_set_width(lbl, LV_SIZE_CONTENT);
+    lv_obj_update_layout(lbl);
+    const int w = lv_obj_get_width(lbl), h = lv_obj_get_height(lbl);
+    const int avail = STATS_COL_W - SX(6);
+    // El cuadro sin escalar no debe salirse de la pantalla (provocaría una barra de scroll)
+    int x = col * STATS_COL_W + (STATS_COL_W - w) / 2;
+    if (x > SCREEN_WIDTH - w) x = SCREEN_WIDTH - w;
+    if (x < 0) x = 0;
+    lv_obj_set_x(lbl, x);
+    lv_obj_set_style_transform_pivot_x(lbl, w / 2, 0);
+    lv_obj_set_style_transform_pivot_y(lbl, h / 2, 0);
+    lv_obj_set_style_transform_scale(lbl, w > avail ? avail * 256 / w : 256, 0);
+}
+
 static void render_stats(float pv, float exp_k, float imp,
                           float load, float bchg, float bdis) {
     float pv_direct = load - bdis - imp;
@@ -189,13 +207,14 @@ static void render_stats(float pv, float exp_k, float imp,
         lv_label_set_text_fmt(pro_leg_pct[i], "%.1f%%",   pp);
     }
 
-    // DEYE-35: autosuficiencia junto al título del consumo y CO2 evitado junto al de la producción
+    // DEYE-35: autosuficiencia junto al título del consumo y CO2 ahorrado junto al de la producción
     const float asuf = self_sufficiency_pct(load, imp);
     if (asuf >= 0) lv_label_set_text_fmt(s_lbl_sub[0], "CONSUMO - autosuficiencia %.0f%%", asuf);
     else           lv_label_set_text(s_lbl_sub[0], "CONSUMO");
     const float co2 = co2_avoided_kg(pv);
-    if (co2 >= 0.05f) lv_label_set_text_fmt(s_lbl_sub[1], "PRODUCCI\xC3\x93N - CO2 evitado %.1f kg", co2);
+    if (co2 >= 0.05f) lv_label_set_text_fmt(s_lbl_sub[1], "PRODUCCI\xC3\x93N - CO2 ahorrado %.1f kg", co2);
     else              lv_label_set_text(s_lbl_sub[1], "PRODUCCI\xC3\x93N");
+    for (int c = 0; c < 2; c++) fit_subtitle(s_lbl_sub[c], c);
 
     lv_obj_add_flag(s_no_data, LV_OBJ_FLAG_HIDDEN);
 }
@@ -333,17 +352,17 @@ void stats_screen_init(lv_obj_t* parent) {
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
 
     // ── Barra de navegación ───────────────────────────────────────────────
-    s_btn_prev = nav_btn(parent, SX(2), SY(2), NAV_BTN_W, NAV_BTN_H,
+    // [casa (home_button)][‹] título [›][calendario]
+    s_btn_prev = nav_btn(parent, NAV_PREV_X, SY(2), NAV_BTN_W, NAV_BTN_H,
                         LV_SYMBOL_LEFT, prev_cb);
 
     // Botón →
-    s_btn_next = nav_btn(parent, SCREEN_WIDTH-NAV_BTN_W-SX(2), SY(2),
+    s_btn_next = nav_btn(parent, NAV_NEXT_X, SY(2),
                         NAV_BTN_W, NAV_BTN_H, LV_SYMBOL_RIGHT, next_cb);
 
-    // Botón calendario — entre label y →
-    lv_obj_t* btn_cal = nav_btn(parent,
-        SCREEN_WIDTH - NAV_BTN_W - SX(4) - SX(34), SY(2),
-        SX(34), NAV_BTN_H, LV_SYMBOL_CALENDAR, nullptr);
+    // Botón calendario, en el extremo derecho
+    lv_obj_t* btn_cal = nav_btn(parent, NAV_CAL_X, SY(2),
+        NAV_CAL_W, NAV_BTN_H, LV_SYMBOL_CALENDAR, nullptr);
     lv_obj_add_event_cb(btn_cal, [](lv_event_t*) {
         calendar_show(
             day_epoch_from_offset(s_offset),
@@ -362,9 +381,9 @@ void stats_screen_init(lv_obj_t* parent) {
 
     // Label de fecha — ancho reducido para dejar sitio al botón cal
     s_lbl_date = lv_label_create(parent);
-    lv_obj_set_pos(s_lbl_date, NAV_BTN_W+SX(4), SY(7));
+    lv_obj_set_pos(s_lbl_date, NAV_PREV_X + NAV_BTN_W + SX(4), SY(7));
     lv_obj_set_width(s_lbl_date,
-        SCREEN_WIDTH - 2*NAV_BTN_W - SX(34) - SX(10));
+        NAV_NEXT_X - SX(4) - (NAV_PREV_X + NAV_BTN_W + SX(4)));
     lv_obj_set_style_text_align(s_lbl_date, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(s_lbl_date, &FONT_NORMAL, 0);
     lv_obj_set_style_text_color(s_lbl_date, C_WHITE, 0);

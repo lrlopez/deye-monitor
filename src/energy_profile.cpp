@@ -483,7 +483,7 @@ void energy_profile_init(lv_obj_t* tile) {
     lv_obj_remove_flag(nav, LV_OBJ_FLAG_SCROLLABLE);
 
     s_btn_prev = make_nav_btn(nav, LV_SYMBOL_LEFT);
-    lv_obj_set_pos(s_btn_prev, 0, (NAV_H - NAV_BTN_H) / 2);
+    lv_obj_set_pos(s_btn_prev, NAV_PREV_X, (NAV_H - NAV_BTN_H) / 2);   // a la derecha del botón de casa
     lv_obj_add_event_cb(s_btn_prev, [](lv_event_t*) {
         s_offset--;
         ep_reload();
