@@ -13,6 +13,7 @@
 #include "web_alerts.h"
 #include "fw_update.h"
 #include "clock_mode.h"
+#include "time_utils.h"
 
 extern uint32_t      g_uptime_start;   // main.cpp: millis() en el arranque
 extern volatile bool g_ota_cancel;   // main.cpp: retira el overlay OTA si la actualización falla
@@ -443,6 +444,11 @@ footer a{color:var(--accent);text-decoration:none}
            border:1px solid var(--bd);border-radius:6px;padding:4px 6px;font-size:.75rem">
     <a href="#" id="csv-download" style="color:var(--accent);text-decoration:none;
        font-size:.75rem">&#11015; Descargar</a>
+    <span style="color:var(--muted)">&nbsp;|&nbsp;</span>
+    <input type="month" id="csv-month" style="background:var(--card);color:var(--wh);
+           border:1px solid var(--bd);border-radius:6px;padding:4px 6px;font-size:.75rem">
+    <a href="#" id="csv-month-dl" style="color:var(--accent);text-decoration:none;
+       font-size:.75rem">&#11015; Mes completo</a>
   </div>
 </footer>)=EOF=");
 
@@ -612,6 +618,16 @@ setInterval(clock,1000);
   updateHref();
   elFrom.addEventListener('change',updateHref);
   elTo.addEventListener('change',updateHref);
+
+  // DEYE-38: mes natural completo (por defecto, el actual)
+  var elMonth=ip('csv-month');
+  elMonth.value=fmt(to).slice(0,7);
+  elMonth.max=elMonth.value;
+  function updateMonth(){
+    ip('csv-month-dl').href='/api/export?month='+elMonth.value.replace('-','');
+  }
+  updateMonth();
+  elMonth.addEventListener('change',updateMonth);
 
   ip('csv-toggle').addEventListener('click',function(e){
     e.preventDefault();
@@ -2776,19 +2792,35 @@ static void handle_export_csv() {
     String from_s = server.arg("from");
     String to_s   = server.arg("to");
 
+    // DEYE-38: ?month=YYYYMM exporta el mes natural completo (primer y último día)
+    const String month_s = server.arg("month");
+    if (month_s.length() > 0) {
+        if (month_s.length() != 6) { server.send(400, "text/plain", "Parametro month invalido (YYYYMM)"); return; }
+        from_s = month_s + "01";
+        const uint32_t first = parse_date(from_s);
+        if (!first) { server.send(400, "text/plain", "Parametro month invalido (YYYYMM)"); return; }
+        struct tm tm_l; time_t tt = (time_t)first; localtime_r(&tt, &tm_l);
+        tm_l.tm_mon += 1; tm_l.tm_mday = 0; tm_l.tm_hour = 12; tm_l.tm_isdst = -1;   // día 0 del mes siguiente = último día de este
+        mktime(&tm_l);
+        char last[12];
+        snprintf(last, sizeof(last), "%04d%02d%02d", tm_l.tm_year + 1900, tm_l.tm_mon + 1, tm_l.tm_mday);
+        to_s = last;
+    }
+
     uint32_t from_ep = parse_date(from_s);
     uint32_t to_ep   = parse_date(to_s);
 
     if (!from_ep || !to_ep || to_ep < from_ep) {
-        server.send(400, "text/plain", "Parametros invalidos (from/to YYYYMMDD)");
+        server.send(400, "text/plain", "Parametros invalidos (from/to YYYYMMDD o month YYYYMM)");
         return;
     }
-    if ((to_ep - from_ep) > 366u * 86400u) {
+    if (local_days_between(from_ep, to_ep) > 366u) {
         server.send(400, "text/plain", "Rango maximo 366 dias");
         return;
     }
 
-    String fname = "deye_" + from_s + "_" + to_s + ".csv";
+    String fname = month_s.length() ? ("deye_" + month_s + ".csv")
+                                    : ("deye_" + from_s + "_" + to_s + ".csv");
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.sendHeader("Content-Type", "text/csv");
     server.sendHeader("Content-Disposition",
@@ -2799,7 +2831,8 @@ static void handle_export_csv() {
         "fecha,pv_kwh,export_kwh,import_kwh,"
         "load_kwh,bchg_kwh,bdis_kwh,soc_inicio,soc_fin\r\n");
 
-    for (uint32_t d = from_ep; d <= to_ep; d += 86400) {
+    // Día a día por medianoche local (no d += 86400: el domingo de cambio de hora dura 23/25 h)
+    for (uint32_t d = from_ep; d <= to_ep; d = next_local_midnight(d)) {
         DailyRecord dr{};
         if (!Cache.getDaily(d, dr)) continue;
         DailyStats ds = daily_record_to_stats(dr);
