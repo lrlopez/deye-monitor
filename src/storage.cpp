@@ -3,6 +3,12 @@
 #include "tz_presets.h"
 
 // ── Namespaces NVS ────────────────────────────────────────────────────────
+// Preferences::getString() registra un error («nvs_get_str len fail … NOT_FOUND») cada vez que la
+// clave no existe aún, y las opcionales (MQTT, Telegram…) no existen hasta que se configuran.
+static String nvs_str(Preferences& p, const char* key, const char* def) {
+    return p.isKey(key) ? p.getString(key, def) : String(def);
+}
+
 static const char* NS_CFG    = "cfg";
 static const char* NS_HIST_D = "hist_d";
 static const char* NS_HIST_H = "hist_h";
@@ -29,10 +35,10 @@ static void readConfigNvs(AppConfig& out) {
     p.begin(NS_CFG, /*readOnly=*/true);
 
     // Fallback a los #define de config.h si no hay valor guardado
-    String ssid = p.getString(K_SSID,    WIFI_SSID);
-    String pass = p.getString(K_PASS,    WIFI_PASS);
-    String lip  = p.getString(K_LIP,     LOGGER_IP);
-    String mdns = p.getString(K_MDNS,    MDNS_HOSTNAME);
+    String ssid = nvs_str(p, K_SSID,    WIFI_SSID);
+    String pass = nvs_str(p, K_PASS,    WIFI_PASS);
+    String lip  = nvs_str(p, K_LIP,     LOGGER_IP);
+    String mdns = nvs_str(p, K_MDNS,    MDNS_HOSTNAME);
     out.logger_serial = p.getULong(K_LSERIAL, LOGGER_SERIAL);
 
     ssid.toCharArray(out.wifi_ssid,      sizeof(out.wifi_ssid));
@@ -118,8 +124,8 @@ static TelegramConfig readTelegramConfigNvs() {
     TelegramConfig cfg{};
     Preferences p;
     p.begin(NS_CFG, true);
-    String tok = p.getString("tg_token",  "");
-    String cid = p.getString("tg_chatid", "");
+    String tok = nvs_str(p, "tg_token",  "");
+    String cid = nvs_str(p, "tg_chatid", "");
     tok.toCharArray(cfg.token,   sizeof(cfg.token)   - 1);
     cid.toCharArray(cfg.chat_id, sizeof(cfg.chat_id) - 1);
     cfg.batt_threshold = p.getUChar("tg_batt",  20);
@@ -170,7 +176,7 @@ static void writeAdminPasswordNvs(const char* password) {
 static String readAdminPasswordNvs() {
     Preferences p;
     p.begin(NS_CFG, true);
-    String s = p.getString("web_pass", "");
+    String s = nvs_str(p, "web_pass", "");
     p.end();
     return s;
 }
@@ -212,11 +218,11 @@ MqttConfig StorageManager::loadMqttConfig() {
     Preferences p;
     p.begin(NS_CFG, true);
     c.enabled = p.getBool("mq_on", false);
-    p.getString("mq_host", "").toCharArray(c.host,   sizeof(c.host)   - 1);
+    nvs_str(p, "mq_host", "").toCharArray(c.host,   sizeof(c.host)   - 1);
     c.port    = p.getUShort("mq_port", 1883);
-    p.getString("mq_user", "").toCharArray(c.user,   sizeof(c.user)   - 1);
-    p.getString("mq_pass", "").toCharArray(c.pass,   sizeof(c.pass)   - 1);
-    p.getString("mq_pref", "deye").toCharArray(c.prefix, sizeof(c.prefix) - 1);
+    nvs_str(p, "mq_user", "").toCharArray(c.user,   sizeof(c.user)   - 1);
+    nvs_str(p, "mq_pass", "").toCharArray(c.pass,   sizeof(c.pass)   - 1);
+    nvs_str(p, "mq_pref", "deye").toCharArray(c.prefix, sizeof(c.prefix) - 1);
     p.end();
     if (c.port == 0) c.port = 1883;
     if (!c.prefix[0]) strcpy(c.prefix, "deye");
