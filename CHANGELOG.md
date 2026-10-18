@@ -4,7 +4,12 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
-## [Unreleased]
+## [v4.1.0] - 2026-10-18
+
+### Corregido
+
+- **Reinicio por watchdog del bot de Telegram** (`task_wdt: IDLE0 … telegram_bot`) con el core Arduino 3: la librería espera la respuesta en un bucle sin ceder la CPU y la tarea IDLE del core 0 no llegaba a ejecutarse. El bot usa ahora un cliente TLS que cede un tick mientras no hay datos.
+- **Errores `nvs_get_str len fail … NOT_FOUND` continuos en el log** (`mq_user`, `mq_pass`, `mq_pref`…): las claves opcionales aún sin configurar se comprueban con `isKey()` antes de leerlas.
 
 ### Cambiado
 
