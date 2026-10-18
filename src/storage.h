@@ -96,6 +96,10 @@ public:
     bool    loadWizardDone();
     void    saveWizardDone(bool done);
 
+    // ── Zona horaria (DEYE-74): índice en TZ_PRESETS (tz_presets.h); 0 = España/Europa central ──
+    uint8_t loadTimezone();
+    void    saveTimezone(uint8_t idx);
+
     // ── Modo reloj en reposo (DEYE-54): activado por defecto ───────────────
     bool    loadClockMode();
     void    saveClockMode(bool enabled);

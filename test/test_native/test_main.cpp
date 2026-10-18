@@ -11,6 +11,7 @@
 #include "daily_tracker.h"
 #include "fw_update_logic.h"
 #include "input_validators.h"
+#include "tz_presets.h"
 
 // Misma zona horaria que config.h (TIMEZONE)
 static const char* TZ_SPAIN = "CET-1CEST,M3.5.0,M10.5.0/3";
@@ -513,6 +514,31 @@ void test_fw_version_parse() {
     TEST_ASSERT_FALSE(fw_parse_version("3.6.0abc").valid);
 }
 
+// DEYE-74: las zonas horarias predefinidas son cadenas TZ válidas y la 0 es la de config.h
+static int tz_hour_at(const char* posix, time_t utc) {
+    setenv("TZ", posix, 1); tzset();
+    struct tm tm; localtime_r(&utc, &tm);
+    return tm.tm_hour;
+}
+void test_tz_presets() {
+    TEST_ASSERT_EQUAL_STRING("CET-1CEST,M3.5.0,M10.5.0/3", TZ_PRESETS[0].posix);
+    TEST_ASSERT_EQUAL_UINT32(0, tz_clamp_index(-1));
+    TEST_ASSERT_EQUAL_UINT32(0, tz_clamp_index((int)TZ_PRESET_COUNT));
+    TEST_ASSERT_EQUAL_UINT32(TZ_PRESET_COUNT - 1, tz_clamp_index((int)TZ_PRESET_COUNT - 1));
+    const time_t jan = 1768478400;   // 2026-01-15 12:00 UTC
+    const time_t jul = 1784116800;   // 2026-07-15 12:00 UTC
+    TEST_ASSERT_EQUAL_INT(13, tz_hour_at(TZ_PRESETS[0].posix, jan));   // CET
+    TEST_ASSERT_EQUAL_INT(14, tz_hour_at(TZ_PRESETS[0].posix, jul));   // CEST
+    TEST_ASSERT_EQUAL_INT(12, tz_hour_at("UTC0", jul));
+    for (size_t i = 0; i < TZ_PRESET_COUNT; i++) {
+        TEST_ASSERT_TRUE(TZ_PRESETS[i].label[0] != '\0');
+        const int h = tz_hour_at(TZ_PRESETS[i].posix, jan);
+        TEST_ASSERT_TRUE(h >= 0 && h <= 23);
+        TEST_ASSERT_TRUE(h != 12 || strstr(TZ_PRESETS[i].posix, "UTC") || strstr(TZ_PRESETS[i].posix, "WET"));
+    }
+    setenv("TZ", "UTC0", 1); tzset();
+}
+
 void test_fw_is_newer() {
     TEST_ASSERT_TRUE(fw_is_newer("3.6.0", "v3.6.1"));
     TEST_ASSERT_TRUE(fw_is_newer("3.6.0", "v3.7.0"));
@@ -845,6 +871,7 @@ int main(int, char**) {
     RUN_TEST(test_daily_block_fits_buffer);
     RUN_TEST(test_fw_version_parse);
     RUN_TEST(test_fw_is_newer);
+    RUN_TEST(test_tz_presets);
     RUN_TEST(test_fw_asset_matches);
     RUN_TEST(test_fw_parse_release_picks_this_board);
     RUN_TEST(test_fw_parse_release_errors);

@@ -8,6 +8,7 @@
 #include "data_store.h"
 #include "input_validators.h"
 #include "logger_scan_ui.h"
+#include "tz_presets.h"
 #include "clock_mode.h"
 #include "ui_toast.h"
 
@@ -145,6 +146,7 @@ static lv_obj_t*  s_btn_save    = nullptr;
 static lv_obj_t*  s_btn_restart = nullptr;
 static lv_obj_t*  s_cfg_parent  = nullptr;
 static lv_obj_t*  s_cb_clock    = nullptr;    // "Reloj en reposo" (DEYE-54)
+static lv_obj_t*  s_dd_tz       = nullptr;    // zona horaria (DEYE-74)
 static void       show_section(int idx);      // definida más abajo (la usa save_btn_cb)
 static int        section_of(lv_obj_t* obj);
 
@@ -628,6 +630,10 @@ static void save_btn_cb(lv_event_t* /*e*/) {
                           cfg.logger_serial        != old_cfg.logger_serial   ||
                           strcmp(cfg.mdns_hostname, old_cfg.mdns_hostname)   != 0);
 
+    const uint8_t tz_new = (uint8_t)lv_dropdown_get_selected(s_dd_tz);
+    if (tz_new != Storage.loadTimezone()) needs_restart = true;
+    Storage.saveTimezone(tz_new);
+
     // Guardar todo una sola vez
     Storage.saveConfig(cfg);
     Storage.saveChartConfig(ccfg);
@@ -826,7 +832,7 @@ void config_screen_init(lv_obj_t* parent) {
     const int SEC_CHART_Y  = SEC_INV_Y  + SEC_INV_H   + SY(4);
     const int SEC_CHART_H  = CFG_FIELD_H + SS(16) + CFG_SEC_PAD*2 + SY(30);
     const int SEC_NET_Y    = SEC_CHART_Y + SEC_CHART_H + SY(4);
-    const int SEC_NET_H    = SY(62) + CFG_FIELD_H + CFG_SEC_PAD;
+    const int SEC_NET_H    = SY(106) + CFG_FIELD_H + CFG_SEC_PAD;   // +44: fila «Zona horaria» (DEYE-74)
     const int SEC_TG_Y     = SEC_NET_Y   + SEC_NET_H   + SY(4);
     const int SEC_TG_H     = CFG_FIELD_H*2 + SS(16) + CFG_SEC_PAD*2 + SY(76) + SY(20);
 
@@ -1006,6 +1012,30 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_add_event_cb(s_ta_mdns, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
     add_rule(s_ta_mdns, valid_mdns, "mDNS: letras, n\xC3\xBAmeros y guiones (m\xC3\xA1x. 31), sin guion al principio ni al final",
              "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-");
+
+    // Zona horaria (DEYE-74): un cambio reinicia, porque los epochs de medianoche del
+    // histórico y de la caché se calculan con la zona vigente al arrancar
+    make_row_label(sec_net, SY(106), "Zona hor.");
+    s_dd_tz = lv_dropdown_create(sec_net);
+    {
+        String opts;
+        for (size_t i = 0; i < TZ_PRESET_COUNT; i++) { if (i) opts += "\n"; opts += TZ_PRESETS[i].label; }
+        lv_dropdown_set_options(s_dd_tz, opts.c_str());
+    }
+    lv_dropdown_set_selected(s_dd_tz, Storage.loadTimezone());
+    lv_obj_set_pos(s_dd_tz, CFG_LBL_W, SY(106));
+    lv_obj_set_size(s_dd_tz, CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), CFG_FIELD_H);
+    lv_obj_set_style_bg_color(s_dd_tz, lv_color_hex(0x21262D), 0);
+    lv_obj_set_style_text_color(s_dd_tz, C_WHITE, 0);
+    lv_obj_set_style_text_font(s_dd_tz, &FONT_SMALL, 0);
+    lv_obj_set_style_border_color(s_dd_tz, C_ACCENT, 0);
+    lv_obj_set_style_border_width(s_dd_tz, 1, 0);
+    lv_obj_set_style_pad_ver(s_dd_tz, 4, 0);
+    lv_obj_t* tz_list = lv_dropdown_get_list(s_dd_tz);
+    lv_obj_set_style_bg_color(tz_list, C_LIST, 0);
+    lv_obj_set_style_text_color(tz_list, C_WHITE, 0);
+    lv_obj_set_style_text_font(tz_list, &FONT_SMALL, 0);
+    lv_obj_set_style_border_color(tz_list, C_ACCENT, 0);
 
     // ── Sección Telegram ──────────────────────────────────────────────────
     TelegramConfig tgcfg = Storage.loadTelegramConfig();

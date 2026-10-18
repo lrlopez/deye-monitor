@@ -29,6 +29,7 @@
 #include "ui_toast.h"
 #include "clock_mode.h"
 #include "setup_wizard.h"
+#include "tz_presets.h"
 
 
 /* Change to your screen resolution */
@@ -396,7 +397,7 @@ void setup() {
     // los epochs de medianoche. Si la TZ no está configurada aquí, usa UTC y los
     // epochs quedan desfasados respecto al resto del código (que sí usa la TZ).
     configTime(0, 0, NTP_SERVER1, NTP_SERVER2);
-    setenv("TZ", TIMEZONE, 1);
+    setenv("TZ", TZ_PRESETS[tz_clamp_index(Storage.loadTimezone())].posix, 1);   // DEYE-74
     tzset();
 
     // ── DataStore ─────────────────────────────────────────────────────────

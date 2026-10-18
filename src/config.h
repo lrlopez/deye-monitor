@@ -34,7 +34,8 @@
 // ── NTP ───────────────────────────────────────────────────────────────────
 #define NTP_SERVER1     "es.pool.ntp.org"
 #define NTP_SERVER2     "time.cloudflare.com"
-#define TIMEZONE        "CET-1CEST,M3.5.0,M10.5.0/3"   // España peninsula
+// La zona horaria se elige en Configuración → Red (tz_presets.h); la 0, España peninsular
+// ("CET-1CEST,M3.5.0,M10.5.0/3"), es la de fábrica.
 
 // ── Modbus ────────────────────────────────────────────────────────────────
 #define MODBUS_UNIT_ID  1     // dirección del inversor en el bus

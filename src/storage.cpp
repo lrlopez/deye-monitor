@@ -1,5 +1,6 @@
 #include "storage.h"
 #include "config.h"   // fallbacks de compilación
+#include "tz_presets.h"
 
 // ── Namespaces NVS ────────────────────────────────────────────────────────
 static const char* NS_CFG    = "cfg";
@@ -201,6 +202,22 @@ void StorageManager::saveWizardDone(bool done) {
     Preferences p;
     p.begin(NS_CFG, false);
     p.putBool("wiz_done", done);
+    p.end();
+}
+
+uint8_t StorageManager::loadTimezone() {
+    Preferences p;
+    p.begin(NS_CFG, true);
+    uint8_t v = p.getUChar("tz_idx", 0);
+    p.end();
+    return (uint8_t)tz_clamp_index(v);
+}
+
+void StorageManager::saveTimezone(uint8_t idx) {
+    if (loadTimezone() == idx) return;
+    Preferences p;
+    p.begin(NS_CFG, false);
+    p.putUChar("tz_idx", idx);
     p.end();
 }
 
