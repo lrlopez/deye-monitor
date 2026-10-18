@@ -6,6 +6,8 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+## [v4.0.0] - 2026-10-18
+
 ### Añadido
 
 - **Manual de usuario (`docs/manual`):** 13 capítulos con capturas, de lo que ve la persona usuaria (primeros pasos, panel, estadísticas, gráfica, perfil de energía, configuración, web, Telegram, MQTT y Home Assistant, datos y copias) a lo técnico (instalación y actualización del firmware, al final), más resolución de problemas y glosario. Se publica con la acción `docs.yml` como **web en GitHub Pages**, **PDF** y **ZIP** descargables (adjuntos a cada release); se genera en local con `make docs`. Las capturas se regeneran sin hardware con `tools/screenshots/` (simulador del firmware para la pantalla; las páginas reales de la web con Chrome). Estructura y herramientas reutilizadas del manual de ÁTICA Calidad.
