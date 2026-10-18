@@ -98,7 +98,7 @@ static void build_scene(const char* name, lv_obj_t* scr) {
         dashboard_update(sample(3200, -1100, -900, 78, 1200));
         pagination_dots_init(scr, 5); pagination_dots_set(0);
         run(300); dashboard_tick();
-        ui_toast_show("Toca dos veces la pantalla para volver al inicio");
+        ui_toast_show("Toca la casa para volver al inicio");
         run(400);
     }
     else if (!strcmp(name, "clock")) {

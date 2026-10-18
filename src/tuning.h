@@ -81,9 +81,6 @@
 #endif
 
 // ── Interfaz ─────────────────────────────────────────────────────────────
-#ifndef TUNE_DOUBLE_TAP_MS
-  #define TUNE_DOUBLE_TAP_MS       600     // ms entre pulsaciones para contar doble toque
-#endif
 #ifndef TUNE_FLOW_ACTIVE_W
   #define TUNE_FLOW_ACTIVE_W        50     // W: por debajo se considera «sin flujo» (flechas y animación)
 #endif

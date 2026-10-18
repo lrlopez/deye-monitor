@@ -195,7 +195,7 @@ static lv_obj_t*         g_tile_energy  = nullptr;
 static lv_obj_t*         g_tile_config  = nullptr;
 
 // Pistas de uso ya mostradas (DEYE-56): máscara de bits persistida en NVS
-#define HINT_DOUBLE_TAP  0x01   // "toca dos veces para volver al inicio"
+#define HINT_HOME        0x01   // "toca la casa para volver al inicio" (el bit era el del antiguo doble toque)
 #define HINT_DASH_VIEW   0x02   // "toca la barra superior para cambiar de vista"
 static uint8_t s_hints = 0;
 
@@ -476,7 +476,7 @@ void setup() {
 
     pagination_dots_init(g_main_screen, 5);
 
-    // Botón «inicio»: visible fuera del dashboard (sustituirá al doble toque)
+    // Botón «inicio»: visible fuera del dashboard
     home_button_init(g_main_screen, []() {
         if (g_tileview && g_tile_dash)
             lv_tileview_set_tile(g_tileview, g_tile_dash, LV_ANIM_ON);
@@ -503,10 +503,10 @@ void setup() {
         home_button_set_dashboard(idx == 0);
 
         // DEYE-56: la primera vez que se sale del dashboard, explicar cómo volver
-        if (idx != 0 && !(s_hints & HINT_DOUBLE_TAP)) {
-            s_hints |= HINT_DOUBLE_TAP;
+        if (idx != 0 && !(s_hints & HINT_HOME)) {
+            s_hints |= HINT_HOME;
             Storage.saveHints(s_hints);
-            ui_toast_show("Toca la casa o dos veces la pantalla para volver al inicio");
+            ui_toast_show("Toca la casa para volver al inicio");
         }
 
         chart_screen_set_active(tile == g_tile_chart);
@@ -659,39 +659,11 @@ void loop() {
 
     lv_timer_handler();
 
-    // ── Detectar toque: inactividad + doble-tap para volver al dashboard ──
-    // Se mide desde el primer press hasta el segundo press (< TUNE_DOUBLE_TAP_MS).
-    static bool     s_was_pressed  = false;
-    static uint32_t s_first_tap_ms = 0;
-    // Teclear en el teclado en pantalla son toques seguidos: no son «doble toque». Se mantiene la
-    // exclusión durante la ventana tras cerrarlo (el OK se procesa al soltar)
-    static uint32_t s_kb_seen_ms = 0;
-    if (config_keyboard_visible()) { s_kb_seen_ms = millis(); s_first_tap_ms = 0; }
-
+    // ── Detectar toque: reinicia la inactividad del brillo ──
     lv_indev_t* indev = lv_indev_get_next(nullptr);
     while (indev) {
         if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER) {
-            bool pressed = (lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED);
-            if (pressed) {
-                Backlight.onTouch();
-                if (!s_was_pressed) {   // flanco de subida = nuevo press
-                    uint32_t now = millis();
-                    if (s_kb_seen_ms && now - s_kb_seen_ms < TUNE_DOUBLE_TAP_MS) {
-                        s_first_tap_ms = 0;
-                    } else if (s_first_tap_ms && now - s_first_tap_ms < TUNE_DOUBLE_TAP_MS) {
-                        // Segundo press dentro de la ventana → doble tap
-                        if (g_tileview) {
-                            lv_obj_t* cur = lv_tileview_get_tile_active(g_tileview);
-                            if (cur && cur != g_tile_dash)
-                                lv_tileview_set_tile(g_tileview, g_tile_dash, LV_ANIM_ON);
-                        }
-                        s_first_tap_ms = 0;
-                    } else {
-                        s_first_tap_ms = now;
-                    }
-                }
-            }
-            s_was_pressed = pressed;
+            if (lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) Backlight.onTouch();
             break;
         }
         indev = lv_indev_get_next(indev);

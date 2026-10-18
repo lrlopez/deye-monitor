@@ -41,7 +41,7 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantallas Gui
 - **Indicador de frescura de datos:** la hora de última muestra cambia de color (verde/amarillo/rojo) según la antigüedad del dato recibido
 - **Flechas de tendencia** en las tarjetas de Batería y Red: muestran ↑ o ↓ cuando la potencia varía más de 150 W entre lecturas
 - **Banner de alertas en pantalla:** las alertas proactivas (batería, solar, red, logger) aparecen como franja temporal sobre cualquier pantalla, sincronizadas con las notificaciones Telegram
-- **Doble tap** desde cualquier pantalla para volver al dashboard con animación
+- **Botón de casa** (esquina superior izquierda) desde cualquier pantalla para volver al dashboard con animación
 
 ### Historial y estadísticas
 - Registro de medidas cada **5 minutos** alineado a intervalos exactos (XX:00, XX:05…)

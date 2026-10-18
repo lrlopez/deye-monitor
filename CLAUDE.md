@@ -102,7 +102,7 @@ Dos vías en `/update`, ambas tras contraseña de administración:
 
 - `.github/workflows/ci.yml` (push a main y PR): `pio test -e native`, `pio check -e sunton_4827s043` (cppcheck sobre `src/`, config en `platformio.ini`; falla con defectos altos/medios) y build de las 3 placas con informe de tamaño. `build_release.yml` sigue siendo solo para tags.
 - `APP_VERSION` lo fija `scripts/git_version.py` desde `git describe` (`3.7.0` sobre el tag; `3.6.0+24.gSHA[.dirty]` en desarrollo; el `+…` lo ignora `fw_parse_version`). El valor de `config.h` es el respaldo.
-- Umbrales/antirrebotes/tiempos con nombre en `src/tuning.h` (`TUNE_*`, sobreescribibles con `-D`); no volver a escribir números mágicos en alertas, doble toque o timeouts del logger.
+- Umbrales/antirrebotes/tiempos con nombre en `src/tuning.h` (`TUNE_*`, sobreescribibles con `-D`); no volver a escribir números mágicos en alertas, antirrebotes o timeouts del logger.
 
 ---
 
@@ -487,6 +487,5 @@ El proyecto está **funcional y estable**. Las últimas sesiones de trabajo se c
 **Pendiente / posibles mejoras futuras:**
 - Exportación de datos a CSV desde la web
 - Favicon y título en pestaña del navegador web
-- Doble tap para volver al dashboard desde cualquier pantalla
 
 **Backlog de mejoras numeradas (DEYE-NN):** ver la memoria del proyecto (`mejoras_backlog.md`).

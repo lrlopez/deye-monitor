@@ -127,7 +127,7 @@ identificador de la compilación (por ejemplo, `3.7.0+24.g1a2b3c4`).
 
 ## Ajustes avanzados de compilación
 
-Algunos umbrales internos (los límites de las alertas, el tiempo del doble toque, el factor de CO2…)
+Algunos umbrales internos (los límites de las alertas, el factor de CO2, los tiempos de aviso de datos obsoletos…)
 están reunidos con nombre en `src/tuning.h` y pueden cambiarse al compilar añadiendo una línea
 `-DTUNE_NOMBRE=valor` a los `build_flags` de tu entorno en `platformio.ini`. Es un ajuste para quien
 compila su propio firmware; no hace falta tocar nada para un uso normal.
