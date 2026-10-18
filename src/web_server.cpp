@@ -549,8 +549,11 @@ async function refresh(){
       const m=l.batt_eta_min, t=m<60?m+' min':Math.floor(m/60)+' h '+String(m%60).padStart(2,'0')+' min';
       eta=' \xb7 '+(l.batt_eta_mode===1?'quedan ':'llena en ')+t;
     }
-    ip('batt-sub').textContent=Math.abs(bw)+' W \xb7 '+(bw<0?'Cargando':bw>0?'Descargando':'En reposo')+eta
-      +(l.batt_v>0?' \xb7 '+l.batt_v.toFixed(1)+' V':'')+(l.temp_c!==null&&l.temp_c!==undefined?' \xb7 inv. '+l.temp_c.toFixed(0)+' \xb0C':'');
+    ip('batt-sub').textContent=Math.abs(bw)+' W \xb7 '+(bw<0?'Cargando':bw>0?'Descargando':'En reposo')+eta;
+    // Tensión de batería y temperatura del inversor (DEYE-36) en una línea aparte: no caben en la de arriba
+    let ex=ip('batt-extra');
+    if(!ex){ex=document.createElement('div');ex.id='batt-extra';ex.className=ip('batt-sub').className;ip('batt-sub').after(ex);}
+    ex.textContent=(l.batt_v>0?l.batt_v.toFixed(1)+' V':'')+(l.batt_v>0&&l.temp_c!=null?' \xb7 ':'')+(l.temp_c!=null?'inversor '+l.temp_c.toFixed(0)+' \xb0C':'');
     setBatt(soc);
 
     // Carga
