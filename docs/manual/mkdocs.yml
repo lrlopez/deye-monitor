@@ -1,0 +1,67 @@
+site_name: Manual de usuario de Deye Monitor
+site_description: Monitor de instalación solar con inversor Deye SUN-6K-SG05
+site_url: https://lrlopez.github.io/deye-monitor/
+# Versión y fecha del release en el pie de la web. Las exporta el paso de GitHub Actions (o el
+# target "docs-web" del Makefile) en MANUAL_COPYRIGHT; al construir directamente con mkdocs
+# (sin la variable) se usa el valor por defecto.
+copyright: !ENV [MANUAL_COPYRIGHT, "Manual de usuario de Deye Monitor"]
+docs_dir: .
+site_dir: ../manual-site
+use_directory_urls: false
+repo_url: https://github.com/lrlopez/deye-monitor
+
+exclude_docs: |
+  README.md
+  requirements.txt
+  _build.html
+  *.pdf
+
+theme:
+  name: material
+  language: es
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  palette:
+    primary: custom
+    accent: custom
+  icon:
+      repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - toc.integrate
+
+extra_css:
+  - assets/theme.css
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+nav:
+  - Introducción: index.md
+  - Primeros pasos: 01-primeros-pasos.md
+  - Panel principal: 02-panel-principal.md
+  - Estadísticas: 03-estadisticas.md
+  - Gráfica: 04-grafica.md
+  - Perfil de energía: 05-perfil-de-energia.md
+  - Configuración: 06-configuracion.md
+  - Interfaz web: 07-interfaz-web.md
+  - Telegram: 08-telegram.md
+  - MQTT y Home Assistant: 09-home-assistant-mqtt.md
+  - Datos y copias de seguridad: 10-datos-y-copias.md
+  - 'Anexo: Resolución de problemas': 11-resolucion-de-problemas.md
+  - 'Anexo: Glosario': 12-glosario.md
+  - Instalación y actualización del firmware: 13-instalacion-del-firmware.md

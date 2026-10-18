@@ -4,6 +4,8 @@ Monitor de instalación solar fotovoltaica con inversor híbrido **Deye SUN-6K-S
 
 Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantallas Guition JC1060P470 1024×600 px y JC4880P443C 800×480 px). Desarrollado con **LVGL 9** y **PlatformIO**.
 
+> 📖 **Manual de usuario** (con capturas): [web](https://lrlopez.github.io/deye-monitor/), y PDF y ZIP descargables en cada [release](https://github.com/lrlopez/deye-monitor/releases). Fuente en [`docs/manual`](docs/manual).
+
 ---
 
 ## 📋 Tabla de contenidos

@@ -90,6 +90,14 @@ Dos vías en `/update`, ambas tras contraseña de administración:
 
 ---
 
+## Documentación (manual de usuario)
+
+- Fuente en `docs/manual/` (Markdown, MkDocs Material para la web y pandoc + Paged.js para el PDF); `make docs` genera ambos. `docs/manual/README.md` lo explica; `.github/workflows/docs.yml` publica web (GitHub Pages, solo la última versión estable), PDF y ZIP adjuntos a la release.
+- Orden: lo que ve la persona usuaria primero; la instalación del firmware (`13-…`) es el último capítulo técnico. **Al cambiar una pantalla, un ajuste o un comando de Telegram/web, actualizar el capítulo correspondiente en el mismo cambio.**
+- Capturas en `docs/manual/img/`, regeneradas sin hardware con `tools/screenshots/capture-device.sh` (simulador LVGL del firmware, escenas en `sim/scenes.inc`) y `capture-web.sh` (páginas reales de `web_server.cpp` extraídas con `web/gen.py`). Un módulo de UI nuevo puede necesitar stubs en `sim/stubs.cpp`. `/admin` no tiene captura (HTML dinámico).
+
+---
+
 ## CI, versión y constantes de ajuste
 
 - `.github/workflows/ci.yml` (push a main y PR): `pio test -e native`, `pio check -e sunton_4827s043` (cppcheck sobre `src/`, config en `platformio.ini`; falla con defectos altos/medios) y build de las 3 placas con informe de tamaño. `build_release.yml` sigue siendo solo para tags.

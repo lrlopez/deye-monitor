@@ -1,3 +1,12 @@
 .pio
 .vscode
 .DS_Store
+# Salidas generadas de la documentación (make docs)
+docs/manual-site/
+docs/manual/_build.html
+docs/manual/*.pdf
+# Intermedios de las capturas del manual (tools/screenshots)
+tools/screenshots/sim/obj/
+tools/screenshots/sim/out/
+tools/screenshots/sim/*_copy.cpp
+tools/screenshots/web/site/
