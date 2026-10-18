@@ -14,6 +14,8 @@
 #include "fw_update.h"
 #include "clock_mode.h"
 #include "battery_estimate.h"
+#include "mqtt_client.h"
+#include "mqtt_ha.h"
 #include "time_utils.h"
 
 extern uint32_t      g_uptime_start;   // main.cpp: millis() en el arranque
@@ -1797,6 +1799,36 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
             "Informe diario a las 21:00");
     server.sendContent("</div>");
 
+    // ── MQTT / Home Assistant (DEYE-30) ───────────────────────────────────
+    {
+        const MqttConfig mq = Storage.loadMqttConfig();
+        String _s = "<div class='card'><h2>&#128225; MQTT / Home Assistant</h2>";
+        server.sendContent(_s);
+        send_cb("mq_on", "mqo", mq.enabled, "Publicar en MQTT (con autodescubrimiento de Home Assistant)");
+        _s = "<div class='row'><span class='lbl'>Broker</span>"
+             "<input type='text' name='mq_host' placeholder='192.168.1.10' maxlength='63' value='";
+        _s += html_escape(mq.host);
+        _s += "'></div><div class='row'><span class='lbl'>Puerto</span>"
+              "<input type='number' name='mq_port' min='1' max='65535' value='";
+        _s += String((unsigned)mq.port);
+        _s += "'></div><div class='row'><span class='lbl'>Usuario</span>"
+              "<input type='text' name='mq_user' maxlength='31' value='";
+        _s += html_escape(mq.user);
+        _s += "'></div><div class='row'><span class='lbl'>Contrase&ntilde;a</span>"
+              "<input type='password' name='mq_pass' maxlength='63' autocomplete='new-password' placeholder='";
+        _s += mq.pass[0] ? "(guardada: dejar vac&iacute;o para conservarla)" : "(sin contrase&ntilde;a)";
+        _s += "'></div><div class='row'><span class='lbl'>Prefijo</span>"
+              "<input type='text' name='mq_pref' maxlength='31' value='";
+        _s += html_escape(mq.prefix);
+        _s += "'></div>";
+        server.sendContent(_s);
+        send_cb("mq_clearpass", "mqc", false, "Borrar la contrase&ntilde;a guardada");
+        _s = "<div class='row'><span class='lbl'>Estado</span><span>";
+        _s += mqtt_connected() ? "conectado" : "desconectado";
+        _s += "</span></div></div>";
+        server.sendContent(_s);
+    }
+
     // ── Pantalla ──────────────────────────────────────────────────────────
     server.sendContent("<div class='card'><h2>&#128261; Pantalla</h2>");
     send_range("Brillo operaci\xC3\xB3n", "bl_op",   10, 100,
@@ -2008,6 +2040,22 @@ static void handle_admin_post() {
     tgcfg.notify_grid    = server.hasArg("tg_grid");
     tgcfg.notify_logger  = server.hasArg("tg_log");
     tgcfg.notify_report  = server.hasArg("tg_rep");
+
+    // ── MQTT (DEYE-30) ────────────────────────────────────────────────────
+    {
+        MqttConfig mq = Storage.loadMqttConfig();   // conserva la contraseña si el campo llega vacío
+        mq.enabled = server.hasArg("mq_on");
+        server.arg("mq_host").toCharArray(mq.host, sizeof(mq.host) - 1);
+        const int mp = server.arg("mq_port").toInt();
+        mq.port = (uint16_t)((mp >= 1 && mp <= 65535) ? mp : 1883);
+        server.arg("mq_user").toCharArray(mq.user, sizeof(mq.user) - 1);
+        if (server.arg("mq_pass").length() > 0)
+            server.arg("mq_pass").toCharArray(mq.pass, sizeof(mq.pass) - 1);
+        if (server.hasArg("mq_clearpass")) mq.pass[0] = '\0';
+        String pref = server.arg("mq_pref"); pref.trim();
+        if (mqtt_valid_prefix(pref.c_str())) strlcpy(mq.prefix, pref.c_str(), sizeof(mq.prefix));
+        Storage.saveMqttConfig(mq);
+    }
 
     // ── Pantalla ──────────────────────────────────────────────────────────
     auto clamp = [](int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; };

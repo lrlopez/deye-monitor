@@ -30,6 +30,7 @@
 #include "clock_mode.h"
 #include "setup_wizard.h"
 #include "tz_presets.h"
+#include "mqtt_client.h"
 
 
 /* Change to your screen resolution */
@@ -534,6 +535,7 @@ void setup() {
     WebAlerts_init();
     xTaskCreatePinnedToCore(solarmanTask, "solarman",
                              8192, nullptr, 1, nullptr, 0);
+    mqtt_start();   // DEYE-30: vigila la configuración MQTT (no hace nada hasta que se active en /admin)
 
     // ── Transición al tileview ────────────────────────────────────────────
     // Breve pausa para que el usuario vea el estado final

@@ -15,6 +15,8 @@
 #include "energy_metrics.h"
 #include "battery_estimate.h"
 #include "period_totals.h"
+#include "mqtt_ha.h"
+#include <ArduinoJson.h>
 
 // Misma zona horaria que config.h (TIMEZONE)
 static const char* TZ_SPAIN = "CET-1CEST,M3.5.0,M10.5.0/3";
@@ -595,6 +597,57 @@ void test_period_totals() {
     TEST_ASSERT_TRUE(isnan(period_change_pct(50.0f, 0.0f)));
 }
 
+// DEYE-30: mensajes MQTT y descubrimiento de Home Assistant
+void test_mqtt_payloads() {
+    char buf[768];
+    // Cada sensor genera un JSON válido con su unique_id y su plantilla de valor
+    for (size_t i = 0; i < MQTT_SENSOR_COUNT; i++) {
+        const int n = mqtt_discovery_payload(buf, sizeof buf, "inversor", "deye", MQTT_SENSORS[i], "3.7.0");
+        TEST_ASSERT_TRUE(n > 0);
+        JsonDocument d;
+        TEST_ASSERT_TRUE(deserializeJson(d, buf) == DeserializationError::Ok);
+        char uid[64]; snprintf(uid, sizeof uid, "inversor_%s", MQTT_SENSORS[i].key);
+        TEST_ASSERT_EQUAL_STRING(uid, d["uniq_id"].as<const char*>());
+        TEST_ASSERT_EQUAL_STRING("deye/state", d["stat_t"].as<const char*>());
+        TEST_ASSERT_EQUAL_STRING("deye/status", d["avty_t"].as<const char*>());
+        TEST_ASSERT_EQUAL_STRING("inversor", d["dev"]["ids"][0].as<const char*>());
+        char tpl[64]; snprintf(tpl, sizeof tpl, "{{ value_json.%s }}", MQTT_SENSORS[i].key);
+        TEST_ASSERT_EQUAL_STRING(tpl, d["val_tpl"].as<const char*>());
+    }
+    char topic[96];
+    mqtt_discovery_topic(topic, sizeof topic, "inversor", "pv_w");
+    TEST_ASSERT_EQUAL_STRING("homeassistant/sensor/inversor/pv_w/config", topic);
+
+    // Estado: con diarios y temperatura
+    MqttState s; s.pv_w = 3200; s.grid_w = -1100; s.batt_w = -900; s.batt_soc = 78; s.load_w = 1200;
+    s.batt_v = 52.4f; s.temp_c = 41.5f; s.daily_valid = true; s.pv_kwh = 9.8f; s.load_kwh = 8.4f;
+    TEST_ASSERT_TRUE(mqtt_state_payload(buf, sizeof buf, s) > 0);
+    JsonDocument d;
+    TEST_ASSERT_TRUE(deserializeJson(d, buf) == DeserializationError::Ok);
+    TEST_ASSERT_EQUAL_INT(-1100, d["grid_w"].as<int>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 41.5f, d["temp_c"].as<float>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 9.8f, d["pv_kwh"].as<float>());
+    // Sin batt_v, temperatura ni diarios: null / ausentes, y sigue siendo JSON válido
+    MqttState e;
+    TEST_ASSERT_TRUE(mqtt_state_payload(buf, sizeof buf, e) > 0);
+    JsonDocument d2;
+    TEST_ASSERT_TRUE(deserializeJson(d2, buf) == DeserializationError::Ok);
+    TEST_ASSERT_TRUE(d2["temp_c"].isNull());
+    TEST_ASSERT_TRUE(d2["batt_v"].isNull());
+    TEST_ASSERT_TRUE(d2["pv_kwh"].isNull());
+    // Buffer pequeño: error en vez de truncar en silencio
+    char tiny[16];
+    TEST_ASSERT_TRUE(mqtt_state_payload(tiny, sizeof tiny, s) < 0);
+
+    TEST_ASSERT_TRUE(mqtt_valid_prefix("deye"));
+    TEST_ASSERT_TRUE(mqtt_valid_prefix("casa/deye"));
+    TEST_ASSERT_FALSE(mqtt_valid_prefix(""));
+    TEST_ASSERT_FALSE(mqtt_valid_prefix("/deye"));
+    TEST_ASSERT_FALSE(mqtt_valid_prefix("deye/"));
+    TEST_ASSERT_FALSE(mqtt_valid_prefix("de#ye"));
+    TEST_ASSERT_FALSE(mqtt_valid_prefix("de ye"));
+}
+
 // DEYE-71: sobretemperatura con histéresis e informe diario
 void test_temp_monitor() {
     TempMonitor m;
@@ -979,6 +1032,7 @@ int main(int, char**) {
     RUN_TEST(test_tz_presets);
     RUN_TEST(test_energy_metrics);
     RUN_TEST(test_period_totals);
+    RUN_TEST(test_mqtt_payloads);
     RUN_TEST(test_temp_monitor);
     RUN_TEST(test_daily_report_due);
     RUN_TEST(test_battery_eta);

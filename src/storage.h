@@ -55,6 +55,16 @@ struct TelegramConfig {
     bool    notify_report;    // informe diario a las TUNE_DAILY_REPORT_HOUR (DEYE-71; desactivado por defecto)
 };
 
+// ── MQTT / Home Assistant (DEYE-30) ───────────────────────────────────────
+struct MqttConfig {
+    bool     enabled;
+    char     host[64];
+    uint16_t port;        // por defecto 1883
+    char     user[32];
+    char     pass[64];
+    char     prefix[32];  // prefijo de los topics propios; por defecto "deye"
+};
+
 class StorageManager {
 public:
     static StorageManager& instance() {
@@ -96,6 +106,10 @@ public:
     // true cuando se completó u omitió (o cuando el equipo ya venía configurado)
     bool    loadWizardDone();
     void    saveWizardDone(bool done);
+
+    // ── MQTT (DEYE-30): sin caché; solo lo lee la tarea MQTT al (re)conectar y la web ──
+    MqttConfig loadMqttConfig();
+    void       saveMqttConfig(const MqttConfig& cfg);
 
     // ── Zona horaria (DEYE-74): índice en TZ_PRESETS (tz_presets.h); 0 = España/Europa central ──
     uint8_t loadTimezone();

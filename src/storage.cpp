@@ -207,6 +207,34 @@ void StorageManager::saveWizardDone(bool done) {
     p.end();
 }
 
+MqttConfig StorageManager::loadMqttConfig() {
+    MqttConfig c{};
+    Preferences p;
+    p.begin(NS_CFG, true);
+    c.enabled = p.getBool("mq_on", false);
+    p.getString("mq_host", "").toCharArray(c.host,   sizeof(c.host)   - 1);
+    c.port    = p.getUShort("mq_port", 1883);
+    p.getString("mq_user", "").toCharArray(c.user,   sizeof(c.user)   - 1);
+    p.getString("mq_pass", "").toCharArray(c.pass,   sizeof(c.pass)   - 1);
+    p.getString("mq_pref", "deye").toCharArray(c.prefix, sizeof(c.prefix) - 1);
+    p.end();
+    if (c.port == 0) c.port = 1883;
+    if (!c.prefix[0]) strcpy(c.prefix, "deye");
+    return c;
+}
+
+void StorageManager::saveMqttConfig(const MqttConfig& c) {
+    Preferences p;
+    p.begin(NS_CFG, false);
+    p.putBool("mq_on", c.enabled);
+    p.putString("mq_host", c.host);
+    p.putUShort("mq_port", c.port);
+    p.putString("mq_user", c.user);
+    p.putString("mq_pass", c.pass);
+    p.putString("mq_pref", c.prefix);
+    p.end();
+}
+
 uint8_t StorageManager::loadTimezone() {
     Preferences p;
     p.begin(NS_CFG, true);
