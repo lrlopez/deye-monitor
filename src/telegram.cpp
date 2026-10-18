@@ -522,6 +522,21 @@ void TelegramBot::handleCommand(const String& text, const String& from_id) {
     enqueueMessage(response);
 }
 
+// UniversalTelegramBot espera la respuesta con un bucle `while (client->available())` sin ceder la
+// CPU hasta 1,5 s por llamada. Con el core Arduino 3 (que vigila la tarea IDLE del core 0) eso
+// dispara el watchdog («task_wdt: IDLE0 … telegram_bot») en cuanto la red tarda. Este cliente cede
+// un tick cada vez que no hay datos disponibles.
+namespace {
+class YieldingSecureClient : public WiFiClientSecure {
+public:
+    int available() override {
+        int n = WiFiClientSecure::available();
+        if (n <= 0) vTaskDelay(1);
+        return n;
+    }
+};
+}  // namespace
+
 // ── Tarea FreeRTOS ────────────────────────────────────────────────────────
 void TelegramBot::task(void* pv) {
     TelegramBot* self = static_cast<TelegramBot*>(pv);
@@ -533,7 +548,7 @@ void TelegramBot::task(void* pv) {
         vTaskDelay(pdMS_TO_TICKS(1000));
 
     // Inicializar cliente HTTPS
-    WiFiClientSecure client;
+    YieldingSecureClient client;
     client.setCACert(TELEGRAM_ROOT_CA);
 
     UniversalTelegramBot bot(self->_token, client);
