@@ -438,6 +438,9 @@ void setup() {
     splash_update(SplashStep::WIFI_CONNECTING, SplashState::RUNNING,
                   g_cfg.wifi_ssid);
     WiFi.mode(WIFI_STA);
+#ifdef TUNE_WIFI_TX_POWER
+    WiFi.setTxPower(TUNE_WIFI_TX_POWER);   // menos pico de corriente (brownout), ver tuning.h
+#endif
     WiFi.begin(g_cfg.wifi_ssid, g_cfg.wifi_pass);
     // NO esperamos aquí — la tarea Solarman gestiona la conexión
 

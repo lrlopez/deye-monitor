@@ -37,6 +37,7 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ### Mejorado
 
+- **Menos picos de corriente al arrancar (brownout en la JC1060P470):** la retroiluminación sube de forma gradual (`TUNE_BL_SOFTSTART_MS`, 600 ms; 0 = directo) en lugar de encenderse de golpe junto con la pantalla DSI y el WiFi, y la potencia de transmisión WiFi se puede limitar con `-DTUNE_WIFI_TX_POWER=WIFI_POWER_15dBm` (sin definir, la máxima del SDK, como hasta ahora). Pendiente de validar en hardware; si el `Brownout detector` persiste, revisar la fuente de alimentación (≥ 5 V / 2 A y cable corto).
 - **Borrar el historial pide dos confirmaciones (DEYE-58):** tanto en la pantalla táctil (segundo diálogo «Confirmación final» con «No, cancelar» como primer botón) como en la web (segundo `confirm`). Antes bastaba un solo diálogo, a pesar de que el CHANGELOG de la v3.5.0 hablaba de «doble confirmación». Reiniciar sigue con una confirmación (no es destructivo).
 - **Contraste del texto secundario (DEYE-55):** los grises de las etiquetas pasan de 2,5:1 y 4,0:1 a 5,8:1 y 7,0:1 sobre las tarjetas (WCAG AA exige 4,5:1).
 

@@ -64,6 +64,14 @@
   #define TUNE_LOGGER_TIMEOUT_MS  3000     // ms: conexión TCP y espera de la respuesta
 #endif
 
+// ── Alimentación ─────────────────────────────────────────────────────────
+// Potencia máxima de transmisión WiFi (valor de wifi_power_t). Rebajarla reduce los picos de
+// corriente que, con una fuente USB justa, disparan el «Brownout detector». Sin definir = la del
+// SDK (la máxima). Para limitarla: -DTUNE_WIFI_TX_POWER=WIFI_POWER_15dBm en platformio.ini.
+#ifndef TUNE_BL_SOFTSTART_MS
+  #define TUNE_BL_SOFTSTART_MS     600     // ms: subida gradual del brillo al arrancar (0 = directo)
+#endif
+
 // ── Interfaz ─────────────────────────────────────────────────────────────
 #ifndef TUNE_DOUBLE_TAP_MS
   #define TUNE_DOUBLE_TAP_MS       600     // ms entre pulsaciones para contar doble toque

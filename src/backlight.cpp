@@ -1,5 +1,6 @@
 #include "backlight.h"
 #include "safe_serial.h"
+#include "tuning.h"
 #include <Arduino.h>
 #include <time.h>
 
@@ -71,7 +72,17 @@ void BacklightManager::begin(uint8_t pin) {
         ledcAttachPin(pin, BL_CHANNEL);
     #endif
 
+    // Subida gradual: encender la retroiluminación de golpe en pleno arranque (pantalla DSI, WiFi,
+    // PSRAM) suma un pico de corriente que puede disparar el brownout con una fuente justa
     uint8_t initial = _pct_to_duty(_cfg.op_pct);
+    _apply_immediate(0);
+    if (TUNE_BL_SOFTSTART_MS > 0 && initial > 0) {
+        const uint32_t step_ms = max<uint32_t>(1, TUNE_BL_SOFTSTART_MS / initial);
+        for (uint16_t d = 1; d <= initial; d++) {
+            _apply_immediate((uint8_t)d);
+            delay(step_ms);
+        }
+    }
     _apply_immediate(initial);
     _last_touch = millis();
 
