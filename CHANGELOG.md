@@ -4,6 +4,12 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [v4.1.1] - 2026-10-18
+
+### Eliminado
+
+- **Doble toque para volver al inicio:** el botón de la casa lo sustituye (en 4.0.1 se mantuvo mientras se probaba). Desaparece también `TUNE_DOUBLE_TAP_MS`, y el aviso de la primera vez dice ahora «Toca la casa para volver al inicio».
+
 ## [v4.1.0] - 2026-10-18
 
 ### Corregido
