@@ -1,0 +1,164 @@
+name: Documentación
+
+# Genera el manual de usuario (docs/manual) en tres formatos:
+#   · web (MkDocs Material) → GitHub Pages
+#   · PDF (pandoc + Paged.js)
+#   · ZIP descargable con la web, para consultarla sin conexión
+#
+# Estructura reutilizada del flujo de documentación de ÁTICA Calidad (reasol-edu/atica-calidad).
+# Los releases de firmware los publica build_release.yml; aquí solo se le añaden los ficheros del
+# manual a la misma release (softprops/action-gh-release sobre una release existente solo añade
+# ficheros: no toca el cuerpo ni el nombre).
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "Makefile"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Publicar también la web en GitHub Pages"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      deploy_pages: ${{ steps.stable.outputs.deploy }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # todas las etiquetas, para calcular la última versión estable
+
+      # Solo se publica en GitHub Pages la última versión ESTABLE: una etiqueta sin guion
+      # (las prereleases, p. ej. v3.8.0-beta, no) y sin otra etiqueta estable posterior; o un
+      # lanzamiento manual con «Publicar» marcado.
+      - name: ¿Se publica en GitHub Pages?
+        id: stable
+        run: |
+          REF="${{ github.ref_name }}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "deploy=${{ github.event.inputs.deploy }}" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [[ "${{ github.ref_type }}" != "tag" ]] || [[ "$REF" == *-* ]]; then
+            echo "deploy=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          NEWER=$(git tag --list 'v*' | grep -vE '[-]' | sort -V \
+                    | awk -v r="$REF" 'found {print} $0 == r {found=1}')
+          if [[ -z "$NEWER" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.x"
+
+      - name: Instalar pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+
+      - name: Instalar MkDocs Material
+        run: pip install -r docs/manual/requirements.txt
+
+      - name: Determinar versión y fecha
+        id: ver
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="$(git describe --tags --always | sed -E 's/^v//')"
+          fi
+          echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+          echo "pub_date=$(git log -1 --format=%cd --date=format:%d/%m/%Y)" >> "$GITHUB_OUTPUT"
+
+      - name: Generar el manual (PDF y web)
+        env:
+          # Reutiliza el Chrome preinstalado del runner para pagedjs-cli (evita descargar otro Chromium)
+          CHROME_PATH: /usr/bin/google-chrome
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+        run: make docs VERSION="${{ steps.ver.outputs.version }}" PUB_DATE="${{ steps.ver.outputs.pub_date }}"
+
+      - name: Ensamblar ficheros con sufijo de versión
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p _docs-dist
+          cp docs/manual/deye-monitor-manual.pdf "_docs-dist/deye-monitor-manual-${VERSION}.pdf"
+          (cd docs/manual-site && zip -qr "../../_docs-dist/deye-monitor-manual-web-${VERSION}.zip" .)
+          ls -lh _docs-dist
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: deye-monitor-manual
+          path: _docs-dist/*
+
+      - name: Subir artefacto de Pages
+        if: steps.stable.outputs.deploy == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/manual-site
+
+  # ── Adjuntar el PDF y el ZIP a la release de la etiqueta ────────────────────
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: deye-monitor-manual
+          path: _docs-dist
+
+      - name: Adjuntar el manual a la release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          # Mismos nombre y estado que fija build_release.yml, por si este trabajo termina primero
+          # y la crea él
+          name: "Deye Monitor ${{ github.ref_name }}"
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          draft: false
+          files: |
+            _docs-dist/deye-monitor-manual-*.pdf
+            _docs-dist/deye-monitor-manual-web-*.zip
+          fail_on_unmatched_files: true
+
+  # ── Publicar la web en GitHub Pages (solo la última versión estable) ────────
+  deploy-pages:
+    needs: build
+    if: needs.build.outputs.deploy_pages == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Desplegar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
