@@ -666,10 +666,10 @@ Los tags con guión se marcan automáticamente como pre-release en GitHub.
 
 Los entornos `guition_jc1060p470` y `guition_jc4880p443c` requieren dos modificaciones en la `GFX Library for Arduino` que no están en el registro de PlatformIO:
 
-- `num_fbs=2` y `use_dma2d=true` en `Arduino_ESP32DSIPanel.cpp` para doble buffer con vsync
+- `num_fbs=2` en `Arduino_ESP32DSIPanel.cpp` para doble buffer con vsync (la librería ya trae `use_dma2d=true`)
 - Método `getPanelHandle()` en `Arduino_ESP32DSIPanel.h` para acceder al handle IDF desde el flush callback
 
-Los ficheros parcheados están en `patches/` y el script `scripts/patch_gfx_p4.py` los aplica automáticamente antes de compilar (via `extra_scripts = pre:scripts/patch_gfx_p4.py` en `platformio.ini`). Esto funciona tanto en local como en CI sin necesidad de modificar `.pio/libdeps/` (que está en `.gitignore`).
+El script `scripts/patch_gfx_p4.py` (via `extra_scripts = pre:scripts/patch_gfx_p4.py` en `platformio.ini`) aplica estas dos sustituciones de texto sobre la librería antes de compilar, y detiene la compilación si la librería cambia y ya no encajan. Por eso la versión de la GFX está fijada en `[common]`. Funciona tanto en local como en CI sin modificar `.pio/libdeps/` (que está en `.gitignore`).
 
 > **JC4880P443C — panel nativo vertical:** este panel es 480×800 px en orientación vertical; el firmware lo rota 90° por software (`rotation=1` en `Arduino_DSI_Display`) para mostrar 800×480 horizontal. Al usar rotación software, el flush no puede copiar el framebuffer en bruto con `esp_lcd_panel_draw_bitmap()` (stride distinto al del buffer de LVGL) — pasa por `gfx->draw16bitRGBBitmap()`, que sí aplica la rotación correctamente.
 

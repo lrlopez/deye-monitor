@@ -4,6 +4,14 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+### Cambiado
+
+- **Las tres placas usan ya la misma plataforma:** la Sunton (ESP32-S3) pasa de `espressif32@6` (Arduino 2.x, IDF 4.4) a pioarduino 55.03.38 (Arduino 3.3.8, IDF 5.5), igual que las Guition. Versión de plataforma y de la `GFX Library` fijadas en `[common]` de `platformio.ini` (GFX 1.6.9). **Sin verificar en la Sunton real** (táctil, backlight, panel RGB).
+- **Parche de la GFX para las P4 reducido a dos sustituciones de texto** (`scripts/patch_gfx_p4.py`) en lugar de copiar ficheros enteros desactualizados sobre la librería (se eliminó `patches/`); la compilación falla si la librería cambia y ya no encajan. Se pierde de forma efectiva la copia vieja, así que ahora se usa la selección de reloj DSI por revisión de chip de la librería. **Sin verificar en las Guition reales.**
+- Eliminadas las ramas de compatibilidad con Arduino 2.x (`backlight.cpp`) y el flag `-mfix-esp32-psram-cache-issue`.
+
 ## [v4.0.3] - 2026-10-18
 
 ### Corregido

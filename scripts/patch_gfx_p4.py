@@ -1,26 +1,46 @@
 Import("env")
-import os, shutil
+import os
 
-# Aplica los parches de la GFX Library necesarios para ESP32-P4 (Guition JC1060P470):
-#   - Arduino_ESP32DSIPanel.h: añade getPanelHandle() para flush con esp_lcd_panel_draw_bitmap
-#   - Arduino_ESP32DSIPanel.cpp: num_fbs=2 + use_dma2d=true para doble buffer sin tearing
+# Retoques mínimos a «GFX Library for Arduino» para las ESP32-P4 (Guition):
+#   - Arduino_ESP32DSIPanel.h:   getPanelHandle() para volcar con esp_lcd_panel_draw_bitmap
+#   - Arduino_ESP32DSIPanel.cpp: num_fbs = 2 (doble framebuffer DMA2D, sin tearing)
 #
-# Se ejecuta como pre-script antes de la compilación. La librería ya está instalada
-# en $PROJECT_LIBDEPS_DIR gracias al mecanismo de dependencias de PlatformIO.
+# Se aplican como sustituciones de texto sobre la librería instalada (no se copian ficheros
+# enteros), así se conserva el resto de cambios de cada versión de la librería. Si una
+# sustitución no encaja (la librería cambió) la compilación se detiene, en lugar de seguir
+# con un firmware sin el doble buffer.
 
-libdeps_dir = env.subst("$PROJECT_LIBDEPS_DIR")
-pioenv      = env.subst("$PIOENV")
-project_dir = env.subst("$PROJECT_DIR")
+PATCHES = {
+    "Arduino_ESP32DSIPanel.h": [
+        ("  uint16_t *getFrameBuffer();\n",
+         "  uint16_t *getFrameBuffer();\n"
+         "  esp_lcd_panel_handle_t getPanelHandle() const { return _panel_handle; }\n"),
+    ],
+    "Arduino_ESP32DSIPanel.cpp": [
+        (".num_fbs = 1,", ".num_fbs = 2,"),
+    ],
+}
 
-gfx_dir     = os.path.join(libdeps_dir, pioenv, "GFX Library for Arduino", "src", "databus")
-patches_dir = os.path.join(project_dir, "patches")
+gfx_dir = os.path.join(env.subst("$PROJECT_LIBDEPS_DIR"), env.subst("$PIOENV"),
+                       "GFX Library for Arduino", "src", "databus")
 
-if os.path.isdir(gfx_dir):
-    for fname in ("Arduino_ESP32DSIPanel.h", "Arduino_ESP32DSIPanel.cpp"):
-        src = os.path.join(patches_dir, fname)
-        dst = os.path.join(gfx_dir, fname)
-        if os.path.isfile(src):
-            shutil.copy2(src, dst)
-            print(f"[patch_gfx_p4] Aplicado: {fname}")
-else:
+if not os.path.isdir(gfx_dir):
     print(f"[patch_gfx_p4] AVISO: {gfx_dir} no existe — ¿librería no instalada aún?")
+else:
+    for fname, subs in PATCHES.items():
+        path = os.path.join(gfx_dir, fname)
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        changed = False
+        for old, new in subs:
+            if new in text:
+                continue                      # ya aplicado
+            if old not in text:
+                raise SystemExit(f"[patch_gfx_p4] ERROR: no encuentro {old.strip()!r} en {fname}; "
+                                 "la versión de GFX Library ha cambiado, revisar scripts/patch_gfx_p4.py")
+            text = text.replace(old, new, 1)
+            changed = True
+        if changed:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            print(f"[patch_gfx_p4] Aplicado: {fname}")

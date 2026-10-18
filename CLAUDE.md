@@ -28,7 +28,7 @@ Tres entornos PlatformIO (`platformio.ini`), autodetectados por CI vía `get_env
 
 Selección de placa vía `-DBOARD_GUITION_JC1060P470` / `-DBOARD_GUITION_JC4880P443C` (build_flags). Sin ninguna de las dos definida, `main.cpp`/`touch.h` caen al bloque `#else` (Sunton ESP32-S3).
 
-Los paneles ESP32-P4 usan una librería GFX parcheada (`patches/Arduino_ESP32DSIPanel.*`, copiada sobre `GFX Library for Arduino` por `scripts/patch_gfx_p4.py` como pre-script) que añade `getPanelHandle()` y doble framebuffer DMA2D sin tearing.
+Las tres placas usan la misma plataforma, fijada en `[common]` de `platformio.ini`: pioarduino 55.03.38 (Arduino 3.3.8, IDF 5.5) y `GFX Library for Arduino@1.6.9`. Los paneles ESP32-P4 aplican dos sustituciones de texto sobre la GFX (`scripts/patch_gfx_p4.py`, pre-script; falla si la librería cambia): `getPanelHandle()` y `num_fbs=2` (doble framebuffer DMA2D sin tearing). Al subir la versión de la plataforma o de la GFX, compilar las tres placas.
 
 ### JC4880P443C — parámetros verificados en hardware real
 
@@ -301,11 +301,6 @@ Indicador de posición: puntos de paginación en el borde inferior.
 // arduino-esp32 3.x:
 ledcAttach(pin, 10000, 8);   // 10kHz, 8bit
 ledcWrite(pin, duty);
-
-// arduino-esp32 2.x:
-ledcSetup(channel, 10000, 8);
-ledcAttachPin(pin, channel);
-ledcWrite(channel, duty);
 ```
 
 **Lógica de prioridad:**

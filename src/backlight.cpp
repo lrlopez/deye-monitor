@@ -12,7 +12,6 @@ BacklightManager& BacklightManager::instance() {
 // ── PWM ───────────────────────────────────────────────────────────────────
 static constexpr uint32_t PWM_FREQ = 10000;   // 10 kHz
 static constexpr uint8_t  PWM_BITS = 8;       // 0–255
-static constexpr uint8_t  BL_CHANNEL = 7;   // canales 0-5 suelen estar ocupados
 
 uint8_t BacklightManager::_pct_to_duty(uint8_t pct) {
     if (pct == 0)   return 0;
@@ -22,11 +21,7 @@ uint8_t BacklightManager::_pct_to_duty(uint8_t pct) {
 
 void BacklightManager::_apply_immediate(uint8_t duty) {
     _current_duty = duty;
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
     ledcWrite(_pin, duty);
-#else
-    ledcWrite(BL_CHANNEL, duty);
-#endif
 }
 
 // Transición suave: ±8 duty cada tick (~5 ms) → rango completo en ~160 ms
@@ -35,11 +30,7 @@ void BacklightManager::_apply_smooth(uint8_t target) {
     int delta = (int)target - (int)_current_duty;
     int step  = delta > 0 ? min(delta, 8) : max(delta, -8);
     _current_duty = (uint8_t)(_current_duty + step);
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
     ledcWrite(_pin, _current_duty);
-#else
-    ledcWrite(BL_CHANNEL, _current_duty);
-#endif
 }
 
 // ── Horario nocturno con wrap-around ──────────────────────────────────────
@@ -63,14 +54,7 @@ void BacklightManager::begin(uint8_t pin) {
     _pin = pin;
     _cfg = Storage.loadBacklightConfig();
 
-    #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-    // arduino-esp32 3.x — API unificada
     ledcAttach(pin, PWM_FREQ, PWM_BITS);
-    #else
-        // arduino-esp32 2.x — API con canal explícito
-        ledcSetup(BL_CHANNEL, PWM_FREQ, PWM_BITS);
-        ledcAttachPin(pin, BL_CHANNEL);
-    #endif
 
     // Subida gradual: encender la retroiluminación de golpe en pleno arranque (pantalla DSI, WiFi,
     // PSRAM) suma un pico de corriente que puede disparar el brownout con una fuente justa
