@@ -4,6 +4,7 @@
 #include "config.h"
 #include "data_store.h"
 #include "safe_serial.h"
+#include "tuning.h"
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -175,6 +176,14 @@ public:
         mbedtls_sha256_update(&_ctx, b, n);
         _written += n;
         S().st.done = _written;          // escritura de 32 bits: no necesita el mutex
+        if (_written - _logged >= 262144) {
+            _logged = _written;
+            APP_LOGI("FwUpdate", "%u bytes, heap libre %u (mín %u)", (unsigned)_written,
+                     (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap());
+        }
+#if TUNE_FW_CHUNK_DELAY_MS > 0
+        vTaskDelay(pdMS_TO_TICKS(TUNE_FW_CHUNK_DELAY_MS));   // deja que la WiFi vacíe su cola
+#endif
         return n;
     }
     size_t write(uint8_t c) override { return write(&c, 1); }
@@ -190,6 +199,7 @@ public:
 private:
     mbedtls_sha256_context _ctx;
     uint32_t    _written = 0;
+    uint32_t    _logged  = 0;
     bool        _failed  = false;
     const char* _why     = "";
 };

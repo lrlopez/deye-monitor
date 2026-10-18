@@ -72,6 +72,14 @@
   #define TUNE_BL_SOFTSTART_MS     600     // ms: subida gradual del brillo al arrancar (0 = directo)
 #endif
 
+// ── Actualización de firmware desde GitHub ───────────────────────────────
+// En las placas ESP32-P4 la WiFi pasa por un coprocesador (SDIO). Si la descarga llega más rápido
+// de lo que se escribe en flash, los paquetes se acumulan y el driver se queda sin memoria
+// («assert failed: sdio_push_data_to_queue»). Esta pausa tras cada bloque limita el ritmo.
+#ifndef TUNE_FW_CHUNK_DELAY_MS
+  #define TUNE_FW_CHUNK_DELAY_MS     4     // ms de pausa tras cada bloque escrito (0 = sin freno)
+#endif
+
 // ── Interfaz ─────────────────────────────────────────────────────────────
 #ifndef TUNE_DOUBLE_TAP_MS
   #define TUNE_DOUBLE_TAP_MS       600     // ms entre pulsaciones para contar doble toque
