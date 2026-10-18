@@ -12,6 +12,7 @@
 #include "fw_update_logic.h"
 #include "input_validators.h"
 #include "tz_presets.h"
+#include "energy_metrics.h"
 
 // Misma zona horaria que config.h (TIMEZONE)
 static const char* TZ_SPAIN = "CET-1CEST,M3.5.0,M10.5.0/3";
@@ -514,6 +515,19 @@ void test_fw_version_parse() {
     TEST_ASSERT_FALSE(fw_parse_version("3.6.0abc").valid);
 }
 
+// DEYE-35: autosuficiencia, autoconsumo y CO2 evitado
+void test_energy_metrics() {
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 75.0f, self_sufficiency_pct(8.0f, 2.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, self_sufficiency_pct(5.0f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, self_sufficiency_pct(5.0f, 7.0f));    // importa más de lo que consume: tope en 0
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -1.0f, self_sufficiency_pct(0.0f, 0.0f));   // sin consumo: sin dato
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 60.0f, self_consumption_pct(10.0f, 4.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -1.0f, self_consumption_pct(0.0f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.5f, co2_avoided_kg(10.0f, 0.15f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, co2_avoided_kg(-3.0f, 0.15f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 10.0f * TUNE_CO2_KG_PER_KWH, co2_avoided_kg(10.0f));
+}
+
 // DEYE-74: las zonas horarias predefinidas son cadenas TZ válidas y la 0 es la de config.h
 static int tz_hour_at(const char* posix, time_t utc) {
     setenv("TZ", posix, 1); tzset();
@@ -872,6 +886,7 @@ int main(int, char**) {
     RUN_TEST(test_fw_version_parse);
     RUN_TEST(test_fw_is_newer);
     RUN_TEST(test_tz_presets);
+    RUN_TEST(test_energy_metrics);
     RUN_TEST(test_fw_asset_matches);
     RUN_TEST(test_fw_parse_release_picks_this_board);
     RUN_TEST(test_fw_parse_release_errors);

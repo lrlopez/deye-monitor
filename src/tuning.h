@@ -29,6 +29,11 @@
   #define TUNE_FS_REARM_ABOVE_PCT   15     // % libre con el que se vuelve a armar el aviso
 #endif
 
+// ── Indicadores (energy_metrics.h) ───────────────────────────────────────
+#ifndef TUNE_CO2_KG_PER_KWH
+  #define TUNE_CO2_KG_PER_KWH     0.15f    // kg CO2 por kWh del mix eléctrico (orden de magnitud para España)
+#endif
+
 // ── Comunicación con el logger (solarman.cpp) ────────────────────────────
 #ifndef TUNE_LOGGER_TIMEOUT_MS
   #define TUNE_LOGGER_TIMEOUT_MS  3000     // ms: conexión TCP y espera de la respuesta

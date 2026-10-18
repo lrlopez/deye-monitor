@@ -7,6 +7,7 @@
 #include "ui_constants.h"
 #include "psram_cache.h"
 #include "calendar_popup.h"
+#include "energy_metrics.h"
 
 // ── Paleta ────────────────────────────────────────────────────────────────
 #define C_BAR_BG lv_color_hex(0x21262D)
@@ -28,6 +29,7 @@ static lv_obj_t *con_arcs[3], *con_total_lbl, *con_leg_val[3], *con_leg_pct[3];
 static lv_obj_t *pro_arcs[3], *pro_total_lbl, *pro_leg_val[3], *pro_leg_pct[3];
 static lv_obj_t *s_no_data;
 // Comparativas bajo cada donut (DEYE-53): izquierda = vs día anterior, derecha = vs semana anterior
+static lv_obj_t *s_lbl_sub[2];                  // subtítulos CONSUMO / PRODUCCIÓN (+ autosuficiencia / CO2, DEYE-35)
 static lv_obj_t *s_lbl_con_vs, *s_lbl_pro_vs;   // semana anterior
 static lv_obj_t *s_lbl_con_vd, *s_lbl_pro_vd;   // día anterior
 
@@ -186,6 +188,14 @@ static void render_stats(float pv, float exp_k, float imp,
         lv_label_set_text_fmt(pro_leg_val[i], "%.2f kWh", pro_vals[i]);
         lv_label_set_text_fmt(pro_leg_pct[i], "%.1f%%",   pp);
     }
+
+    // DEYE-35: autosuficiencia junto al título del consumo y CO2 evitado junto al de la producción
+    const float asuf = self_sufficiency_pct(load, imp);
+    if (asuf >= 0) lv_label_set_text_fmt(s_lbl_sub[0], "CONSUMO - autosuficiencia %.0f%%", asuf);
+    else           lv_label_set_text(s_lbl_sub[0], "CONSUMO");
+    const float co2 = co2_avoided_kg(pv);
+    if (co2 >= 0.05f) lv_label_set_text_fmt(s_lbl_sub[1], "PRODUCCI\xC3\x93N - CO2 evitado %.1f kg", co2);
+    else              lv_label_set_text(s_lbl_sub[1], "PRODUCCI\xC3\x93N");
 
     lv_obj_add_flag(s_no_data, LV_OBJ_FLAG_HIDDEN);
 }
@@ -392,6 +402,7 @@ void stats_screen_init(lv_obj_t* parent) {
         lv_obj_set_style_text_font(s, &FONT_SMALL, 0);
         lv_obj_set_style_text_color(s, C_MUTED, 0);
         lv_label_set_text(s, subs[c]);
+        s_lbl_sub[c] = s;
     }
 
     // ── Donuts ────────────────────────────────────────────────────────────

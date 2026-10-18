@@ -4,6 +4,7 @@
 #include "psram_cache.h"
 #include "data_store.h"
 #include "storage.h"
+#include "energy_metrics.h"
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
 #include <ArduinoJson.h>
@@ -176,12 +177,11 @@ static String fmt_daily_stats(uint32_t dep, const DailyStats& d,
 
     float pv_direct = d.load_kwh - d.batt_discharge_kwh - d.import_kwh;
     if (pv_direct < 0) pv_direct = 0;
-    float autosuf = (d.load_kwh > 0.01f)
-                    ? (d.load_kwh - d.import_kwh) / d.load_kwh * 100.0f : 0;
-    float autocon = (d.pv_kwh > 0.01f)
-                    ? (d.pv_kwh - d.export_kwh) / d.pv_kwh * 100.0f : 0;
-    if (autosuf < 0) autosuf = 0; if (autosuf > 100) autosuf = 100;
-    if (autocon < 0) autocon = 0; if (autocon > 100) autocon = 100;
+    float autosuf = self_sufficiency_pct(d.load_kwh, d.import_kwh);
+    float autocon = self_consumption_pct(d.pv_kwh, d.export_kwh);
+    if (autosuf < 0) autosuf = 0;   // sin consumo/producción apreciable: 0 %, como antes
+    if (autocon < 0) autocon = 0;
+    const float co2 = co2_avoided_kg(d.pv_kwh);
 
     char buf[768];
     snprintf(buf, sizeof(buf),
@@ -193,12 +193,13 @@ static String fmt_daily_stats(uint32_t dep, const DailyStats& d,
         "🔋 Carga bat.: *%.2f kWh*\n"
         "🔋 Descarga bat.: *%.2f kWh*\n\n"
         "📊 Autoconsumo: *%.0f%%*\n"
-        "📊 Autosuficiencia: *%.0f%%*",
+        "📊 Autosuficiencia: *%.0f%%*\n"
+        "🌱 CO2 evitado: *%.1f kg*",
         title, fmt_date(dep).c_str(),
         d.pv_kwh, d.load_kwh,
         d.export_kwh, d.import_kwh,
         d.batt_charge_kwh, d.batt_discharge_kwh,
-        autocon, autosuf);
+        autocon, autosuf, co2);
     return String(buf);
 }
 

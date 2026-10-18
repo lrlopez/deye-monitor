@@ -358,6 +358,10 @@ footer a{color:var(--accent);text-decoration:none}
       <div class="kpi-v" id="kpi-autocon" style="color:#f5c518">--%</div>
       <div class="kpi-l">Autoconsumo</div>
     </div>
+    <div class="kpi">
+      <div class="kpi-v" id="kpi-co2" style="color:#4a9eff">-- kg</div>
+      <div class="kpi-l">CO2 evitado</div>
+    </div>
   </div>
   <div class="donut-row">
     <div class="donut-box">
@@ -454,10 +458,10 @@ footer a{color:var(--accent);text-decoration:none}
 
     // ── JS: constantes desde AppConfig + lógica ───────────────────────────
     {
-        char buf[96];
+        char buf[128];
         snprintf(buf, sizeof(buf),
-                 "\n<script>const IM=%u,GM=%u,C=326.73,ARC=245.05,HALF=122.52;\n",
-                 (unsigned)cfg.inv_max_w, (unsigned)cfg.grid_max_w);
+                 "\n<script>const IM=%u,GM=%u,C=326.73,ARC=245.05,HALF=122.52,CO2F=%.3f;\n",
+                 (unsigned)cfg.inv_max_w, (unsigned)cfg.grid_max_w, (double)TUNE_CO2_KG_PER_KWH);
         server.sendContent(buf);
     }
     server.sendContent(R"=EOF=(
@@ -577,6 +581,7 @@ async function refresh(){
         Math.max(0,Math.min(100,(day.pv_kwh-day.export_kwh)/day.pv_kwh*100)):0;
       ip('kpi-autosuf').textContent=asuf.toFixed(0)+'%';
       ip('kpi-autocon').textContent=acon.toFixed(0)+'%';
+      ip('kpi-co2').textContent=(day.pv_kwh*CO2F).toFixed(1)+' kg';
     }
 
     ip('tb-dot').style.background='#2ecc71';
