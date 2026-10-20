@@ -11,7 +11,7 @@ case $BOARD in
 esac
 LVGL_DIR=${LVGL_DIR:-$P/.pio/libdeps/sunton_4827s043/lvgl}
 cd $S; ./prep.sh; mkdir -p out
-SRCS="harness.cpp stubs.cpp $P/src/dashboard.cpp $P/src/pagination_dots.cpp $P/src/home_button.cpp $P/src/ui_toast.cpp $P/src/clock_mode.cpp $S/profile_copy.cpp $P/src/setup_wizard.cpp $P/src/logger_scan_ui.cpp $S/stats_copy.cpp $S/chart_copy.cpp $S/config_copy.cpp $*"
+SRCS="harness.cpp stubs.cpp $P/src/dashboard.cpp $P/src/pagination_dots.cpp $P/src/home_button.cpp $P/src/ui_toast.cpp $P/src/clock_mode.cpp $P/src/ota_overlay.cpp $S/profile_copy.cpp $P/src/setup_wizard.cpp $P/src/logger_scan_ui.cpp $S/stats_copy.cpp $S/chart_copy.cpp $S/config_copy.cpp $*"
 rm -f out/preview_$BOARD   # si la compilación falla no debe ejecutarse un binario antiguo
 clang++ -std=gnu++17 -O1 -w -DLV_CONF_INCLUDE_SIMPLE -DDBGSERIAL=DbgSerial $D -Imock -I$P/src -I$LVGL_DIR $SRCS obj/*.o -o out/preview_$BOARD 2>&1 | head -30
 [ -x out/preview_$BOARD ] || { echo "Error: no se pudo compilar el simulador"; exit 1; }

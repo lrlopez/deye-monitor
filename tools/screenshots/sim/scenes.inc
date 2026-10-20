@@ -2,6 +2,7 @@
 #include "home_button.h"
 #include "ui_toast.h"
 #include "clock_mode.h"
+#include "ota_overlay.h"
 #include "stats_screen.h"
 #include "chart_screen.h"
 #include "config_screen.h"
@@ -100,6 +101,12 @@ static void build_scene(const char* name, lv_obj_t* scr) {
         run(300); dashboard_tick();
         ui_toast_show("Toca la casa para volver al inicio");
         run(400);
+    }
+    else if (!strcmp(name, "ota")) {
+        dashboard_init(scr);
+        dashboard_update(sample(3200, -1100, -900, 78, 1200));
+        run(300);
+        ota_overlay_show(); run(300);
     }
     else if (!strcmp(name, "clock")) {
         dashboard_init(scr);

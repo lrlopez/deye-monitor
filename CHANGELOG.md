@@ -4,6 +4,12 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [v4.1.2] - 2026-10-20
+
+### Mejorado
+
+- **Aviso de parpadeo durante la actualización de firmware:** la pantalla «Actualizando firmware» indica ahora que la pantalla puede parpadear durante el proceso (la escritura en flash interrumpe el refresco). El overlay pasa a su propio módulo (`ota_overlay.cpp`) y tiene escena en el simulador de capturas. Comprobado en 480×270 y 800×480; el manual lo menciona.
+
 ## [v4.1.1] - 2026-10-18
 
 ### Eliminado
