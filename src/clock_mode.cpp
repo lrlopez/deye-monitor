@@ -17,6 +17,13 @@ static EnergyData s_e{};
 static bool      s_e_dirty   = false;
 static uint32_t  s_last_ms   = 0;
 
+// Fecha centrada bajo la hora. lv_obj_align_to no se recalcula cuando el texto cambia de ancho
+// (nace vacío), así que hay que repetirla después de cada lv_label_set_text de la fecha.
+static void place_date()
+{
+    lv_obj_align_to(s_lbl_date, s_lbl_time, LV_ALIGN_OUT_BOTTOM_MID, 0, SY(8));
+}
+
 static lv_obj_t* make_metric(lv_obj_t* parent, lv_color_t col)
 {
     lv_obj_t* l = lv_label_create(parent);
@@ -50,7 +57,7 @@ static void create_overlay()
     lv_obj_set_style_text_font(s_lbl_date, &FONT_MEDIUM, 0);
     lv_obj_set_style_text_color(s_lbl_date, C_MUTED2, 0);
     lv_label_set_text(s_lbl_date, "");
-    lv_obj_align_to(s_lbl_date, s_lbl_time, LV_ALIGN_OUT_BOTTOM_MID, 0, SY(8));
+    place_date();
 
     // Tres datos en fila, repartidos: solar · casa · batería
     lv_obj_t* row = lv_obj_create(s_ov);
@@ -78,6 +85,8 @@ static void refresh()
         lv_label_set_text(s_lbl_time, buf);
         snprintf(buf, sizeof(buf), "%s %d %s", DIAS[ti.tm_wday % 7], ti.tm_mday, MESES[ti.tm_mon % 12]);
         lv_label_set_text(s_lbl_date, buf);
+        lv_obj_update_layout(s_lbl_date);   // ancho ya con el texto nuevo
+        place_date();
     }
     if (s_e.valid) {
         lv_label_set_text_fmt(s_lbl_pv,   LV_SYMBOL_SUN " %d W", (int)s_e.pv_power);
