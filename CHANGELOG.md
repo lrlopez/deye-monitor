@@ -4,6 +4,18 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [v4.2.0] - 2026-10-20
+
+### Corregido
+
+- **Actualización desde GitHub en la Sunton** (`Conexión con GitHub fallida: … Generic error / SSL - EOF`): el handshake TLS agotaba la RAM interna (el mínimo llegaba a 2 KB). La consulta y la descarga cargan ahora solo las raíces del servidor al que se conectan, las redirecciones de la descarga se siguen a mano liberando antes la conexión anterior, y el bot de Telegram cierra su conexión TLS mientras dura la consulta o la instalación. Los errores incluyen el heap libre. **Sin verificar de extremo a extremo en la Sunton real.**
+- **Fecha del modo reloj descentrada:** se alineaba con el texto aún vacío y crecía hacia la derecha; ahora se recoloca al actualizarla.
+
+### Mejorado
+
+- **Modo reloj con cifras mucho mayores y nítidas:** fuente propia solo de dígitos y «:» a tamaño nativo (140/234/300 px según la placa, ocupa ~80-87 % del ancho) en lugar de la fuente de 28 px ampliada 2× por software, que salía borrosa. Fecha y datos inferiores (solar, casa, batería) más grandes y repartidos de forma uniforme.
+- **Búferes de render de LVGL de la Sunton en PSRAM** (antes en SRAM interna): libera ~52 KB de RAM interna para TLS. Sin efecto apreciable en las animaciones; si se notara, basta con volver a `MALLOC_CAP_INTERNAL` en `main.cpp`.
+
 ## [v4.1.2] - 2026-10-20
 
 ### Mejorado
