@@ -110,3 +110,13 @@
 #ifndef FONT_LARGE
   #define FONT_LARGE  lv_font_montserrat_28
 #endif
+// Fuente del modo reloj: solo dígitos y «:» (src/fonts/lv_font_clock_*.c), a tamaño nativo
+#ifndef FONT_CLOCK
+  #if defined(BOARD_GUITION_JC1060P470)
+    #define FONT_CLOCK  lv_font_clock_96
+  #elif defined(BOARD_GUITION_JC4880P443C)
+    #define FONT_CLOCK  lv_font_clock_84
+  #else
+    #define FONT_CLOCK  lv_font_clock_56
+  #endif
+#endif

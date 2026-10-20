@@ -1,4 +1,5 @@
 #include "clock_mode.h"
+#include "config.h"
 #include "ui_constants.h"
 #include "storage.h"
 #include <Arduino.h>
@@ -15,10 +16,6 @@ static bool      s_enabled   = true;
 static EnergyData s_e{};
 static bool      s_e_dirty   = false;
 static uint32_t  s_last_ms   = 0;
-
-// El reloj va escalado 2x sobre FONT_LARGE: con la fuente más grande disponible
-// (28 px en la Sunton) quedaría pequeño para verlo desde lejos
-#define CLOCK_SCALE   512      // 256 = 1x
 
 static lv_obj_t* make_metric(lv_obj_t* parent, int xofs, lv_color_t col)
 {
@@ -45,15 +42,10 @@ static void create_overlay()
     lv_obj_add_flag(s_ov, LV_OBJ_FLAG_CLICKABLE);
 
     s_lbl_time = lv_label_create(s_ov);
-    lv_obj_set_style_text_font(s_lbl_time, &FONT_LARGE, 0);
+    lv_obj_set_style_text_font(s_lbl_time, &FONT_CLOCK, 0);
     lv_obj_set_style_text_color(s_lbl_time, C_WHITE, 0);
     lv_label_set_text(s_lbl_time, "--:--");
     lv_obj_align(s_lbl_time, LV_ALIGN_CENTER, 0, -SY(32));
-    // Escala alrededor del centro del propio texto
-    lv_obj_update_layout(s_lbl_time);
-    lv_obj_set_style_transform_pivot_x(s_lbl_time, lv_obj_get_width(s_lbl_time) / 2, 0);
-    lv_obj_set_style_transform_pivot_y(s_lbl_time, lv_obj_get_height(s_lbl_time) / 2, 0);
-    lv_obj_set_style_transform_scale(s_lbl_time, CLOCK_SCALE, 0);
 
     s_lbl_date = lv_label_create(s_ov);
     lv_obj_set_style_text_font(s_lbl_date, &FONT_NORMAL, 0);

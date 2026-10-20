@@ -657,19 +657,22 @@
     LV_FONT_DECLARE(lv_font_montserrat_28) \
     LV_FONT_DECLARE(lv_font_montserrat_32) \
     LV_FONT_DECLARE(lv_font_montserrat_42) \
-    LV_FONT_DECLARE(lv_font_montserrat_48)
+    LV_FONT_DECLARE(lv_font_montserrat_48) \
+    LV_FONT_DECLARE(lv_font_clock_96)
 #elif defined(BOARD_GUITION_JC4880P443C)
 #define LV_FONT_CUSTOM_DECLARE \
     LV_FONT_DECLARE(lv_font_montserrat_22) \
     LV_FONT_DECLARE(lv_font_montserrat_28) \
     LV_FONT_DECLARE(lv_font_montserrat_32) \
-    LV_FONT_DECLARE(lv_font_montserrat_42)
+    LV_FONT_DECLARE(lv_font_montserrat_42) \
+    LV_FONT_DECLARE(lv_font_clock_84)
 #else
 #define LV_FONT_CUSTOM_DECLARE \
     LV_FONT_DECLARE(lv_font_montserrat_12) \
     LV_FONT_DECLARE(lv_font_montserrat_14) \
     LV_FONT_DECLARE(lv_font_montserrat_22) \
-    LV_FONT_DECLARE(lv_font_montserrat_28)
+    LV_FONT_DECLARE(lv_font_montserrat_28) \
+    LV_FONT_DECLARE(lv_font_clock_56)
 #endif
 
 /** Always set a default font */
