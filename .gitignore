@@ -1,6 +1,9 @@
 .pio
 .vscode
 .DS_Store
+# Base de datos de compilación para clangd (make compiledb)
+compile_commands.json
+.cache/
 # Salidas generadas de la documentación (make docs)
 docs/manual-site/
 docs/manual/_build.html

@@ -1,0 +1,35 @@
+# Configuración de clangd (el chequeo C/C++ del editor) para el firmware ESP32.
+# Necesita compile_commands.json en la raíz: `make compiledb` (pio run -t compiledb).
+# Los comandos usan el gcc de Xtensa: clangd debe lanzarse con
+#   --query-driver=<home>/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-*
+# (en VS Code: ajuste `clangd.arguments`) para tomar de él las cabeceras del sistema, y aquí se
+# quitan los flags que solo conoce gcc.
+CompileFlags:
+  Remove:
+    - -mlongcalls
+    - -mtext-section-literals
+    - -mdisable-hardware-atomics
+    - -mfix-esp32-psram-cache-issue
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+    - -fno-shrink-wrap
+    - -fno-jump-tables
+    - -freorder-blocks
+    - -fno-builtin-*
+    - -fno-tree-*
+    - -ffreestanding
+    - -nostdlib
+    - -Wno-old-style-declaration
+    - -Wno-error=*
+    - -Werror=*
+    - -std=gnu++2b
+    - -std=gnu++23
+    - -std=gnu++2a
+  Add:
+    - -std=gnu++17
+    - -Wno-unknown-warning-option
+    - -Wno-unknown-attributes
+Diagnostics:
+  UnusedIncludes: None
+  Suppress:
+    - pp_file_not_found_angled_include_not_fatal

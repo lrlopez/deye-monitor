@@ -1,4 +1,4 @@
-.PHONY: docs docs-pdf docs-web docs-serve docs-clean test
+.PHONY: docs docs-pdf docs-web docs-serve docs-clean test compiledb
 
 # Versión y fecha que aparecen en la portada del manual y en el pie de la web. Por defecto salen de
 # git (última etiqueta alcanzable y fecha de su commit); se pueden forzar con
@@ -10,6 +10,11 @@ PUB_DATE ?= $(shell git log -1 --format=%cd --date=format:%d/%m/%Y 2>/dev/null)
 ## Tests de lógica pura en el PC (sin hardware).
 test:
 	pio test -e native
+
+## Genera compile_commands.json (en la raíz, ignorado por git) para el chequeo C/C++ del editor
+## (clangd, ver .clangd). Repetirlo si se añaden ficheros o librerías.
+compiledb:
+	pio run -e sunton_4827s043 -t compiledb
 
 ## Genera el manual completo: PDF (docs/manual/deye-monitor-manual.pdf) y web (docs/manual-site/).
 docs: docs-pdf docs-web
