@@ -585,7 +585,7 @@ static void show_ota_overlay() {
 
     // Tarjeta central
     lv_obj_t* card = lv_obj_create(ov);
-    lv_obj_set_size(card, SX(300), SY(152));
+    lv_obj_set_size(card, SX(300), SY(196));
     lv_obj_center(card);
     lv_obj_set_style_bg_color(card, lv_color_hex(0x161B22), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
@@ -626,6 +626,14 @@ static void show_ota_overlay() {
     lv_obj_set_style_text_color(sub, C_MUTED, 0);
     lv_obj_set_style_text_font(sub, &FONT_SMALL, 0);
     lv_obj_align_to(sub, title, LV_ALIGN_OUT_BOTTOM_MID, 0, SY(7));
+
+    // Aviso: las escrituras en flash interrumpen el refresco de la pantalla
+    lv_obj_t* warn = lv_label_create(card);
+    lv_label_set_text(warn, "La pantalla puede parpadear\ndurante el proceso");
+    lv_obj_set_style_text_align(warn, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(warn, C_MUTED, 0);
+    lv_obj_set_style_text_font(warn, &FONT_SMALL, 0);
+    lv_obj_align_to(warn, sub, LV_ALIGN_OUT_BOTTOM_MID, 0, SY(7));
 }
 
 // ── Loop (Core 1) ─────────────────────────────────────────────────────────

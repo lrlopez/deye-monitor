@@ -92,7 +92,8 @@ está bloqueada).
    Pulsa **Instalar** y **confirma** en el segundo paso.
 3. El equipo **descarga** el fichero de **tu placa**, comprueba su integridad y, solo si todo es
    correcto, lo instala y **se reinicia**. Mientras tanto, la pantalla muestra el avance y se congela
-   el resto de la interfaz.
+   el resto de la interfaz. Durante la instalación la pantalla **puede parpadear**; es normal y no
+   hay que desconectar el equipo.
 
 La descarga se verifica antes de instalar: conexión cifrada con certificado comprobado, tamaño,
 cabecera del fichero y **huella SHA-256** publicada por GitHub. Si cualquier comprobación falla, **no
