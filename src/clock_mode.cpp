@@ -17,12 +17,11 @@ static EnergyData s_e{};
 static bool      s_e_dirty   = false;
 static uint32_t  s_last_ms   = 0;
 
-static lv_obj_t* make_metric(lv_obj_t* parent, int xofs, lv_color_t col)
+static lv_obj_t* make_metric(lv_obj_t* parent, lv_color_t col)
 {
     lv_obj_t* l = lv_label_create(parent);
-    lv_obj_set_style_text_font(l, &FONT_MEDIUM, 0);
+    lv_obj_set_style_text_font(l, &FONT_LARGE, 0);
     lv_obj_set_style_text_color(l, col, 0);
-    lv_obj_align(l, LV_ALIGN_CENTER, xofs, SY(78));
     lv_label_set_text(l, "--");
     return l;
 }
@@ -45,18 +44,27 @@ static void create_overlay()
     lv_obj_set_style_text_font(s_lbl_time, &FONT_CLOCK, 0);
     lv_obj_set_style_text_color(s_lbl_time, C_WHITE, 0);
     lv_label_set_text(s_lbl_time, "--:--");
-    lv_obj_align(s_lbl_time, LV_ALIGN_CENTER, 0, -SY(32));
+    lv_obj_align(s_lbl_time, LV_ALIGN_TOP_MID, 0, SY(30));
 
     s_lbl_date = lv_label_create(s_ov);
-    lv_obj_set_style_text_font(s_lbl_date, &FONT_NORMAL, 0);
+    lv_obj_set_style_text_font(s_lbl_date, &FONT_MEDIUM, 0);
     lv_obj_set_style_text_color(s_lbl_date, C_MUTED2, 0);
     lv_label_set_text(s_lbl_date, "");
-    lv_obj_align(s_lbl_date, LV_ALIGN_CENTER, 0, SY(22));
+    lv_obj_align_to(s_lbl_date, s_lbl_time, LV_ALIGN_OUT_BOTTOM_MID, 0, SY(8));
 
     // Tres datos en fila, repartidos: solar · casa · batería
-    s_lbl_pv   = make_metric(s_ov, -SX(150), C_WARN);
-    s_lbl_load = make_metric(s_ov,  0,       lv_color_hex(0xBB6BD9));
-    s_lbl_batt = make_metric(s_ov,  SX(150), C_OK);
+    lv_obj_t* row = lv_obj_create(s_ov);
+    lv_obj_set_size(row, SCREEN_WIDTH, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_align(row, LV_ALIGN_BOTTOM_MID, 0, -SY(14));
+    s_lbl_pv   = make_metric(row, C_WARN);
+    s_lbl_load = make_metric(row, lv_color_hex(0xBB6BD9));
+    s_lbl_batt = make_metric(row, C_OK);
 }
 
 static void refresh()

@@ -654,33 +654,33 @@
 /* Fuente del modo reloj (solo dígitos y «:», src/fonts/lv_font_clock_*.c): un tamaño por placa,
  * el resto se desactiva para no compilarlo. */
 #if defined(BOARD_GUITION_JC1060P470)
-#define LV_FONT_CLOCK_56 0
-#define LV_FONT_CLOCK_84 0
+#define LV_FONT_CLOCK_140 0
+#define LV_FONT_CLOCK_234 0
 #define LV_FONT_CUSTOM_DECLARE \
     LV_FONT_DECLARE(lv_font_montserrat_14) \
     LV_FONT_DECLARE(lv_font_montserrat_28) \
     LV_FONT_DECLARE(lv_font_montserrat_32) \
     LV_FONT_DECLARE(lv_font_montserrat_42) \
     LV_FONT_DECLARE(lv_font_montserrat_48) \
-    LV_FONT_DECLARE(lv_font_clock_96)
+    LV_FONT_DECLARE(lv_font_clock_300)
 #elif defined(BOARD_GUITION_JC4880P443C)
-#define LV_FONT_CLOCK_56 0
-#define LV_FONT_CLOCK_96 0
+#define LV_FONT_CLOCK_140 0
+#define LV_FONT_CLOCK_300 0
 #define LV_FONT_CUSTOM_DECLARE \
     LV_FONT_DECLARE(lv_font_montserrat_22) \
     LV_FONT_DECLARE(lv_font_montserrat_28) \
     LV_FONT_DECLARE(lv_font_montserrat_32) \
     LV_FONT_DECLARE(lv_font_montserrat_42) \
-    LV_FONT_DECLARE(lv_font_clock_84)
+    LV_FONT_DECLARE(lv_font_clock_234)
 #else
-#define LV_FONT_CLOCK_84 0
-#define LV_FONT_CLOCK_96 0
+#define LV_FONT_CLOCK_234 0
+#define LV_FONT_CLOCK_300 0
 #define LV_FONT_CUSTOM_DECLARE \
     LV_FONT_DECLARE(lv_font_montserrat_12) \
     LV_FONT_DECLARE(lv_font_montserrat_14) \
     LV_FONT_DECLARE(lv_font_montserrat_22) \
     LV_FONT_DECLARE(lv_font_montserrat_28) \
-    LV_FONT_DECLARE(lv_font_clock_56)
+    LV_FONT_DECLARE(lv_font_clock_140)
 #endif
 
 /** Always set a default font */
