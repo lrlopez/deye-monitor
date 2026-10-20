@@ -522,6 +522,10 @@ void TelegramBot::handleCommand(const String& text, const String& from_id) {
     enqueueMessage(response);
 }
 
+extern volatile bool g_ota_request;
+extern volatile bool g_ota_active;
+extern volatile bool g_fw_tls_busy;
+
 // UniversalTelegramBot espera la respuesta con un bucle `while (client->available())` sin ceder la
 // CPU hasta 1,5 s por llamada. Con el core Arduino 3 (que vigila la tarea IDLE del core 0) eso
 // dispara el watchdog («task_wdt: IDLE0 … telegram_bot») en cuanto la red tarda. Este cliente cede
@@ -591,6 +595,14 @@ void TelegramBot::task(void* pv) {
     uint32_t last_poll = 0;
 
     for (;;) {
+        // Durante la consulta o la instalación de firmware se cierra la conexión TLS del bot: libera
+        // la RAM interna que necesita GitHub (en la Sunton no cabían las dos a la vez)
+        if (g_ota_request || g_ota_active || g_fw_tls_busy) {
+            client.stop();
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+
         // ── Procesar alertas proactivas de la cola ────────────────────────
         AlertMsg alert{};
         while (xQueueReceive(self->_alert_queue, &alert, 0) == pdTRUE) {

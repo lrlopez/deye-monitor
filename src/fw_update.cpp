@@ -12,6 +12,7 @@
 #include <Update.h>
 #include <mbedtls/sha256.h>
 #include <time.h>
+#include <memory>
 
 // Protocolo con main.cpp (hilo LVGL): congelar el render mientras se escribe la
 // flash (en las P4 la escritura compite con el DMA del display) y, si algo falla,
@@ -20,8 +21,15 @@ extern volatile bool g_ota_request;
 extern volatile bool g_ota_active;
 extern volatile bool g_ota_cancel;
 
+// Mientras vale true, el bot de Telegram cierra su conexión TLS y no abre otra: la consulta a GitHub
+// también necesita RAM interna para su handshake (la instalación ya lo hace con g_ota_request).
+volatile bool g_fw_tls_busy = false;
+
 static const uint32_t MIN_FREE_HEAP = 50000;   // bloque contiguo mínimo para un handshake TLS
 static const uint32_t TIME_VALID_EPOCH = 1700000000UL;
+
+static String url_host(const String& url);
+static String select_cas(const String& host);
 
 // ── Estado compartido ─────────────────────────────────────────────────────
 namespace {
@@ -98,18 +106,27 @@ static void do_check() {
     if (time(nullptr) < (time_t)TIME_VALID_EPOCH) {
         fail("Reloj sin sincronizar: hace falta para validar el certificado TLS"); return;
     }
+
+    struct TlsGuard {                       // libera al bot de Telegram en cualquier salida
+        TlsGuard()  { g_fw_tls_busy = true; vTaskDelay(pdMS_TO_TICKS(2000)); }   // da tiempo a cerrar su TLS
+        ~TlsGuard() { g_fw_tls_busy = false; }
+    } tls_guard;
     if (ESP.getMaxAllocHeap() < MIN_FREE_HEAP) { fail("Memoria libre insuficiente para TLS"); return; }
 
+    static const char kUrl[] = "https://api.github.com/repos/" FW_UPDATE_REPO "/releases/latest";
     String body;
     int code = 0;
     {
+        const String cas = select_cas(url_host(kUrl));   // solo las raíces de este servidor (cada una cuesta RAM)
         WiFiClientSecure client;
-        client.setCACert(FW_UPDATE_ROOT_CAS);
+        client.setCACert(cas.c_str());
         client.setTimeout(15);
+        APP_LOGI("FwUpdate", "Consultando GitHub (heap libre %u, mayor bloque %u)",
+                 (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
         HTTPClient http;
         http.setTimeout(15000);
         http.setUserAgent("DeyeMonitor/" APP_VERSION);
-        if (!http.begin(client, "https://api.github.com/repos/" FW_UPDATE_REPO "/releases/latest")) {
+        if (!http.begin(client, kUrl)) {
             fail("No se pudo iniciar la conexión"); return;
         }
         http.addHeader("Accept", "application/vnd.github+json");
@@ -122,8 +139,8 @@ static void do_check() {
             char tls[80] = {0};
             client.lastError(tls, sizeof(tls));
             http.end();
-            fail("Conexión con GitHub fallida: %s%s%s", HTTPClient::errorToString(code).c_str(),
-                 tls[0] ? " / " : "", tls);
+            fail("Conexión con GitHub fallida: %s%s%s (heap libre %u KB)", HTTPClient::errorToString(code).c_str(),
+                 tls[0] ? " / " : "", tls, (unsigned)(ESP.getFreeHeap() / 1024));
             return;
         }
         http.end();
@@ -205,6 +222,37 @@ private:
 };
 }  // namespace
 
+// ── Raíces por servidor ───────────────────────────────────────────────────
+// Cada conexión carga solo las raíces que le corresponden (cada una parseada cuesta RAM interna).
+// Índices en FW_UPDATE_ROOT_CAS, en el orden del fichero: 0 Sectigo E46, 1 Sectigo R46, 2 ISRG X1,
+// 3 USERTrust ECC, 4 USERTrust RSA, 5 DigiCert G2. Si el fichero no tiene 6, se usan todas.
+static String url_host(const String& url) {
+    int s = url.indexOf("://");
+    s = (s < 0) ? 0 : s + 3;
+    int e = s;
+    while (e < (int)url.length() && url[e] != '/' && url[e] != ':' && url[e] != '?') ++e;
+    return url.substring(s, e);
+}
+
+static String select_cas(const String& host) {
+    const bool content = host.endsWith("githubusercontent.com");   // Let's Encrypt / DigiCert
+    static const bool kForContent[6] = {false, false, true, false, false, true};
+    String out;
+    int idx = 0, total = 0;
+    for (const char* p = FW_UPDATE_ROOT_CAS; (p = strstr(p, "-----BEGIN CERTIFICATE-----")); ++p) ++total;
+    if (total != 6) return String(FW_UPDATE_ROOT_CAS);
+    const char* p = FW_UPDATE_ROOT_CAS;
+    while ((p = strstr(p, "-----BEGIN CERTIFICATE-----")) != nullptr) {
+        const char* e = strstr(p, "-----END CERTIFICATE-----");
+        if (!e) break;
+        e += strlen("-----END CERTIFICATE-----");
+        if (kForContent[idx] == content) { out.concat(p, (unsigned)(e - p)); out += '\n'; }
+        ++idx;
+        p = e;
+    }
+    return out.length() ? out : String(FW_UPDATE_ROOT_CAS);
+}
+
 // ── Instalación ───────────────────────────────────────────────────────────
 static void do_install() {
     FwRelease rel;
@@ -226,48 +274,72 @@ static void do_install() {
     g_ota_request = true;
     uint32_t t0 = millis();
     while (!g_ota_active && millis() - t0 < 2500) vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(2000));         // da tiempo al bot de Telegram a cerrar su conexión TLS
 
     auto abort_install = [&](bool update_started) {
         if (update_started) Update.abort();
         g_ota_cancel = true;               // descongela la UI y retira el overlay
     };
 
-    WiFiClientSecure client;
-    client.setCACert(FW_UPDATE_ROOT_CAS);
-    client.setTimeout(20);
-    HTTPClient http;
-    http.setTimeout(20000);
-    http.setUserAgent("DeyeMonitor/" APP_VERSION);
-    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);   // github.com -> release-assets.githubusercontent.com
-    if (!http.begin(client, rel.asset_url)) {
-        abort_install(false); fail("No se pudo iniciar la descarga"); return;
+    // Las redirecciones (github.com -> release-assets.githubusercontent.com) se siguen a mano: cada
+    // salto abre una conexión nueva, libera la anterior ANTES y solo carga las raíces de ese
+    // servidor. En la Sunton (poca RAM interna) el apretón TLS con todas las raíces cargadas y la
+    // conexión previa viva se quedaba sin memoria y se veía como «Certificate verification failed».
+    const char* kHdr[] = {"Location"};
+    std::unique_ptr<WiFiClientSecure> client;
+    std::unique_ptr<HTTPClient> http;
+    String cas;                              // debe vivir mientras viva `client`
+    String url = rel.asset_url;
+    int code = 0;
+    for (int hop = 0; hop < 4; ++hop) {
+        if (http) http->end();
+        http.reset(); client.reset();
+        cas = select_cas(url_host(url));
+        client.reset(new WiFiClientSecure());
+        client->setCACert(cas.c_str());
+        client->setTimeout(20);
+        http.reset(new HTTPClient());
+        http->setTimeout(20000);
+        http->setUserAgent("DeyeMonitor/" APP_VERSION);
+        http->setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+        http->collectHeaders(kHdr, 1);
+        APP_LOGI("FwUpdate", "Conectando a %s (heap libre %u, mayor bloque %u)", url_host(url).c_str(),
+                 (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+        if (!http->begin(*client, url)) {
+            abort_install(false); fail("No se pudo iniciar la descarga"); return;
+        }
+        code = http->GET();
+        if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+            url = http->header("Location");
+            if (url.length()) continue;
+        }
+        break;
     }
-    int code = http.GET();
     if (code != 200) {
         char tls[80] = {0};
-        if (code < 0) client.lastError(tls, sizeof(tls));
-        http.end();
+        if (code < 0) client->lastError(tls, sizeof(tls));
+        http->end();
         abort_install(false);
-        if (code < 0) fail("Descarga fallida: %s%s%s", HTTPClient::errorToString(code).c_str(),
-                           tls[0] ? " / " : "", tls);
+        if (code < 0) fail("Descarga fallida: %s%s%s (heap libre %u KB)", HTTPClient::errorToString(code).c_str(),
+                           tls[0] ? " / " : "", tls, (unsigned)(ESP.getFreeHeap() / 1024));
         else          fail("La descarga devolvió HTTP %d", code);
         return;
     }
-    const int len = http.getSize();
+    const int len = http->getSize();
     if (len > 0 && (uint32_t)len != rel.asset_size) {
-        http.end(); abort_install(false);
+        http->end(); abort_install(false);
         fail("El tamaño descargado (%d) no coincide con el publicado (%u)", len, (unsigned)rel.asset_size);
         return;
     }
     if (!Update.begin(rel.asset_size)) {
-        http.end(); abort_install(false);
+        http->end(); abort_install(false);
         fail("No se puede iniciar la actualización: %s", Update.errorString());
         return;
     }
 
     UpdateSink sink;
-    const int w = http.writeToStream(&sink);
-    http.end();
+    const int w = http->writeToStream(&sink);
+    http->end();
 
     if (sink.failed()) { abort_install(true); fail("%s", sink.why()); return; }
     if (w < 0 || sink.written() != rel.asset_size) {

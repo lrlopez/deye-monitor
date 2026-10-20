@@ -241,22 +241,20 @@ void setup() {
 #if defined(BOARD_GUITION_JC1060P470) || defined(BOARD_GUITION_JC4880P443C)
     disp_draw_buf = (lv_color_t *)heap_caps_malloc(screenWidth * screenHeight * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 #else
-    // DEYE-44: antes eran dos buffers de PANTALLA COMPLETA en PSRAM (2 × 259 KB). Con
-    // el panel RGB, el framebuffer del propio panel ya vive en PSRAM y su DMA la
-    // está leyendo continuamente; renderizar LVGL también en PSRAM compite por ese
-    // ancho de banda. Ahora LVGL renderiza por franjas (≈1/10 de pantalla, 2 × ~26 KB)
-    // en SRAM interna, que además libera ~490 KB de PSRAM. Si no hubiera SRAM
-    // suficiente se vuelve al comportamiento anterior (pantalla completa en PSRAM).
+    // DEYE-44: antes eran dos buffers de PANTALLA COMPLETA en PSRAM (2 × 259 KB). Ahora LVGL
+    // renderiza por franjas (≈1/10 de pantalla, 2 × ~26 KB), lo que libera ~490 KB de PSRAM.
+    // Las franjas van en PSRAM para dejar ~52 KB de SRAM interna al TLS de la consulta a GitHub
+    // (en SRAM interna iban más rápidas: el panel RGB ya lee su framebuffer de PSRAM y se
+    // reparte con LVGL el ancho de banda). Si no hubiera PSRAM se usa SRAM interna.
     disp_buf_bytes = 2 * screenWidth * LVGL_BUF_LINES;
-    disp_draw_buf  = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    disp_draw_buf2 = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    disp_draw_buf  = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    disp_draw_buf2 = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!disp_draw_buf || !disp_draw_buf2) {
-        DBGSERIAL.println("[LVGL] Sin SRAM para buffers parciales: usando PSRAM completa");
+        DBGSERIAL.println("[LVGL] Sin PSRAM para buffers parciales: usando SRAM interna");
         if (disp_draw_buf)  heap_caps_free(disp_draw_buf);
         if (disp_draw_buf2) heap_caps_free(disp_draw_buf2);
-        disp_buf_bytes = 2 * screenWidth * screenHeight;
-        disp_draw_buf  = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        disp_draw_buf2 = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        disp_draw_buf  = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        disp_draw_buf2 = (lv_color_t *)heap_caps_malloc(disp_buf_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     }
 #endif
     if (!disp_draw_buf)
