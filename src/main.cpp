@@ -112,9 +112,49 @@ static unsigned long last_ms;
 
 SemaphoreHandle_t g_flash_display_mutex = nullptr;   // declarado en app_state.h; se crea en setup() (solo P4)
 
+#ifdef PPA_BENCH
+// Banco de pruebas PPA: acumula tiempos de render (RENDER_START→RENDER_READY) y de flush
+// por fotograma y los imprime cada 5 s. Ver entornos *_ppa / *_bench en platformio.ini.
+static struct {
+    int64_t t_render0 = 0;
+    uint32_t frames = 0;
+    uint64_t render_us = 0, flush_us = 0;
+    uint32_t render_max = 0, flush_max = 0;
+} s_bench;
+
+static void bench_render_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_RENDER_START) {
+        s_bench.t_render0 = esp_timer_get_time();
+    } else {
+        uint32_t d = (uint32_t)(esp_timer_get_time() - s_bench.t_render0);
+        s_bench.render_us += d;
+        if (d > s_bench.render_max) s_bench.render_max = d;
+        s_bench.frames++;
+    }
+}
+
+static void bench_report() {
+    static uint32_t last = 0;
+    if (millis() - last < 5000) return;
+    last = millis();
+    uint32_t n = s_bench.frames;
+    if (n) {
+        // RENDER_READY llega antes del flush: render_us es solo el dibujado de LVGL
+        DBGSERIAL.printf("[BENCH] ppa=%d frames=%u render avg=%u us max=%u us | flush avg=%u us max=%u us\n",
+                         (int)LV_USE_PPA, n,
+                         (unsigned)(s_bench.render_us / n), s_bench.render_max,
+                         (unsigned)(s_bench.flush_us / n), s_bench.flush_max);
+    }
+    s_bench = {};
+}
+#endif
+
 /* Display flushing */
 void my_disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
 {
+#ifdef PPA_BENCH
+    const int64_t bench_t0 = esp_timer_get_time();
+#endif
 #if defined(BOARD_GUITION_JC1060P470)
     // esp_lcd_panel_draw_bitmap usa DMA2D para copiar el frame al back-buffer y
     // programa el swap en el siguiente vsync → sin tearing. También bloquea hasta
@@ -143,6 +183,13 @@ void my_disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
     gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t*) px_map, w, h);
+#endif
+#ifdef PPA_BENCH
+    {
+        uint32_t d = (uint32_t)(esp_timer_get_time() - bench_t0);
+        s_bench.flush_us += d;
+        if (d > s_bench.flush_max) s_bench.flush_max = d;
+    }
 #endif
     lv_disp_flush_ready(disp);
 }
@@ -239,7 +286,9 @@ void setup() {
     // ESP32-S3 (esp32s3box): DOS buffers parciales de LVGL_BUF_LINES líneas en SRAM
     // interna (DEYE-44), ver abajo.
 #if defined(BOARD_GUITION_JC1060P470) || defined(BOARD_GUITION_JC4880P443C)
-    disp_draw_buf = (lv_color_t *)heap_caps_malloc(screenWidth * screenHeight * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    // Alineado a la línea de caché L2 del P4 (128 B): lo exige la unidad de dibujo PPA
+    // (sincronización de caché) y no cuesta nada en el resto de casos.
+    disp_draw_buf = (lv_color_t *)heap_caps_aligned_alloc(128, screenWidth * screenHeight * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 #else
     // DEYE-44: antes eran dos buffers de PANTALLA COMPLETA en PSRAM (2 × 259 KB). Ahora LVGL
     // renderiza por franjas (≈1/10 de pantalla, 2 × ~26 KB), lo que libera ~490 KB de PSRAM.
@@ -267,6 +316,10 @@ void setup() {
     /* Initialize the display */
     disp_drv = lv_display_create(screenWidth, screenHeight);
     lv_display_set_flush_cb(disp_drv, my_disp_flush);
+#ifdef PPA_BENCH
+    lv_display_add_event_cb(disp_drv, bench_render_cb, LV_EVENT_RENDER_START, nullptr);
+    lv_display_add_event_cb(disp_drv, bench_render_cb, LV_EVENT_RENDER_READY, nullptr);
+#endif
 #if defined(BOARD_GUITION_JC1060P470) || defined(BOARD_GUITION_JC4880P443C)
     // FULL mode: LVGL acumula el frame completo en disp_draw_buf.
     // flush_cb llama a esp_lcd_panel_draw_bitmap → DMA2D copia al buffer trasero DSI
@@ -571,6 +624,19 @@ void loop() {
     // LVGL o un mutex dejan de responder, el chip se reinicia en vez de quedarse
     // con la pantalla congelada. Va el primero para cubrir también el modo OTA.
     feedLoopWDT();
+
+#ifdef PPA_BENCH
+    // Carga constante: repintar la pantalla completa cada ~100 ms (la UI real casi no
+    // cambia entre sondeos). Se mide la pestaña visible; desliza para comparar pantallas.
+    {
+        static uint32_t last_inval = 0;
+        if (millis() - last_inval >= 100) {
+            last_inval = millis();
+            lv_obj_invalidate(lv_screen_active());
+        }
+        bench_report();
+    }
+#endif
 
     // La actualización falló (subida manual o desde GitHub): retirar el overlay y
     // descongelar el render. Antes quedaba la pantalla congelada hasta reiniciar.

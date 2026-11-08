@@ -129,7 +129,9 @@
 #define LV_DRAW_BUF_STRIDE_ALIGN                1
 
 /** Align start address of draw_buf addresses to this bytes*/
+#ifndef LV_DRAW_BUF_ALIGN
 #define LV_DRAW_BUF_ALIGN                       4
+#endif
 
 /** Using matrix for transformations.
  * Requirements:
@@ -384,9 +386,13 @@
 #endif
 
 /** Draw using espressif PPA accelerator */
+#ifndef LV_USE_PPA
 #define LV_USE_PPA  0
+#endif
 #if LV_USE_PPA
+    #ifndef LV_USE_PPA_IMG
     #define LV_USE_PPA_IMG 0
+    #endif
 #endif
 
 /* Use EVE FT81X GPU. */
