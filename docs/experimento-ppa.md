@@ -47,7 +47,14 @@ Ignorar los primeros 3–4 informes (arranque: WiFi/NTP/caché compiten por la C
 - El PPA ahorra ~5 ms (≈10 %), lejos del ~30 % que anuncia LVGL: la UI es sobre todo texto, arcos y donuts,
   que siguen dibujándose por software.
 - El flush (DMA2D directo, rotation=0) cuesta ~0,7 ms: no es el cuello de botella; lo es el render por software.
-- Pendiente de anotar: pantalla concreta medida (probablemente dashboard) y si la imagen con PPA salió sin artefactos.
+- Valoración visual (usuario, JC1060P470): con PPA la imagen salió **limpia, sin artefactos**, y las transiciones entre
+  pantallas se perciben **más suaves** (sensación subjetiva, no medida). Cuadra con que los repintados completos
+  durante el deslizamiento pasan de ~52 a ~47 ms; si se quiere cuantificar, medir con `[BENCH]` mientras se desliza.
+- Sigue sin anotar la pantalla concreta de la medición estable (probablemente dashboard).
+- Con esto, `LV_USE_PPA` en la 1060 deja de ser "dudoso": gana ~10 % de render, sin artefactos visibles y con mejora
+  percibida. Lo que frena llevarlo a producción es que es experimental en LVGL y requiere el adaptador de caché
+  (`ppa_cache_shim`) y `-DCONFIG_LV_DRAW_BUF_ALIGN=128`; habría que revalidarlo si se sube LVGL/plataforma
+  y probarlo también en la JC4880P443C antes de activarlo en ambas P4.
 
 ## Hallazgos técnicos
 
