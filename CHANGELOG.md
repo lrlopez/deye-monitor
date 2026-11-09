@@ -4,6 +4,26 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [v4.3.0] - 2026-11-09
+
+### Mejorado
+
+- **Aceleración por hardware (PPA) en las dos Guition (ESP32-P4):** LVGL usa la unidad de dibujo PPA para rellenos de rectángulos y el render de pantalla completa baja de ~52 a ~47 ms en la JC1060P470 (≈10 %). Con el banco de pruebas de esa placa la imagen salió limpia y las transiciones entre pantallas se perciben más suaves. La unidad es experimental en LVGL. Notas, medidas y cómo reproducirlas en `docs/experimento-ppa.md`.
+- **JC4880P443C: rotación del panel por hardware.** El fotograma de LVGL (800×480) lo gira el PPA al orden nativo del panel (480×800) y se entrega por DMA2D con cambio de buffer en vsync, como en la JC1060P470. Antes se giraba por software, píxel a píxel, con `gfx->draw16bitRGBBitmap()`.
+  - **Se autoverifica al arrancar:** compara píxel a píxel la salida del PPA con el mapeo de GFX (`rotation=1`) y, si algo no coincide o falla, usa la rotación por software de siempre. La elección se hace una sola vez, no por fotograma.
+  - **Sin verificar en la JC4880P443C real.** En el log serie del arranque debe aparecer `[PPA] rotación hardware OK: 800x480 -> 480x800, ángulo 270 (horario), … us por fotograma` y `[PPA] rotación del panel: hardware (PPA)`. Si aparece `software (GFX)` o un aviso `[PPA] …`, el panel funciona igual que en 4.2.0 y el aviso dice por qué.
+  - Para desactivarla sin tocar más: `-DDEYE_NO_PPA_ROTATE` (solo la rotación) o quitar `${common.ppa_flags}` del entorno (también la unidad de dibujo).
+
+### Cambiado
+
+- **Versión de LVGL fijada** en `[common]` de `platformio.ini` (antes `^9.2`, que resolvía a lo último en cada compilación): 9.5.0 en la Sunton (la de siempre) y 9.6.0 en las Guition (la medida y probada con PPA). El adaptador `src/ppa_cache_shim.cpp` (`esp_cache_get_line_size_by_addr()`, que LVGL 9.6 usa y IDF 5.5 no tiene) y `CONFIG_LV_DRAW_BUF_ALIGN=128` dependen de esa combinación: al subir LVGL o la plataforma hay que recompilar y revisar las dos placas.
+- Los buffers de render de LVGL de las Guition se reservan alineados a 128 B (línea de caché L2 del P4), requisito del PPA.
+- Nuevo entorno de pruebas `guition_jc1060p470_bench` (`ci_skip`): mide el tiempo de render y de flush cada 5 s por consola.
+
+### Nota
+
+- La unidad de dibujo PPA hace DMA sobre PSRAM durante el render, fuera del mutex que serializa el flush con las escrituras en flash. En la prueba de la JC1060P470 (menos de 1 minuto) no hubo problemas, pero no se ha probado a lo largo de un cierre de slot de 5 min / escritura de histórico. Si apareciera parpadeo o un reinicio al grabar, es lo primero que habría que revisar.
+
 ## [v4.2.0] - 2026-10-20
 
 ### Corregido

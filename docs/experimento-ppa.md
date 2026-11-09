@@ -1,6 +1,14 @@
 # Experimento: aceleración PPA del ESP32-P4 (rama `exp/ppa-bench`)
 
-Estado: **en pausa** hasta disponer de una Guition JC4880P443C. No está pensado para fusionarse tal cual.
+Estado (2026-11-09): **integrado en `main` y publicado en v4.3.0**. PPA activo en las dos Guition (unidad de dibujo de
+LVGL) y rotación por hardware en la JC4880P443C con autoverificación al arrancar y respaldo a GFX. La rotación está
+**sin probar en la JC4880P443C real**: el primer arranque en esa placa debe mostrar en el log
+`[PPA] rotación hardware OK … ángulo 270 (horario)`. Lo que sigue describe el origen del experimento (rama
+`exp/ppa-bench`, ya integrada) y los resultados; el diseño actual está en `CLAUDE.md` y en `src/ppa_rotate.h`.
+
+Cambios respecto al banco de pruebas original: las banderas viven en `[common].ppa_flags`; LVGL queda fijada
+(9.5.0 Sunton / 9.6.0 Guition: el banco midió con **9.6.0**, no con 9.5.0); el entorno `_ppa` desaparece (la PPA es
+ahora la configuración normal) y queda `guition_jc1060p470_bench` con la medición.
 
 ## Pregunta original
 
@@ -74,7 +82,18 @@ No se consigue del todo: la Sunton (RGB paralelo) la sigue necesitando. En las P
 `esp_lcd_st7701` es del IDF Component Manager y no entra en Arduino/PlatformIO sin más. Los timings DSI verificados de la
 JC4880P443C (`vsync_front_porch=166`, `lane_bit_rate=500`, RST=GPIO5) habría que revalidarlos en hardware.
 
-## Qué hacer al retomarlo (con la JC4880P443C)
+## Qué hacer con la JC4880P443C real (primera prueba de v4.3.0)
+
+0. Comprobar en el log del arranque `[PPA] rotación hardware OK: 800x480 -> 480x800, ángulo … , N us por fotograma` y
+   `[PPA] rotación del panel: hardware (PPA)`. Mirar que la imagen sea correcta y que el táctil acierte en las esquinas.
+   - Si sale `software (GFX)`: el aviso `[PPA] …` anterior dice la causa (búfer sin alinear, sin PSRAM, registro del
+     cliente, `esp_cache_msync`, o «prueba de giro … px distintos» con el primer píxel erróneo).
+   - Si la imagen sale mal pese a `hardware (PPA)`, compilar con `-DDEYE_NO_PPA_ROTATE` para volver a GFX y revisar
+     `src/ppa_rotate.cpp` (la prueba solo comprueba el giro, no el camino de `draw_bitmap`).
+   - Dejar la placa varios minutos y comprobar que no hay parpadeo ni reinicios al cerrar un slot de 5 min / escribir
+     en flash (el PPA hace DMA sobre PSRAM durante el render, fuera del mutex del flush).
+
+Plan original (antes de integrarlo), por si hace falta profundizar:
 
 1. Medir el flush actual de la JC4880P443C (`gfx->draw16bitRGBBitmap()` con rotation=1, el camino lento de
    `my_disp_flush`). Crear entornos `_bench`/`_ppa` análogos para esa placa (copiar los de la 1060).

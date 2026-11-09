@@ -19,6 +19,7 @@
 #include "web_server.h"
 #include "telegram.h"
 #include "psram_alloc.h"
+#include "ppa_rotate.h"
 #include "psram_cache.h"
 #include "backlight.h"
 #include "pagination_dots.h"
@@ -149,6 +150,10 @@ static void bench_report() {
 }
 #endif
 
+#ifdef DEYE_PPA_ROTATE
+static bool s_ppa_rotate_ok = false;   // decidido en setup() por ppa_rotate_init()
+#endif
+
 /* Display flushing */
 void my_disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
 {
@@ -167,12 +172,25 @@ void my_disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map
                               area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
     if (g_flash_display_mutex) xSemaphoreGive(g_flash_display_mutex);
 #elif defined(BOARD_GUITION_JC4880P443C)
-    // Panel nativo vertical (480x800) girado 90° por software (rotation=1):
-    // el framebuffer nativo del panel tiene stride de 480px, distinto del
-    // buffer de LVGL (800px). No se puede copiar en bruto con
-    // esp_lcd_panel_draw_bitmap (produce la imagen entrelazada/rota) — hay
-    // que pasar por draw16bitRGBBitmap(), que aplica la rotación correcta.
+    // Panel nativo vertical (480x800) mostrado en horizontal (800x480). El framebuffer nativo
+    // tiene stride de 480px, distinto del buffer de LVGL (800px): no se puede copiar en bruto con
+    // esp_lcd_panel_draw_bitmap (imagen entrelazada/rota); hay que girar el fotograma.
+    //  - Camino PPA (el normal): el PPA gira el fotograma completo (FULL mode: px_map es el
+    //    fotograma entero) a un segundo búfer con el orden nativo, y ese búfer se entrega a
+    //    esp_lcd_panel_draw_bitmap (DMA2D + swap en vsync, como la JC1060P470). Lo verifica
+    //    ppa_rotate_init() al arrancar.
+    //  - Camino GFX (respaldo): draw16bitRGBBitmap() gira por software, más lento pero siempre válido.
+    // La elección se hace UNA vez en setup(); no se alterna por fotograma.
     if (g_flash_display_mutex) xSemaphoreTake(g_flash_display_mutex, portMAX_DELAY);
+#ifdef DEYE_PPA_ROTATE
+    if (s_ppa_rotate_ok) {
+        const uint16_t *rot = ppa_rotate_frame((const uint16_t *)px_map);
+        if (rot) {
+            esp_lcd_panel_draw_bitmap(dsipanel->getPanelHandle(), 0, 0,
+                                      (int)screenHeight, (int)screenWidth, rot);
+        }
+    } else
+#endif
     {
         uint32_t w = (area->x2 - area->x1 + 1);
         uint32_t h = (area->y2 - area->y1 + 1);
@@ -312,6 +330,13 @@ void setup() {
         while (true)
             delay(1);
     }
+
+#ifdef DEYE_PPA_ROTATE
+    // JC4880P443C: comprobar la rotación por hardware ANTES del primer render (usa el búfer de LVGL
+    // como entrada de la prueba). Si no es válida, el flush sigue con GFX. Ver ppa_rotate.h.
+    s_ppa_rotate_ok = ppa_rotate_init((uint16_t *)disp_draw_buf, screenWidth, screenHeight);
+    APP_LOGI("PPA", "rotación del panel: %s", s_ppa_rotate_ok ? "hardware (PPA)" : "software (GFX)");
+#endif
 
     /* Initialize the display */
     disp_drv = lv_display_create(screenWidth, screenHeight);
