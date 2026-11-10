@@ -4,6 +4,13 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+### Corregido
+
+- **La búsqueda de la IP del datalogger devolvía «sin resultados»** con un LSW‑3 real que no contesta al descubrimiento UDP del puerto 48899 (ni por broadcast ni por unicast, con ninguna de las tres sondas), aunque sí acepta conexiones en el 8899. Si el UDP no encuentra nada, se barre ahora la subred local (como mucho un /24) probando el puerto 8899 en lotes pequeños, y cada candidato se verifica igualmente con una lectura Modbus firmada con el número de serie. Sirve también para el redescubrimiento automático tras un cambio de IP. **Sin verificar en la placa real.**
+- Se añade la sonda UDP de la app de Solarman (`WIFIKIT-214028-READ`) y el log serie muestra las respuestas UDP descartadas y el resultado de cada fase (`[Discovery] UDP: … / Barrido TCP 8899: …`).
+
 ## [v4.3.0] - 2026-11-09
 
 ### Mejorado

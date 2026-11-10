@@ -182,6 +182,27 @@ void test_discovery_reply_parse() {
     TEST_ASSERT_FALSE(solarman_parse_discovery_reply(",x", 2, ip, sizeof(ip)));
 }
 
+// Barrido TCP de respaldo del descubrimiento: rango de hosts de la subred local
+void test_scan_range() {
+    uint32_t a = 0, b = 0;
+    // 192.168.1.102 / 24 -> .1 a .254
+    TEST_ASSERT_TRUE(solarman_scan_range(0xC0A80166u, 0xFFFFFF00u, &a, &b));
+    TEST_ASSERT_EQUAL_UINT32(0xC0A80101u, a);
+    TEST_ASSERT_EQUAL_UINT32(0xC0A801FEu, b);
+    // /16 se recorta al /24 del equipo (no 65.000 conexiones)
+    TEST_ASSERT_TRUE(solarman_scan_range(0xC0A80566u, 0xFFFF0000u, &a, &b));
+    TEST_ASSERT_EQUAL_UINT32(0xC0A80501u, a);
+    TEST_ASSERT_EQUAL_UINT32(0xC0A805FEu, b);
+    // /25 se respeta: 10.0.0.130 / 255.255.255.128 -> .129 a .254
+    TEST_ASSERT_TRUE(solarman_scan_range(0x0A000082u, 0xFFFFFF80u, &a, &b));
+    TEST_ASSERT_EQUAL_UINT32(0x0A000081u, a);
+    TEST_ASSERT_EQUAL_UINT32(0x0A0000FEu, b);
+    // sin IP, /32 y /31: nada que probar
+    TEST_ASSERT_FALSE(solarman_scan_range(0, 0xFFFFFF00u, &a, &b));
+    TEST_ASSERT_FALSE(solarman_scan_range(0xC0A80166u, 0xFFFFFFFFu, &a, &b));
+    TEST_ASSERT_FALSE(solarman_scan_range(0xC0A80166u, 0xFFFFFFFEu, &a, &b));
+}
+
 // Regresión: el bloque diario (39 registros) debe caber en el búfer de 256 B
 void test_daily_block_fits_buffer() {
     TEST_ASSERT_TRUE(solarman_expected_len(39) <= 256);
@@ -1026,6 +1047,7 @@ int main(int, char**) {
     RUN_TEST(test_exception_detected_on_short_frame);
     RUN_TEST(test_ipv4_validation);
     RUN_TEST(test_discovery_reply_parse);
+    RUN_TEST(test_scan_range);
     RUN_TEST(test_daily_block_fits_buffer);
     RUN_TEST(test_fw_version_parse);
     RUN_TEST(test_fw_is_newer);

@@ -140,3 +140,17 @@ inline bool solarman_parse_discovery_reply(const char* reply, int len, char* out
     out[n] = '\0';
     return solarman_is_valid_ipv4(out);
 }
+
+// Rango de hosts (orden de host, ambos incluidos) que recorre el barrido TCP de respaldo cuando el
+// logger no contesta al descubrimiento UDP: la subred del equipo, recortada como mucho a su /24
+// (un /16 serían 65.000 conexiones). Devuelve false si no hay hosts que probar (/31, /32 o sin IP).
+inline bool solarman_scan_range(uint32_t local, uint32_t mask, uint32_t* first, uint32_t* last) {
+    if (local == 0) return false;
+    if (mask < 0xFFFFFF00u) mask = 0xFFFFFF00u;
+    const uint32_t net = local & mask;
+    const uint32_t bcast = net | ~mask;
+    if (bcast - net < 3) return false;
+    *first = net + 1;
+    *last  = bcast - 1;
+    return true;
+}
