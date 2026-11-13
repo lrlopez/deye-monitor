@@ -101,7 +101,7 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantallas Gui
 |---|---|---|---|
 | `sunton_4827s043` | Sunton 4827S043 | ESP32-S3 @ 240 MHz, 8 MB PSRAM | 480×272 px RGB, touch GT911 |
 | `guition_jc1060p470` | Guition JC1060P470, placa **original** (chip ESP32-P4 «ES pre rev.300», panel antiguo) | ESP32-P4 @ 360 MHz, 8 MB PSRAM | 1024×600 px MIPI DSI, touch GT911 |
-| `guition_jc1060p470_r3` | Guition JC1060P470 **revisión 3** (chip ESP32-P4 rev v3.x, panel «V2»; sin probar en hardware real) | ESP32-P4 rev v3.x @ 360 MHz, 8 MB PSRAM | 1024×600 px MIPI DSI, touch GT911 |
+| `guition_jc1060p470_r3` | Guition JC1060P470 **revisión 3** (chip ESP32-P4 rev v3.x, panel «V2»; probada en una placa rev v3.2) | ESP32-P4 rev v3.x @ 360 MHz, 8 MB PSRAM | 1024×600 px MIPI DSI, touch GT911 |
 | `guition_jc4880p443c` | Guition JC4880P443C | ESP32-P4 @ 360 MHz, 32 MB PSRAM | 480×800 px MIPI DSI (panel nativo vertical, rotado a 800×480), touch GT911 |
 
 ### Componentes comunes

@@ -10,7 +10,8 @@
 # Uso (compilar antes con:  pio run -e <entorno>):
 #   ESPTOOL=~/venv-esptool/bin/esptool tools/flash_p4.sh [entorno] [puerto]
 # El entorno por defecto es guition_jc1060p470_r3. Los desplazamientos son los de partitions.csv (otadata en 0xe000,
-# app0 en 0x10000); basado en tools/flash.sh de esp32-chess. Sin probar con esta aplicación en una placa real.
+# app0 en 0x10000); basado en tools/flash.sh de esp32-chess. Probado el 2026-11-13 con esptool 5.3.dev3 en una
+# placa ESP32-P4 rev v3.2 (JC1060P470): los cuatro bloques se graban y verifican por hash y la placa arranca.
 set -e
 cd "$(dirname "$0")/.."
 ESPTOOL=${ESPTOOL:-esptool}

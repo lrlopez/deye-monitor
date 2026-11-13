@@ -43,8 +43,9 @@ Usar el entorno de otra placa deja la pantalla o el táctil sin funcionar correc
     subes a mano desde `/update`. Si dudas, compara con la etiqueta de la trasera. Con la actualización
     desde GitHub no hay riesgo: cada placa descarga solo el fichero de su revisión.
 
-    La revisión 3 **aún no se ha probado en una placa real con esta aplicación**; la configuración del panel
-    procede de otro proyecto donde sí funciona (con unas rayas verticales tenues en tonos de gris medio).
+    La revisión 3 se ha probado en una placa con chip rev v3.2 y panel V2: arranca, la pantalla se ve bien y
+    el táctil responde. Aún no se ha probado con un inversor conectado ni el uso prolongado. En otro proyecto
+    donde se usa el mismo panel se vieron unas rayas verticales tenues en tonos de gris medio; si las ves, avísanos.
     Comprueba el arranque con `pio device monitor`. Con el chip v3, `--target upload` falla (el esptool de
     PlatformIO se cuelga); usa en su lugar el script del proyecto, que necesita `esptool` 5.3 o superior:
 
