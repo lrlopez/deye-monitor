@@ -4,6 +4,20 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+### Añadido
+
+- **Soporte de la revisión 3 de la Guition JC1060P470** (chip ESP32-P4 rev v3.x y panel «V2», lotes de 2026), como entorno nuevo `guition_jc1060p470_r3` (`board = esp32-p4_r3-evboard`, `-DPANEL_JC1060P470_V2`). El panel V2 usa otros tiempos (24/136/160 y 2/21/12 a 52 MHz, 750 Mbps por carril), otra secuencia de inicio (`src/jd9165_v2.h`) y reset en GPIO0; los valores están copiados del proyecto `esp32-chess`, donde están probados en una placa rev v3.2 con panel V2 (con unas rayas verticales tenues en grises medios que allí no se llegaron a explicar). **Sin probar en hardware real con esta aplicación.** Táctil, PPA, LVGL y el resto son los mismos que en la placa original.
+  - A diferencia de `esp32-chess` (donde el chip v3 es el entorno por defecto y la placa antigua es `_v1`), aquí `guition_jc1060p470` sigue siendo la placa **original** y la revisión 3 es el entorno aparte: así las placas ya instaladas siguen descargando el mismo binario por la actualización web y no pueden recibir uno que no arranca en su chip. Cada entorno lleva su `FW_ENV_NAME`; `fw_asset_matches()` ya los distinguía (tras el entorno exige `_v<dígito>`) y ahora hay un test en ambos sentidos.
+  - **Solo se publica binario para chip v3 + panel V2.** Otra combinación (por ejemplo chip v3 con panel antiguo) exige un entorno propio compilado en local, con ese `board` y sin `-DPANEL_JC1060P470_V2`.
+  - Las cabeceras de las imágenes admiten cualquier revisión de chip, así que el equipo **no rechaza** un `.bin` de la otra revisión subido a mano por `/update`; no arrancaría. Aviso en el manual (capítulo 13) y en el README.
+- `tools/flash_p4.sh`: grabación por USB del firmware completo (cargador, particiones y aplicación). Necesaria con el chip v3, donde `pio run -t upload` falla con el esptool 5.2 de PlatformIO (hace falta `esptool==5.3.dev3`).
+
+### Cambiado
+
+- Las banderas comunes de la JC1060P470 pasan a `[common].p4_1060_flags` de `platformio.ini`; las del entorno original y las del banco de pruebas resultan idénticas (comprobado comparando la configuración resuelta antes y después).
+
 ## [v4.3.1] - 2026-11-10
 
 ### Corregido

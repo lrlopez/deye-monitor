@@ -743,6 +743,13 @@ void test_fw_asset_matches() {
     TEST_ASSERT_FALSE(fw_asset_matches("otra_cosa_sunton_4827s043_v3.6.0.bin", "sunton_4827s043"));
     TEST_ASSERT_FALSE(fw_asset_matches("deye_monitor_sunton_4827s043_v3.6.0.bin", ""));              // placa desconocida
     TEST_ASSERT_FALSE(fw_asset_matches(nullptr, "sunton_4827s043"));
+
+    // JC1060P470: chip original (ES) y chip rev v3 son entornos distintos y sus binarios NO son
+    // intercambiables (uno no arranca en el chip del otro): ninguna placa puede escoger el del otro.
+    TEST_ASSERT_TRUE(fw_asset_matches("deye_monitor_guition_jc1060p470_v4.4.0.bin", "guition_jc1060p470"));
+    TEST_ASSERT_TRUE(fw_asset_matches("deye_monitor_guition_jc1060p470_r3_v4.4.0.bin", "guition_jc1060p470_r3"));
+    TEST_ASSERT_FALSE(fw_asset_matches("deye_monitor_guition_jc1060p470_r3_v4.4.0.bin", "guition_jc1060p470"));
+    TEST_ASSERT_FALSE(fw_asset_matches("deye_monitor_guition_jc1060p470_v4.4.0.bin", "guition_jc1060p470_r3"));
 }
 
 void test_fw_parse_release_picks_this_board() {

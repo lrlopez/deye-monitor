@@ -100,7 +100,8 @@ Compatible con **ESP32-S3** (pantalla 480×272 px) y **ESP32-P4** (pantallas Gui
 | Entorno PlatformIO | Placa | MCU | Pantalla |
 |---|---|---|---|
 | `sunton_4827s043` | Sunton 4827S043 | ESP32-S3 @ 240 MHz, 8 MB PSRAM | 480×272 px RGB, touch GT911 |
-| `guition_jc1060p470` | Guition JC1060P470 | ESP32-P4 @ 360 MHz, 8 MB PSRAM | 1024×600 px MIPI DSI, touch GT911 |
+| `guition_jc1060p470` | Guition JC1060P470, placa **original** (chip ESP32-P4 «ES pre rev.300», panel antiguo) | ESP32-P4 @ 360 MHz, 8 MB PSRAM | 1024×600 px MIPI DSI, touch GT911 |
+| `guition_jc1060p470_r3` | Guition JC1060P470 **revisión 3** (chip ESP32-P4 rev v3.x, panel «V2»; sin probar en hardware real) | ESP32-P4 rev v3.x @ 360 MHz, 8 MB PSRAM | 1024×600 px MIPI DSI, touch GT911 |
 | `guition_jc4880p443c` | Guition JC4880P443C | ESP32-P4 @ 360 MHz, 32 MB PSRAM | 480×800 px MIPI DSI (panel nativo vertical, rotado a 800×480), touch GT911 |
 
 ### Componentes comunes
@@ -519,6 +520,18 @@ pio run -e sunton_4827s043 --target upload
 ```bash
 pio run -e guition_jc1060p470 --target upload
 ```
+
+**Guition JC1060P470 revisión 3 (chip ESP32-P4 rev v3.x, panel «V2»):** es un entorno distinto, con otro `board`
+(`esp32-p4_r3-evboard`) y otro panel. Con el chip v3, `pio run -t upload` falla (el esptool 5.2 de PlatformIO se
+cuelga con «Guru Meditation Error»), así que se compila y se graba con `tools/flash_p4.sh`, que necesita
+`esptool==5.3.dev3` en un entorno virtual:
+```bash
+python3 -m venv ~/venv-esptool && ~/venv-esptool/bin/pip install esptool==5.3.dev3
+pio run -e guition_jc1060p470_r3
+ESPTOOL=~/venv-esptool/bin/esptool tools/flash_p4.sh        # entorno guition_jc1060p470_r3 por defecto
+```
+Con la actualización web (`/update`) cada placa solo descarga su binario (`deye_monitor_guition_jc1060p470_r3_<tag>.bin`
+para esta); **no subas a mano el `.bin` de la otra revisión**, porque el equipo no lo rechaza y no arrancaría.
 
 **Guition JC4880P443C (ESP32-P4, 480×800 px MIPI DSI, panel nativo vertical rotado a horizontal):**
 ```bash

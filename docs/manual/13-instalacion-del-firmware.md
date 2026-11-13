@@ -29,10 +29,30 @@ El fichero `platformio.ini` define un **entorno** por placa. Elige el tuyo:
 | Placa | Entorno |
 |---|---|
 | Sunton 4827S043 (ESP32-S3, 480 × 272) | `sunton_4827s043` |
-| Guition JC1060P470 (ESP32-P4, 1024 × 600) | `guition_jc1060p470` |
+| Guition JC1060P470 (ESP32-P4, 1024 × 600), placa original | `guition_jc1060p470` |
+| Guition JC1060P470 (ESP32-P4, 1024 × 600), revisión 3 | `guition_jc1060p470_r3` |
 | Guition JC4880P443C (ESP32-P4, 480 × 800 girado a 800 × 480) | `guition_jc4880p443c` |
 
 Usar el entorno de otra placa deja la pantalla o el táctil sin funcionar correctamente.
+
+!!! warning "La Guition JC1060P470 existe en dos revisiones"
+    Las placas de los primeros lotes llevan un chip ESP32-P4 «ES pre rev.300» y un panel antiguo
+    (`guition_jc1060p470`). Las de los lotes de 2026 llevan un chip **rev v3.x** y un panel «V2» (lo pone
+    en la parte trasera de la pantalla; `guition_jc1060p470_r3`). **No son intercambiables:** el firmware de
+    una revisión no arranca en la otra (pantalla negra y sin puerto USB), y el equipo **no lo rechaza** si lo
+    subes a mano desde `/update`. Si dudas, compara con la etiqueta de la trasera. Con la actualización
+    desde GitHub no hay riesgo: cada placa descarga solo el fichero de su revisión.
+
+    La revisión 3 **aún no se ha probado en una placa real con esta aplicación**; la configuración del panel
+    procede de otro proyecto donde sí funciona (con unas rayas verticales tenues en tonos de gris medio).
+    Comprueba el arranque con `pio device monitor`. Con el chip v3, `--target upload` falla (el esptool de
+    PlatformIO se cuelga); usa en su lugar el script del proyecto, que necesita `esptool` 5.3 o superior:
+
+    ```bash
+    python3 -m venv ~/venv-esptool && ~/venv-esptool/bin/pip install esptool==5.3.dev3
+    pio run -e guition_jc1060p470_r3
+    ESPTOOL=~/venv-esptool/bin/esptool tools/flash_p4.sh
+    ```
 
 ## Compilar y volcar
 

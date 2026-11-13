@@ -18,13 +18,16 @@ Este documento resume todas las decisiones de diseño, arquitectura, bugs resuel
 
 ## Soporte multi-placa
 
-Tres entornos PlatformIO (`platformio.ini`), autodetectados por CI vía `get_envs.py`:
+Tres placas y cuatro entornos PlatformIO de producción (`platformio.ini`; la JC1060P470 tiene dos, por la revisión del chip), autodetectados por CI vía `get_envs.py`:
 
 | Entorno | Board | MCU | Panel | Interfaz |
 |---|---|---|---|---|
 | `sunton_4827s043` | esp32s3box | ESP32-S3 | 480×270/272, RGB paralelo | `Arduino_RGB_Display` |
 | `guition_jc1060p470` | esp32-p4-evboard | ESP32-P4 | 1024×600 nativo horizontal, ST7701/JD9165 | `Arduino_DSI_Display`, rotation=0 |
+| `guition_jc1060p470_r3` | esp32-p4_r3-evboard | ESP32-P4 **rev v3.x** | 1024×600, panel «V2» (JD9165, `src/jd9165_v2.h`) | igual que la anterior, con otros tiempos, otra secuencia de inicio y reset en GPIO0 |
 | `guition_jc4880p443c` | esp32-p4-evboard | ESP32-P4 | 480×800 nativo **vertical**, ST7701 | `Arduino_DSI_Display`, rotation=1 (girado a 800×480 lógico por software) |
+
+**JC1060P470 revisión 3 (`_r3`)**, añadida como en `esp32-chess` pero con la convención inversa: allí el chip v3 es el entorno por defecto y la placa original es `_v1`; aquí `guition_jc1060p470` sigue siendo la **original** (chip «ES pre rev.300», panel antiguo) y la revisión 3 es el entorno aparte, porque la actualización web descarga `deye_monitor_<FW_ENV_NAME>_<tag>.bin`: si el nombre de la original pasara a llevar un binario v3, las placas ya instaladas se actualizarían con un firmware que no arranca en su chip. Las cabeceras de ambas imágenes admiten **cualquier** revisión de chip (`min 0 / max 65535`), así que el chip no rechaza un `.bin` equivocado: la única barrera es el nombre del asset (`fw_asset_matches()`, con test en ambos sentidos) y **también la subida manual por `/update`, que solo comprueba el byte 0xE9**. Chip y panel son independientes (`board` por un lado, `-DPANEL_JC1060P470_V2` por otro). Las banderas comunes de la 1060 viven en `[common].p4_1060_flags` (sin comentarios dentro de la lista, que cortarían las banderas siguientes). Primera instalación por USB: `tools/flash_p4.sh` (esptool ≥ 5.3.dev3; `pio run -t upload` falla en el chip v3). Panel V2 y script **sin probar con esta aplicación en una placa real**: la secuencia de inicio está copiada de `esp32-chess`, donde sí está probada (rev v3.2, panel V2, con rayas verticales tenues en grises medios sin causa aislada).
 
 Selección de placa vía `-DBOARD_GUITION_JC1060P470` / `-DBOARD_GUITION_JC4880P443C` (build_flags). Sin ninguna de las dos definida, `main.cpp`/`touch.h` caen al bloque `#else` (Sunton ESP32-S3).
 

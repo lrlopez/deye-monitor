@@ -45,6 +45,22 @@ static uint32_t screenHeight = 272;
 #if defined(BOARD_GUITION_JC1060P470)
 #define TFT2_BL 23 // Backlight GPIO for Guition JC1060P470
 
+#ifdef PANEL_JC1060P470_V2
+// Revisión 3 de la placa (entorno guition_jc1060p470_r3): chip ESP32-P4 rev v3.x y panel "V2" (etiqueta V2 en
+// la trasera). Otros tiempos, otra secuencia de inicio (jd9165_v2.h) y reset del panel en GPIO0. Valores copiados
+// de esp32-chess, donde están probados en una placa real (rev v3.2). 2 carriles a 750 Mbps, 52 MHz de reloj de píxel.
+#include "jd9165_v2.h"
+Arduino_ESP32DSIPanel *dsipanel = new Arduino_ESP32DSIPanel(
+    24 /* hsync_pulse_width */, 136 /* hsync_back_porch */, 160 /* hsync_front_porch */,
+    2  /* vsync_pulse_width */, 21  /* vsync_back_porch */, 12  /* vsync_front_porch */,
+    52000000 /* prefer_speed */, 750 /* lane_bit_rate Mbps */
+);
+Arduino_GFX *gfx = new Arduino_DSI_Display(
+    1024, 600, dsipanel, 0 /* rotation */, true /* auto_flush */,
+    0 /* rst = GPIO0 */,
+    jd9165_v2_init_operations, sizeof(jd9165_v2_init_operations) / sizeof(lcd_init_cmd_t));
+#else
+// Placa original (entorno guition_jc1060p470): chip "ES pre rev.300" y panel antiguo.
 //               vsync_pulse_width, vsync_back_porch, vsync_front_porch, prefer_speed, lane_bit_rate)
 Arduino_ESP32DSIPanel *dsipanel = new Arduino_ESP32DSIPanel(
     160 /* hsync_pulse_width */, 160 /* hsync_back_porch */, 40 /* hsync_front_porch */,
@@ -55,6 +71,7 @@ Arduino_GFX *gfx = new Arduino_DSI_Display(
     1024, 600, dsipanel, 0 /* rotation */, true /* auto_flush */,
     GFX_NOT_DEFINED /* rst */,
     jd9165_init_operations, sizeof(jd9165_init_operations) / sizeof(lcd_init_cmd_t));
+#endif
 #elif defined(BOARD_GUITION_JC4880P443C)
 #define TFT2_BL 23 // Backlight GPIO for Guition JC4880P443C
 
