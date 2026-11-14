@@ -953,10 +953,11 @@ main{flex:1;padding:12px 16px;display:flex;flex-direction:column;gap:12px}
 .no-data-overlay.visible{display:flex}
 .no-data-icon{font-size:2.2rem;opacity:.35}
 .no-data-txt{color:var(--muted);font-size:.85rem}
-.donut-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.donut-row{display:flex;gap:12px;flex-wrap:wrap}
 .donut-box{display:flex;flex-direction:column;align-items:center;gap:6px;
            background:var(--card);border:1px solid var(--border);
-           border-radius:10px;padding:12px;flex:1;min-width:180px;max-width:260px}
+           border-radius:10px;padding:12px;flex:1 1 180px;min-width:0}
+.donut-box svg{display:block;width:100%;max-width:220px;height:auto}
 .donut-box h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;
               color:var(--muted)}
 .leg{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;
@@ -1017,9 +1018,9 @@ footer a{color:var(--accent);text-decoration:none}
 <div class="donut-row">
   <div class="donut-box">
     <h3>Consumo</h3>
-    <svg width="110" height="110" viewBox="0 0 110 110">
+    <svg viewBox="0 0 110 110">
       <circle cx="55" cy="55" r="42" fill="none" stroke="#21262d" stroke-width="16"/>
-      <circle id="dc-pv"  cx="55" cy="55" r="42" fill="none" stroke="#2ecc71"
+      <circle id="dc-pv" cx="55" cy="55" r="42" fill="none" stroke="#2ecc71"
               stroke-width="16" stroke-dasharray="0 264" transform="rotate(-90 55 55)"
               style="transition:stroke-dasharray .6s"/>
       <circle id="dc-dis" cx="55" cy="55" r="42" fill="none" stroke="#4a9eff"
@@ -1051,7 +1052,7 @@ footer a{color:var(--accent);text-decoration:none}
   </div>
   <div class="donut-box">
     <h3>Producci&oacute;n</h3>
-    <svg width="110" height="110" viewBox="0 0 110 110">
+    <svg viewBox="0 0 110 110">
       <circle cx="55" cy="55" r="42" fill="none" stroke="#21262d" stroke-width="16"/>
       <circle id="dp-lod" cx="55" cy="55" r="42" fill="none" stroke="#f5c518"
               stroke-width="16" stroke-dasharray="0 264" transform="rotate(-90 55 55)"

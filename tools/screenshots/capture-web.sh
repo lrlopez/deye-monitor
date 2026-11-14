@@ -30,7 +30,7 @@ p='$IMG/$1.png'; im=Image.open(p); im.crop(($2,$3,$4,$5)).save(p)"
 echo "Capturas de la web:"
 python3 -I "$WEB/server.py" & PID=$!; sleep 1
 shot / web-dashboard 1100 760
-shot /chart web-grafica 1100 820
+shot /chart web-grafica 1100 960
 shot /update web-actualizacion 800 1000;  crop web-actualizacion 0 110 800 920
 kill $PID; wait $PID 2>/dev/null || true
 FW_STATE=available python3 -I "$WEB/server.py" & PID=$!; sleep 1
