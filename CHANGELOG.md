@@ -4,6 +4,13 @@ Todos los cambios importantes de este proyecto están documentados en este fiche
 
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+### Mejorado
+
+- **Panel web: el resumen «Hoy» ocupa todo el ancho**, con los mismos márgenes que las tarjetas de arriba. Antes los tres indicadores y los dos donuts tenían un ancho máximo y quedaban como un bloque centrado con espacio vacío a los lados (se notaba sobre todo en pantallas anchas o con la web en modo escritorio). Ahora los tres indicadores se reparten el ancho, los donuts se reparten una mitad cada uno y escalan con la pantalla (hasta 220 px, como los arcos de las tarjetas) y la leyenda se limita al ancho del donut. En móviles estrechos (320 px) sigue siendo de dos columnas. Comprobado con capturas del propio HTML del firmware a 320, 360, 390 y 980 px; no se ha visto aún en un equipo real.
+- `tools/screenshots/capture-web.sh`: usa `--run-all-compositor-stages-before-draw` (con el Chrome actual los arcos y donuts salían vacíos) y fotografía el panel a 1100×760; se regenera `docs/manual/img/web-dashboard.png`.
+
 ## [v4.4.0] - 2026-11-13
 
 ### Añadido

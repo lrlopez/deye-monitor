@@ -201,17 +201,20 @@ hr{border:none;border-top:1px solid var(--bd);margin:0 8px}
 .dw{padding:10px 8px 4px}
 .dw h2{font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;
         color:var(--muted);text-align:center;margin-bottom:8px}
-.kpis{display:flex;gap:20px;justify-content:center;margin-bottom:10px}
-.kpi{text-align:center}
+/* «Hoy» ocupa todo el ancho, igual que las tarjetas: los tres KPI y los dos donuts se reparten el
+   espacio (antes tenían un ancho máximo y quedaban centrados con hueco a los lados). */
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.kpi{text-align:center;min-width:0}
 .kpi-v{font-size:1.2rem;font-weight:700}
 .kpi-l{font-size:.58rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-.donut-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.donut-row{display:flex;gap:8px;flex-wrap:wrap}
 .donut-box{display:flex;flex-direction:column;align-items:center;gap:4px;
-           flex:1;min-width:150px;max-width:220px}
+           flex:1 1 140px;min-width:0}
+.donut-box svg{display:block;width:100%;max-width:220px;height:auto}
 .donut-box h3{font-size:.68rem;text-transform:uppercase;
               letter-spacing:.06em;color:var(--muted)}
 .leg{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;
-     margin-top:4px;font-size:.67rem;width:100%}
+     margin-top:4px;font-size:.67rem;width:100%;max-width:240px}
 .li{display:flex;align-items:center;gap:4px}
 .ld{width:7px;height:7px;border-radius:2px;flex-shrink:0}
 footer{text-align:center;color:var(--muted);font-size:.7rem;
