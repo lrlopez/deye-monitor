@@ -6,6 +6,12 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Añadido
+
+- **La subida manual y la descarga de GitHub rechazan el `.bin` de otra placa.** Cada firmware lleva dentro el nombre de su entorno (`DEYE_FW_ENV:…`) y la imagen se comprueba antes de activarla; sobre todo evita instalar la JC1060P470 original en una rev. 3 o al revés, que el chip no distingue. Los `.bin` anteriores a esta versión no llevan la marca y se aceptan con un aviso en el log. Probado en nativo y contra los binarios reales de ambas JC1060P470.
+- **Mayor bloque libre de RAM interna** en la tarjeta «Sistema» de `/update` y en `/api/status` (`heap_block_kb`), y registro `[Heap]` cada 10 min y en cada nuevo mínimo, para localizar la fragmentación que impide el TLS.
+- El error «Memoria libre insuficiente para TLS» indica ahora bloque, memoria libre y mínimo exigido.
+
 ## [v4.4.1] - 2026-11-14
 
 ### Mejorado

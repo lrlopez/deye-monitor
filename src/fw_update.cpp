@@ -1,6 +1,7 @@
 #include "fw_update.h"
 #include "fw_update_logic.h"
 #include "fw_update_ca.h"
+#include "fw_env_marker.h"
 #include "config.h"
 #include "data_store.h"
 #include "safe_serial.h"
@@ -25,7 +26,11 @@ extern volatile bool g_ota_cancel;
 // también necesita RAM interna para su handshake (la instalación ya lo hace con g_ota_request).
 volatile bool g_fw_tls_busy = false;
 
-static const uint32_t MIN_FREE_HEAP = 50000;   // bloque contiguo mínimo para un handshake TLS
+// Marca del entorno dentro del binario: la buscan las imágenes recibidas para rechazar la de otra placa.
+static const char kFwEnvMarker[] __attribute__((used)) = FW_ENV_MARK_PREFIX FW_ENV_NAME;
+const char* fw_env_marker() { return kFwEnvMarker; }
+
+static const uint32_t MIN_FREE_HEAP = 50000;  // bloque contiguo mínimo para un handshake TLS
 static const uint32_t TIME_VALID_EPOCH = 1700000000UL;
 
 static String url_host(const String& url);
@@ -111,7 +116,10 @@ static void do_check() {
         TlsGuard()  { g_fw_tls_busy = true; vTaskDelay(pdMS_TO_TICKS(2000)); }   // da tiempo a cerrar su TLS
         ~TlsGuard() { g_fw_tls_busy = false; }
     } tls_guard;
-    if (ESP.getMaxAllocHeap() < MIN_FREE_HEAP) { fail("Memoria libre insuficiente para TLS"); return; }
+    if (ESP.getMaxAllocHeap() < MIN_FREE_HEAP) {
+        fail("Memoria libre insuficiente para TLS (bloque %u B, libre %u B, mín. %u B)",
+             (unsigned)ESP.getMaxAllocHeap(), (unsigned)ESP.getFreeHeap(), (unsigned)MIN_FREE_HEAP); return;
+    }
 
     static const char kUrl[] = "https://api.github.com/repos/" FW_UPDATE_REPO "/releases/latest";
     String body;
@@ -177,7 +185,7 @@ static void do_check() {
 namespace {
 class UpdateSink : public Stream {
 public:
-    UpdateSink() { mbedtls_sha256_init(&_ctx); mbedtls_sha256_starts(&_ctx, 0); }
+    UpdateSink() : _env(fw_env_marker() + FW_ENV_MARK_PREFIX_LEN) { mbedtls_sha256_init(&_ctx); mbedtls_sha256_starts(&_ctx, 0); }
     ~UpdateSink() { mbedtls_sha256_free(&_ctx); }
 
     size_t write(const uint8_t* b, size_t n) override {
@@ -191,6 +199,7 @@ public:
             return 0;
         }
         mbedtls_sha256_update(&_ctx, b, n);
+        _env.feed(b, n);
         _written += n;
         S().st.done = _written;          // escritura de 32 bits: no necesita el mutex
         if (_written - _logged >= 262144) {
@@ -212,9 +221,11 @@ public:
     const char* why()     const { return _why; }
     uint32_t    written() const { return _written; }
     void finish(uint8_t out[32]) { mbedtls_sha256_finish(&_ctx, out); }
+    const FwEnvScanner& env() const { return _env; }
 
 private:
     mbedtls_sha256_context _ctx;
+    FwEnvScanner _env;
     uint32_t    _written = 0;
     uint32_t    _logged  = 0;
     bool        _failed  = false;
@@ -267,7 +278,10 @@ static void do_install() {
     }
 
     if (WiFi.status() != WL_CONNECTED)         { fail("Sin conexión WiFi"); return; }
-    if (ESP.getMaxAllocHeap() < MIN_FREE_HEAP) { fail("Memoria libre insuficiente para TLS"); return; }
+    if (ESP.getMaxAllocHeap() < MIN_FREE_HEAP) {
+        fail("Memoria libre insuficiente para TLS (bloque %u B, libre %u B, mín. %u B)",
+             (unsigned)ESP.getMaxAllocHeap(), (unsigned)ESP.getFreeHeap(), (unsigned)MIN_FREE_HEAP); return;
+    }
 
     // Congelar el render y esperar a que el hilo LVGL confirme el overlay antes de
     // tocar la flash (mismo protocolo que la subida manual)
@@ -347,6 +361,15 @@ static void do_install() {
         fail("Descarga incompleta (%u de %u bytes)", (unsigned)sink.written(), (unsigned)rel.asset_size);
         return;
     }
+
+    // La imagen debe ser de esta placa (el nombre del asset ya lo garantiza; esto lo comprueba en el binario)
+    if (sink.env().result() == FwEnvCheck::MISMATCH) {
+        abort_install(true);
+        fail("El binario descargado es de otra placa (%s)", sink.env().foreign());
+        return;
+    }
+    if (sink.env().result() == FwEnvCheck::NOT_FOUND)
+        APP_LOGW("FwUpdate", "El binario no trae marca de placa (firmware anterior a 4.4.2)");
 
     // Verificar el hash ANTES de activar la imagen
     uint8_t digest[32];

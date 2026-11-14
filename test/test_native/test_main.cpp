@@ -10,6 +10,7 @@
 #include "alerts_logic.h"
 #include "daily_tracker.h"
 #include "fw_update_logic.h"
+#include "fw_env_marker.h"
 #include "input_validators.h"
 #include "tz_presets.h"
 #include "energy_metrics.h"
@@ -735,6 +736,69 @@ void test_fw_is_newer() {
     TEST_ASSERT_TRUE(fw_is_newer("3.6.0+24.g1a2b3c4", "v3.7.0"));
 }
 
+// Imagen sintética: relleno + marca (con su \0) + relleno
+static size_t make_image(uint8_t* buf, const char* env) {
+    size_t n = 0;
+    for (; n < 100; n++) buf[n] = (uint8_t)(n * 7);
+    if (env) {
+        memcpy(buf + n, FW_ENV_MARK_PREFIX, FW_ENV_MARK_PREFIX_LEN); n += FW_ENV_MARK_PREFIX_LEN;
+        memcpy(buf + n, env, strlen(env) + 1);                        n += strlen(env) + 1;
+    }
+    for (int i = 0; i < 100; i++, n++) buf[n] = (uint8_t)(255 - i);
+    return n;
+}
+static FwEnvCheck scan_in_chunks(const char* expected, const uint8_t* img, size_t n, size_t chunk) {
+    FwEnvScanner s(expected);
+    for (size_t i = 0; i < n; i += chunk) s.feed(img + i, (n - i < chunk) ? n - i : chunk);
+    return s.result();
+}
+
+void test_fw_env_marker_match_and_mismatch() {
+    uint8_t img[512];
+    size_t n = make_image(img, "guition_jc1060p470_r3");
+    TEST_ASSERT_EQUAL(FwEnvCheck::MATCH, scan_in_chunks("guition_jc1060p470_r3", img, n, n));
+    // La original y la rev. 3 son prefijo una de otra: no deben confundirse en ningún sentido
+    TEST_ASSERT_EQUAL(FwEnvCheck::MISMATCH, scan_in_chunks("guition_jc1060p470", img, n, n));
+    n = make_image(img, "guition_jc1060p470");
+    TEST_ASSERT_EQUAL(FwEnvCheck::MISMATCH, scan_in_chunks("guition_jc1060p470_r3", img, n, n));
+    TEST_ASSERT_EQUAL(FwEnvCheck::MATCH, scan_in_chunks("guition_jc1060p470", img, n, n));
+    FwEnvScanner s("sunton_4827s043");
+    s.feed(img, n);
+    TEST_ASSERT_EQUAL_STRING("guition_jc1060p470", s.foreign());
+}
+
+void test_fw_env_marker_split_across_chunks() {
+    uint8_t img[512];
+    size_t n = make_image(img, "sunton_4827s043");
+    for (size_t chunk = 1; chunk <= 40; chunk++) {       // la marca cae partida de todas las maneras
+        TEST_ASSERT_EQUAL(FwEnvCheck::MATCH, scan_in_chunks("sunton_4827s043", img, n, chunk));
+        TEST_ASSERT_EQUAL(FwEnvCheck::MISMATCH, scan_in_chunks("guition_jc4880p443c", img, n, chunk));
+    }
+}
+
+void test_fw_env_marker_missing_or_ignorable() {
+    uint8_t img[512];
+    size_t n = make_image(img, nullptr);                  // firmware antiguo
+    TEST_ASSERT_EQUAL(FwEnvCheck::NOT_FOUND, scan_in_chunks("sunton_4827s043", img, n, n));
+    // Prefijo sin nombre, o cortado a mitad: no cuenta
+    n = make_image(img, "");
+    TEST_ASSERT_EQUAL(FwEnvCheck::NOT_FOUND, scan_in_chunks("sunton_4827s043", img, n, n));
+    const uint8_t cut[] = {'D','E','Y','E','_','F','W','_','E','N','V'};
+    TEST_ASSERT_EQUAL(FwEnvCheck::NOT_FOUND, scan_in_chunks("sunton_4827s043", cut, sizeof cut, 3));
+    // Un build sin entorno (esperado vacío) no rechaza nada
+    n = make_image(img, "guition_jc1060p470");
+    TEST_ASSERT_EQUAL(FwEnvCheck::NOT_FOUND, scan_in_chunks("", img, n, n));
+}
+
+void test_fw_env_marker_resyncs_after_false_start() {
+    // «DEYE» repetido justo antes de la marca real: no debe perderla
+    uint8_t buf[128]; size_t n = 0;
+    const char junk[] = "DEYEDEYE_FWDEYE_FW_ENVDEYE_FW_ENV:";   // acaba en prefijo completo, sin valor aún
+    memcpy(buf, junk, sizeof junk - 1); n = sizeof junk - 1;
+    memcpy(buf + n, "sunton_4827s043", 16); n += 16;
+    TEST_ASSERT_EQUAL(FwEnvCheck::MATCH, scan_in_chunks("sunton_4827s043", buf, n, 5));
+}
+
 void test_fw_asset_matches() {
     TEST_ASSERT_TRUE(fw_asset_matches("deye_monitor_sunton_4827s043_v3.6.0.bin", "sunton_4827s043"));
     TEST_ASSERT_FALSE(fw_asset_matches("deye_monitor_sunton_4827s043_v3.6.0.bin", "guition_jc1060p470"));
@@ -1116,5 +1180,9 @@ int main(int, char**) {
     RUN_TEST(test_grid_blip_resets_debounce);
     RUN_TEST(test_logger_fail_notifies_once_until_success);
     RUN_TEST(test_logger_fail_not_marked_retries_at_wraparound_only);
+    RUN_TEST(test_fw_env_marker_match_and_mismatch);
+    RUN_TEST(test_fw_env_marker_split_across_chunks);
+    RUN_TEST(test_fw_env_marker_missing_or_ignorable);
+    RUN_TEST(test_fw_env_marker_resyncs_after_false_start);
     return UNITY_END();
 }

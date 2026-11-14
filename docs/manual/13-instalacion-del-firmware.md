@@ -33,7 +33,10 @@ El fichero `platformio.ini` define un **entorno** por placa. Elige el tuyo:
 | Guition JC1060P470 (ESP32-P4, 1024 × 600), revisión 3 | `guition_jc1060p470_r3` |
 | Guition JC4880P443C (ESP32-P4, 480 × 800 girado a 800 × 480) | `guition_jc4880p443c` |
 
-Usar el entorno de otra placa deja la pantalla o el táctil sin funcionar correctamente.
+Usar el entorno de otra placa deja la pantalla o el táctil sin funcionar correctamente. Desde la 4.4.2
+cada firmware lleva dentro el nombre de su placa y la subida manual por `/update` **rechaza** un `.bin`
+de otra placa antes de instalarlo (la actualización desde GitHub hace la misma comprobación). Los `.bin`
+de versiones anteriores no llevan ese nombre y se aceptan sin poder comprobarlo.
 
 !!! warning "La Guition JC1060P470 existe en dos revisiones"
     Las placas de los primeros lotes llevan un chip ESP32-P4 «ES pre rev.300» y un panel antiguo

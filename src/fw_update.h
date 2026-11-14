@@ -50,3 +50,8 @@ bool fw_update_install_async();
 void fw_update_status(FwStatus& out);
 
 const char* fw_state_name(FwState s);
+
+// Marca «DEYE_FW_ENV:<entorno>» que lleva este binario (ver fw_env_marker.h). Quien reciba una imagen
+// (subida manual, descarga) la recorre con un FwEnvScanner(fw_env_marker() + FW_ENV_MARK_PREFIX_LEN)
+// y rechaza la de otro entorno. Referenciarla desde código garantiza que el enlazador no la descarte.
+const char* fw_env_marker();

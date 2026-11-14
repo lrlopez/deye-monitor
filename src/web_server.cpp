@@ -12,6 +12,7 @@
 #include "web_assets_chartjs.h"
 #include "web_alerts.h"
 #include "fw_update.h"
+#include "fw_env_marker.h"
 #include "clock_mode.h"
 #include "battery_estimate.h"
 #include "mqtt_client.h"
@@ -764,6 +765,7 @@ static void handle_update_get() {
   <h2>&#9881; Sistema</h2>
   <div class="row"><span>Tiempo en marcha</span><b id="sy-up">&ndash;</b></div>
   <div class="row"><span>Memoria libre (m&iacute;n.)</span><b id="sy-heap">&ndash;</b></div>
+  <div class="row"><span>Mayor bloque libre</span><b id="sy-block">&ndash;</b></div>
   <div class="row"><span>PSRAM libre</span><b id="sy-psram">&ndash;</b></div>
   <div class="row"><span>Almacenamiento usado</span><b id="sy-fs">&ndash;</b></div>
   <div class="row"><span>WiFi</span><b id="sy-wifi">&ndash;</b></div>
@@ -785,6 +787,7 @@ function sysLoad(){
     const $=id=>document.getElementById(id);
     $('sy-up').textContent=sysFmtUp(j.uptime_s);
     $('sy-heap').textContent=j.heap_free_kb+' KB ('+j.heap_min_kb+' KB)';
+    $('sy-block').textContent=j.heap_block_kb+' KB';
     $('sy-psram').textContent=Math.round(j.psram_free_kb/1024*10)/10+' MB';
     $('sy-fs').textContent=Math.round(j.fs_used_kb/1024*10)/10+' / '+Math.round(j.fs_total_kb/1024*10)/10+' MB';
     $('sy-wifi').textContent=j.wifi_rssi+' dBm · '+j.ip;
@@ -1509,6 +1512,8 @@ static void handle_update_post() {
     ESP.restart();
 }
 
+static FwEnvScanner s_ota_env("");     // comprobación de placa de la subida en curso
+
 static void handle_upload() {
     HTTPUpload& upload = server.upload();
 
@@ -1547,6 +1552,7 @@ static void handle_upload() {
         g_ota_request = true;
         uint32_t t0 = millis();
         while (!g_ota_active && (millis() - t0 < 1500)) delay(10);
+        s_ota_env = FwEnvScanner(fw_env_marker() + FW_ENV_MARK_PREFIX_LEN);
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
             DBGSERIAL.print("[OTA] Error al iniciar: ");
             Update.printError(DBGSERIAL);
@@ -1559,9 +1565,24 @@ static void handle_upload() {
             DBGSERIAL.print("[OTA] Error escribiendo: ");
             Update.printError(DBGSERIAL);
         }
+        s_ota_env.feed(upload.buf, upload.currentSize);
 
     } else if (upload.status == UPLOAD_FILE_END) {
         if (!s_ota_authed) return;
+        // La imagen debe ser de esta placa: el chip y la cabecera no distinguen las dos JC1060P470.
+        // Se decide ANTES de Update.end(), que es lo que la deja como próximo arranque.
+        if (s_ota_env.result() == FwEnvCheck::MISMATCH) {
+            DBGSERIAL.printf("[OTA] Rechazado: el binario es del entorno «%s», este equipo es «%s»\n",
+                             s_ota_env.foreign(), FW_ENV_NAME);
+            Update.abort();
+            g_ota_cancel = true;
+            server.send(409, "text/plain",
+                        String("Binario de otra placa («") + s_ota_env.foreign() +
+                        "»). Este equipo es «" + FW_ENV_NAME + "»: no se ha instalado nada.");
+            return;
+        }
+        if (s_ota_env.result() == FwEnvCheck::NOT_FOUND)
+            DBGSERIAL.println("[OTA] Aviso: el binario no trae marca de placa (firmware anterior a 4.4.2)");
         if (Update.end(true)) {
             DBGSERIAL.printf("[OTA] Completado: %u bytes. Reiniciando.\n",
                           upload.totalSize);
@@ -2623,7 +2644,7 @@ static void handle_status() {
         "\"hourly\":{\"count\":%lu,\"capacity\":%lu},"
         "\"daily\":{\"count\":%lu,\"capacity\":%lu},"
         "\"psram_free_kb\":%lu,"
-        "\"uptime_s\":%lu,\"heap_free_kb\":%lu,\"heap_min_kb\":%lu,"
+        "\"uptime_s\":%lu,\"heap_free_kb\":%lu,\"heap_min_kb\":%lu,\"heap_block_kb\":%lu,"
         "\"fs_total_kb\":%lu,\"fs_used_kb\":%lu,"
         "\"wifi_rssi\":%d,\"ip\":\"%s\"}",
         (unsigned long)Store.getRawCount(),
@@ -2636,6 +2657,7 @@ static void handle_status() {
         (unsigned long)((millis() - g_uptime_start) / 1000),
         (unsigned long)ESP.getFreeHeap() / 1024,
         (unsigned long)ESP.getMinFreeHeap() / 1024,
+        (unsigned long)ESP.getMaxAllocHeap() / 1024,
         (unsigned long)LittleFS.totalBytes() / 1024,
         (unsigned long)LittleFS.usedBytes() / 1024,
         (int)WiFi.RSSI(),

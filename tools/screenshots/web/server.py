@@ -40,7 +40,7 @@ class H(BaseHTTPRequestHandler):
                 "daily": {"pv_kwh": 9.8, "export_kwh": 3.0, "import_kwh": 2.1, "load_kwh": 8.4, "batt_charge_kwh": 1.9,
                 "batt_discharge_kwh": 2.2, "valid": True}}))
         elif u.path == "/api/status":
-            self.send(200, json.dumps({"version": "3.7.0", "uptime_s": 273000, "heap_free_kb": 142, "heap_min_kb": 96,
+            self.send(200, json.dumps({"version": "3.7.0", "uptime_s": 273000, "heap_free_kb": 142, "heap_min_kb": 96, "heap_block_kb": 72,
                 "psram_free_kb": 6240, "fs_total_kb": 8192, "fs_used_kb": 3921, "wifi_rssi": -57, "ip": "192.168.1.77"}))
         elif u.path == "/api/alerts":
             self.send(200, json.dumps({"alerts": [], "last_id": 0}))

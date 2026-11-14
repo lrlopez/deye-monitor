@@ -19,6 +19,23 @@ static const uint32_t NTP_VALID_EPOCH = 1700000000UL;   // por debajo, el reloj 
 // ── WiFi: reconexión y puesta en marcha de servicios ──────────────────────
 // Devuelve true si hay conexión y se puede sondear el logger. Si no, ya ha
 // esperado lo necesario y el llamador debe volver a iterar.
+// RAM interna (la que usa TLS): registra el estado cada 10 min y cada vez que el mínimo histórico
+// baja ≥ 8 KB, para ver cuándo y cuánto se fragmenta sin necesitar el cable USB. El «mayor bloque»
+// es lo que decide si cabe un apretón TLS; el libre total puede engañar.
+static void heap_watch() {
+    static uint32_t last_log_ms = 0;
+    static uint32_t logged_min  = 0xFFFFFFFFUL;
+    const uint32_t  now  = millis();
+    const uint32_t  minf = ESP.getMinFreeHeap();
+    const bool new_low   = minf + 8192 <= logged_min;
+    if (!new_low && now - last_log_ms < 600000UL && last_log_ms != 0) return;
+    last_log_ms = now;
+    if (new_low) logged_min = minf;
+    APP_LOGI("Heap", "RAM interna: libre %u B, mayor bloque %u B, mínimo %u B%s",
+             (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap(), (unsigned)minf,
+             new_low ? "  (nuevo mínimo)" : "");
+}
+
 static bool wifi_service() {
     static bool s_ever_connected = false;
     static uint32_t s_last_reconnect = 0;
@@ -104,6 +121,7 @@ void solarmanTask(void* /*pv*/) {
 
     for (;;) {
         if (!wifi_service()) continue;
+        heap_watch();
 
         // ── Lectura del logger: UNA conexión TCP (DEYE-08) ────────────────
         // Diarios cada POLL_DAILY_MS; en los minutos alrededor de medianoche cada

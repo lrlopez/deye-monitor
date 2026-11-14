@@ -89,7 +89,8 @@ Dos vías en `/update`, ambas tras contraseña de administración:
 - **Desde GitHub** (`fw_update.cpp`, lógica pura en `fw_update_logic.h`, probada en nativo): `POST /api/fw/check` consulta
   `releases/latest` de `FW_UPDATE_REPO` (config.h); `POST /api/fw/install` descarga el asset `deye_monitor_<FW_ENV_NAME>_<tag>.bin`
   (nombre del CI en `build_release.yml`; `FW_ENV_NAME` lo fija cada entorno en `platformio.ini`), comprueba TLS (raíces en
-  `fw_update_ca.h`), tamaño, cabecera 0xE9 y SHA-256 (`digest` de la API) y solo entonces llama a `Update.end()`.
+  `fw_update_ca.h`), tamaño, cabecera 0xE9, **marca de placa** y SHA-256 (`digest` de la API) y solo entonces llama a `Update.end()`.
+- **Marca de placa (desde 4.4.2):** cada binario lleva `DEYE_FW_ENV:<FW_ENV_NAME>\0` (`kFwEnvMarker` en `fw_update.cpp`). `FwEnvScanner` (`fw_env_marker.h`, probado en nativo) la busca byte a byte mientras se escribe la imagen, tanto en la descarga de GitHub como en la subida manual (`handle_upload`, responde 409 y hace `Update.abort()` antes de `Update.end()`). Imagen de otro entorno → rechazada; sin marca (≤ 4.4.1) → aceptada con aviso. Es la barrera real contra el `.bin` de la JC1060P470 original en una rev. 3 y viceversa, que el chip no distingue. No poner el prefijo en otro literal con valor no vacío.
   Corre en tareas de 16 KB (TLS); el estado se consulta con `GET /api/fw/status`.
 - Protocolo con el hilo LVGL: `g_ota_request` → overlay y render congelado (`g_ota_active`); `g_ota_cancel` lo retira si falla.
 - Si GitHub cambia de CA, la descarga falla "cerrada" (la subida manual sigue funcionando): añadir la raíz nueva a `fw_update_ca.h`.
