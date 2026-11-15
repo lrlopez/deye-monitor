@@ -736,7 +736,7 @@ static void upd_refresh() {
                                         st.size ? (unsigned)((uint64_t)st.done * 100 / st.size) : 0u); col = C_WARN; break;
     case FwState::INSTALLED:   snprintf(t, sizeof(t), "Instalado. Reiniciando..."); col = C_OK; break;
     case FwState::ERROR:       snprintf(t, sizeof(t), LV_SYMBOL_WARNING " %s", st.error); col = C_ERR; break;
-    default:                   snprintf(t, sizeof(t), "Pulsa \xC2\xAB" "Buscar\xC2\xBB para consultar GitHub."); break;
+    default:                   snprintf(t, sizeof(t), "Pulsa \"Buscar\" para consultar GitHub."); break;
     }
     lv_label_set_text(s_upd_status, t);
     lv_obj_set_style_text_color(s_upd_status, col, 0);

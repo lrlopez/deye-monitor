@@ -19,7 +19,7 @@
 // Versión por defecto; scripts/git_version.py la sobreescribe con `git describe`
 // al compilar con git y etiquetas disponibles (DEYE-66)
 #ifndef APP_VERSION
-  #define APP_VERSION   "4.5.0"
+  #define APP_VERSION   "4.5.1"
 #endif
 #define MDNS_HOSTNAME   "inversor"
 
@@ -28,7 +28,9 @@
 // que escribe este (y escribe entonces la migración). La actualización por web/GitHub rechaza una
 // imagen con un modelo MENOR que el instalado (bajar de versión): ver fw_env_marker.h.
 // Las imágenes sin marca (≤ 4.4.2) cuentan como modelo 1.
+#ifndef DATA_MODEL_VERSION        // sobreescribible con -D (firmware de prueba de la regla de bajada)
 #define DATA_MODEL_VERSION  1
+#endif
 
 // ── Actualización desde GitHub (ver fw_update.cpp) ───────────────────────
 // Repositorio cuyas releases se consultan. FW_ENV_NAME lo define platformio.ini

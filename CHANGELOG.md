@@ -6,6 +6,17 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+## [v4.5.1] - 2026-11-15
+
+### Corregido
+
+- **Sunton: vuelve el firmware a la plataforma anterior (Arduino 2.0.17 / IDF 4.4.7, GFX 1.5.0).** Con la plataforma nueva (IDF 5.5, desde la v4.1.0) el panel parpadeaba o mostraba fragmentos desplazados un instante cada vez que se escribía en la flash (cada 5 minutos y durante la actualización) y la consulta a GitHub fallaba por memoria («Error memoria libre insuficiente para TLS (bloque 47092…)»). Con IDF 4.4.7 no ocurre ninguna de las dos cosas (v3.5.0 y v4.0.0 ya lo usaban; el código actual recompilado se ha probado en la placa: sin parpadeo y con la actualización por GitHub funcionando). Las placas Guition siguen en pioarduino. El código compila ahora con las dos APIs de Arduino (PWM del brillo).
+- El texto de la pantalla de Actualizaciones («Pulsa "Buscar"…») usa comillas ASCII: las comillas angulares no existen en las fuentes y salían mal.
+
+### Cambiado
+
+- `DATA_MODEL_VERSION` se puede sobreescribir con `-D` (herramienta de pruebas de la regla de no bajar de modelo; el valor de la versión no cambia, sigue siendo 1).
+
 ## [v4.5.0] - 2026-11-15
 
 ### Añadido

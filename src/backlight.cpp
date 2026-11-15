@@ -13,6 +13,16 @@ BacklightManager& BacklightManager::instance() {
 static constexpr uint32_t PWM_FREQ = 10000;   // 10 kHz
 static constexpr uint8_t  PWM_BITS = 8;       // 0–255
 
+// La Sunton compila con Arduino 2.0.x (API LEDC por canal) y las Guition con Arduino 3.x (API por pin).
+// Un único canal (0) basta: solo hay una retroiluminación.
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  #define BL_PWM_ATTACH(pin)      ledcAttach((pin), PWM_FREQ, PWM_BITS)
+  #define BL_PWM_WRITE(pin, duty) ledcWrite((pin), (duty))
+#else
+  #define BL_PWM_ATTACH(pin)      (ledcSetup(0, PWM_FREQ, PWM_BITS), ledcAttachPin((pin), 0))
+  #define BL_PWM_WRITE(pin, duty) ledcWrite(0, (duty))
+#endif
+
 uint8_t BacklightManager::_pct_to_duty(uint8_t pct) {
     if (pct == 0)   return 0;
     if (pct >= 100) return 255;
@@ -21,7 +31,7 @@ uint8_t BacklightManager::_pct_to_duty(uint8_t pct) {
 
 void BacklightManager::_apply_immediate(uint8_t duty) {
     _current_duty = duty;
-    ledcWrite(_pin, duty);
+    BL_PWM_WRITE(_pin, duty);
 }
 
 // Transición suave: ±8 duty cada tick (~5 ms) → rango completo en ~160 ms
@@ -30,7 +40,7 @@ void BacklightManager::_apply_smooth(uint8_t target) {
     int delta = (int)target - (int)_current_duty;
     int step  = delta > 0 ? min(delta, 8) : max(delta, -8);
     _current_duty = (uint8_t)(_current_duty + step);
-    ledcWrite(_pin, _current_duty);
+    BL_PWM_WRITE(_pin, _current_duty);
 }
 
 // ── Horario nocturno con wrap-around ──────────────────────────────────────
@@ -54,7 +64,7 @@ void BacklightManager::begin(uint8_t pin) {
     _pin = pin;
     _cfg = Storage.loadBacklightConfig();
 
-    ledcAttach(pin, PWM_FREQ, PWM_BITS);
+    BL_PWM_ATTACH(pin);
 
     // Subida gradual: encender la retroiluminación de golpe en pleno arranque (pantalla DSI, WiFi,
     // PSRAM) suma un pico de corriente que puede disparar el brownout con una fuente justa
