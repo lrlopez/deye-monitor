@@ -156,7 +156,12 @@ void webserver_set_data(SemaphoreHandle_t mutex,
 // Ruta GET /   →  Dashboard con 4 indicadores de arco SVG (estilo pantalla)
 // ═════════════════════════════════════════════════════════════════════════
 static const char* s_req_tag = "?";   // ruta de la petición en curso, para el diagnóstico de RAM (DEYE-80)
-#define REQ_TAG() (s_req_tag = __func__)
+static IPAddress   s_req_ip;          // quién la hizo (para saber si es el navegador de alguien o un cliente automático)
+static char        s_req_args[64];    // parámetros de la consulta, recortados
+#define REQ_TAG() do { s_req_tag = __func__; s_req_ip = server.client().remoteIP(); \
+                       String _a; for (int _i = 0; _i < server.args() && _a.length() < 60; _i++) \
+                           _a += server.argName(_i) + "=" + server.arg(_i) + " "; \
+                       snprintf(s_req_args, sizeof(s_req_args), "%s", _a.c_str()); } while (0)
 
 static void handle_root() {
     REQ_TAG();
@@ -2721,8 +2726,19 @@ static void handle_alerts() {
 }
 
 // ── GET /api/history ──────────────────────────────────────────────────────
+// Agrupa piezas pequeñas en bloques de ~1,2 KB antes de enviarlas. Cada sendContent() son tres
+// escrituras TCP (cabecera del chunk, datos, CRLF) y cada una retiene memoria interna de lwIP hasta que
+// el navegador la confirma: una llamada de la gráfica costaba ~14 KB de RAM interna y fragmentaba (DEYE-80).
+struct ChunkBuf {
+    String s;
+    ChunkBuf() { s.reserve(1400); }
+    void add(const char* t) { s += t; if (s.length() >= 1200) flush(); }
+    void flush() { if (s.length()) { server.sendContent(s); s = ""; } }
+};
+
 static void handle_history() {
     REQ_TAG();
+    ChunkBuf cb;
     String date_s  = server.arg("date");
     String from_s  = server.arg("from");
     String to_s    = server.arg("to");
@@ -2766,9 +2782,10 @@ static void handle_history() {
                 ds.load_kwh, ds.batt_charge_kwh, ds.batt_discharge_kwh,
                 dr.soc_start, dr.soc_end,
                 (dr.flags & 0x02) ? "true" : "false");   // bit1 = día completo
-            server.sendContent(buf);
+            cb.add(buf);
             first = false;
         }
+        cb.flush();
         server.sendContent("]}");
         return;
     }
@@ -2839,8 +2856,9 @@ static void handle_history() {
                 i > first_idx ? "," : "",
                 (unsigned long)r.timestamp,
                 r.pv_w, r.grid_w, r.batt_w, r.load_w, r.soc);
-            server.sendContent(buf);
+            cb.add(buf);
         }
+        cb.flush();
         Cache.unlock();
         server.sendContent("]}");
     } else {
@@ -2881,10 +2899,11 @@ static void handle_history() {
                     hr_local[h].avg_pv_w, hr_local[h].avg_grid_w,
                     hr_local[h].avg_batt_w, hr_local[h].avg_load_w,
                     hr_local[h].soc_end, hr_local[h].sample_count);
-                server.sendContent(buf);
+                cb.add(buf);
                 first = false;
             }
         }
+        cb.flush();
         server.sendContent("]}");
     }
 }
@@ -2899,15 +2918,15 @@ void webserver_task(void* /*pv*/) {
         // vuelta ha trabajado de verdad (> 3 ms); el resto del tiempo handleClient() no hace nada.
         const uint32_t min0 = ESP.getMinFreeHeap(), free0 = ESP.getFreeHeap();
         const uint32_t t0   = micros();
-        s_req_tag = "?";
+        s_req_tag = "?"; s_req_args[0] = '\0'; s_req_ip = IPAddress();
         server.handleClient();
         if (micros() - t0 > 3000) {
             const uint32_t min1 = ESP.getMinFreeHeap(), free1 = ESP.getFreeHeap();
             static uint32_t s_block = 0;
             const uint32_t blk = ESP.getMaxAllocHeap();
             if (min1 + 4096 <= min0 || (s_block && blk + 8192 <= s_block))
-                APP_LOGI("Web", "%s: %u ms, libre %u→%u B, bloque %u→%u B, mínimo %u→%u B",
-                         s_req_tag,
+                APP_LOGI("Web", "%s [%s] desde %s: %u ms, libre %u→%u B, bloque %u→%u B, mínimo %u→%u B",
+                         s_req_tag, s_req_args, s_req_ip.toString().c_str(),
                          (unsigned)((micros() - t0) / 1000), (unsigned)free0, (unsigned)free1,
                          (unsigned)s_block, (unsigned)blk, (unsigned)min0, (unsigned)min1);
             s_block = blk;
