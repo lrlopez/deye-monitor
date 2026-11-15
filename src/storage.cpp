@@ -1,6 +1,7 @@
 #include "storage.h"
 #include "config.h"   // fallbacks de compilación
 #include "tz_presets.h"
+#include "bat_capacity.h"
 
 // ── Namespaces NVS ────────────────────────────────────────────────────────
 // Preferences::getString() registra un error («nvs_get_str len fail … NOT_FOUND») cada vez que la
@@ -49,6 +50,9 @@ static void readConfigNvs(AppConfig& out) {
     out.inv_max_w  = p.getUShort("inv_max_w",  INV_MAX_W_DEF);
     out.grid_max_w = p.getUShort("grid_max_w", GRID_MAX_W_DEF);
     out.bat_cap_w  = p.getUShort("bat_cap_w",  BAT_CAP_W_DEF);
+    out.bat_cap_auto = p.getBool("bat_auto",   true);
+    out.bat_vnom_dv  = p.getUShort("bat_vnom", BAT_VNOM_DV_DEF);
+    if (!bat_vnom_dv_valid(out.bat_vnom_dv)) out.bat_vnom_dv = BAT_VNOM_DV_DEF;
 
     p.end();
     DBGSERIAL.printf("[NVS] Config cargada: SSID=%s  IP=%s  Serial=%lu  mDNS=%s\n",
@@ -67,6 +71,8 @@ static void writeConfigNvs(const AppConfig& cfg) {
     p.putUShort("inv_max_w",  cfg.inv_max_w);
     p.putUShort("grid_max_w", cfg.grid_max_w);
     p.putUShort("bat_cap_w",  cfg.bat_cap_w);
+    p.putBool("bat_auto",     cfg.bat_cap_auto);
+    p.putUShort("bat_vnom",   cfg.bat_vnom_dv);
     p.end();
     DBGSERIAL.println("[NVS] Config guardada");
 }

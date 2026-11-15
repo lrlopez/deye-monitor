@@ -12,7 +12,9 @@ struct AppConfig {
     char     mdns_hostname[32];
     uint16_t inv_max_w;    // W  — potencia pico del inversor (default INV_MAX_W_DEF)
     uint16_t grid_max_w;   // W  — potencia máxima de red     (default GRID_MAX_W_DEF)
-    uint16_t bat_cap_w;    // Wh — capacidad de la batería    (default BAT_CAP_W_DEF)
+    uint16_t bat_cap_w;    // Wh — capacidad de la batería a mano (default BAT_CAP_W_DEF)
+    bool     bat_cap_auto; // true: usar la capacidad que el inversor tiene configurada (reg. 204, Ah) si se lee
+    uint16_t bat_vnom_dv;  // décimas de V — tensión nominal para pasar Ah a Wh (default 512 = 51,2 V)
 };
 
 // ── Estado de sesión persistido en NVS ───────────────────────────────────

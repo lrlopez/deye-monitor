@@ -6,6 +6,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Añadido
+
+- **Capacidad de la batería leída del inversor** (registro 204, en Ah, la que fija el instalador; verificado en un SUN-6K-SG05 real: 628 Ah). Se lee tras la lectura diaria, en la misma conexión, al arrancar y luego cada ~10 lecturas (≈10 min); si falla 3 veces seguidas (modelo sin ese registro) se deja de preguntar hasta el reinicio y su fallo nunca afecta a los datos diarios. Se pasa a Wh con una **tensión nominal** configurable (51,2 V por defecto): 628 Ah → 32.153 Wh. Nuevos ajustes «Usar la del inversor» (activado por defecto; si no se ha leído o el valor no es verosímil, 10–3000 Ah, vale la capacidad manual) y «Tensión nom. V», en Configuración → Inversor y en la web de administración (también en la exportación/importación de la configuración: `bat_cap_auto`, `bat_vnom_dv`). La estimación de autonomía usa la capacidad efectiva y se aplica sin reiniciar. `/api/status` incluye `bat_cap_ah` y `bat_cap_wh`. Lógica en `bat_capacity.h` (con tests); validador `valid_battery_voltage`.
+
 ## [v4.5.2] - 2026-11-15
 
 ### Corregido

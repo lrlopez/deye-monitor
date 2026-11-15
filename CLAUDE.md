@@ -150,6 +150,10 @@ Reg 184: batt_soc     (%)
 Reg 186: pv1_power    (W)
 Reg 187: pv2_power    (W)   ← era 188, corregido
 Reg 190: batt_power   (signed: positivo=descargando, negativo=cargando)
+Reg 204: capacidad de batería configurada en el inversor, en Ah (verificado 2026-11-15: 628, lo fija el instalador;
+         se lee aparte con `readBattCap()`, ver `bat_capacity.h`: Wh = Ah × tensión nominal, 51,2 V por defecto)
+Otros leídos el 2026-11-15 sin confirmar: 201/202 = 5760 y 203 = 5520 (57,6 V y 55,2 V, tensiones de carga),
+         205 = 4500 (45,0 V), 210/211 = 120 (A, límites de carga/descarga), 206/207 = 10/90
 ```
 
 **⚠️ Signo de batería:** positivo = descargando, negativo = cargando. El código original lo tenía al revés. Corregido en dashboard, web server y stats.

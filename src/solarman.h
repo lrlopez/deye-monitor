@@ -47,7 +47,15 @@ public:
     // los diarios también; si falla, `d` no se modifica.
     bool fetchAll(EnergyData& e, DailyStats& d, bool want_daily, bool& daily_ok);
 
+    // Capacidad de la batería configurada en el inversor (registro 204, Ah). 0 = aún no leída o no
+    // disponible. Se refresca dentro de fetchAll() tras la lectura diaria, sin afectar a su resultado.
+    uint16_t battCapAh() const { return _cap_ah; }
+
 private:
+    uint16_t    _cap_ah   = 0;
+    uint8_t     _cap_fail = 0;     // lecturas fallidas seguidas: tras 3 se deja de intentar (modelo sin ese registro)
+    uint8_t     _cap_tick = 0;     // lecturas diarias desde la última de la capacidad
+    void        readBattCap(WiFiClient& client);
     const char* _ip;
     uint16_t    _port;
     uint32_t    _serial;

@@ -58,6 +58,18 @@ static lv_obj_t* s_ta_mdns          = nullptr;
 static lv_obj_t* s_ta_inv_max_w  = nullptr;
 static lv_obj_t* s_ta_grid_max_w = nullptr;
 static lv_obj_t* s_ta_bat_cap_w  = nullptr;
+static lv_obj_t* s_cb_bat_auto   = nullptr;   // «usar la capacidad configurada en el inversor» (reg. 204)
+static lv_obj_t* s_ta_bat_vnom   = nullptr;   // tensión nominal en V (para pasar Ah a Wh)
+extern volatile uint16_t g_batt_cap_ah;       // main.cpp: capacidad leída del inversor (Ah; 0 = sin leer)
+
+// Texto del checkbox con lo leído del inversor: «Usar la del inversor: 628 Ah» / «(sin leer)»
+static void bat_auto_refresh_text() {
+    if (!s_cb_bat_auto) return;
+    char b[64];
+    if (g_batt_cap_ah > 0) snprintf(b, sizeof(b), "Usar la del inversor: %u Ah", (unsigned)g_batt_cap_ah);
+    else                   snprintf(b, sizeof(b), "Usar la del inversor (sin leer a\xC3\xBAn)");
+    lv_checkbox_set_text(s_cb_bat_auto, b);
+}
 
 // ── Widgets scan WiFi ─────────────────────────────────────────────────────
 static lv_obj_t*  scan_btn;
@@ -584,6 +596,9 @@ static void save_btn_cb(lv_event_t* /*e*/) {
         cfg.inv_max_w  = s_ta_inv_max_w  ? clamp16(lv_textarea_get_text(s_ta_inv_max_w),  INV_MAX_W_DEF)  : old_cfg.inv_max_w;
         cfg.grid_max_w = s_ta_grid_max_w ? clamp16(lv_textarea_get_text(s_ta_grid_max_w), GRID_MAX_W_DEF) : old_cfg.grid_max_w;
         cfg.bat_cap_w  = s_ta_bat_cap_w  ? clamp16(lv_textarea_get_text(s_ta_bat_cap_w),  BAT_CAP_W_DEF)  : old_cfg.bat_cap_w;
+        cfg.bat_cap_auto = s_cb_bat_auto ? lv_obj_has_state(s_cb_bat_auto, LV_STATE_CHECKED) : old_cfg.bat_cap_auto;
+        uint16_t vdv = s_ta_bat_vnom ? valid_battery_voltage_dv(lv_textarea_get_text(s_ta_bat_vnom)) : 0;
+        cfg.bat_vnom_dv = vdv ? vdv : old_cfg.bat_vnom_dv;
     }
     // mDNS hostname: solo [a-z0-9-], sin guiones al inicio/fin, fallback al default
     if (s_ta_mdns) {
@@ -978,7 +993,7 @@ void config_screen_init(lv_obj_t* parent) {
     const int SEC_WIFI_BASE_H = CFG_FIELD_H*2 + CFG_SEC_PAD*2 + SY(20);   // altura del antiguo bloque WiFi
     const int SEC_WIFI_H   = NET_OFF + SY(106) + CFG_FIELD_H + CFG_SEC_PAD;   // +106: hasta la fila «Zona horaria» (DEYE-74)
     const int SEC_INV_Y    = SEC_WIFI_Y  + SEC_WIFI_H  + SY(4);
-    const int SEC_INV_H    = SEC_WIFI_BASE_H + SY(44) * 3;
+    const int SEC_INV_H    = SEC_WIFI_BASE_H + SY(44) * 5;   // + filas «Usar la del inversor» y «Tensión nominal»
     const int SEC_CHART_Y  = SEC_INV_Y  + SEC_INV_H   + SY(4);
     const int SEC_CHART_H  = CFG_FIELD_H + SS(16) + CFG_SEC_PAD*2 + SY(30);
     const int SEC_TG_Y     = SEC_CHART_Y + SEC_CHART_H + SY(4);
@@ -1091,9 +1106,27 @@ void config_screen_init(lv_obj_t* parent) {
     lv_obj_add_event_cb(ta_bat_cap_w, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
     add_rule(ta_bat_cap_w, valid_capacity, "Capacidad de la bater\xC3\xAD\x61: n\xC3\xBAmero entre 1 y 65535", "0123456789");
 
+    // Capacidad que el instalador configuró en el inversor (reg. 204): si se activa, manda sobre la manual
+    s_cb_bat_auto = lv_checkbox_create(sec_inv);
+    lv_obj_set_pos(s_cb_bat_auto, 0, SY(240));
+    lv_obj_set_style_text_font(s_cb_bat_auto, &FONT_SMALL, 0);
+    lv_obj_set_style_text_color(s_cb_bat_auto, C_WHITE, 0);
+    if (cfg.bat_cap_auto) lv_obj_add_state(s_cb_bat_auto, LV_STATE_CHECKED);
+    bat_auto_refresh_text();
+
+    make_row_label(sec_inv, SY(282), "Tensi\xC3\xB3n nom. V");
+    lv_obj_t* ta_bat_vnom = make_field(sec_inv, CFG_LBL_W, SY(282), FW, false, "51.2");
+    { char b[8]; snprintf(b, sizeof(b), "%u.%u", (unsigned)(cfg.bat_vnom_dv / 10), (unsigned)(cfg.bat_vnom_dv % 10));
+      lv_textarea_set_text(ta_bat_vnom, b); }
+    lv_textarea_set_max_length(ta_bat_vnom, 5);
+    lv_obj_add_event_cb(ta_bat_vnom, ta_event_cb, LV_EVENT_FOCUSED,   nullptr);
+    lv_obj_add_event_cb(ta_bat_vnom, ta_event_cb, LV_EVENT_DEFOCUSED, nullptr);
+    add_rule(ta_bat_vnom, valid_battery_voltage, "Tensi\xC3\xB3n nominal: entre 10 y 100 V (p. ej. 51.2)", "0123456789.");
+
     s_ta_inv_max_w  = ta_inv_max_w;
     s_ta_grid_max_w = ta_grid_max_w;
     s_ta_bat_cap_w  = ta_bat_cap_w;
+    s_ta_bat_vnom   = ta_bat_vnom;
 
     // ── Sección Gráfica ───────────────────────────────────────────────────────
     // h=100: fila checkbox(16+10) + fila label/valor(20) + fila slider(24) + padding
@@ -1611,6 +1644,7 @@ void config_screen_init(lv_obj_t* parent) {
 void config_screen_tick() {
     // «Actualizaciones» abierta: estado de la consulta/instalación al instante (cada 0,5 s)
     if (s_cur_sec == SEC_UPD && millis() - s_upd_last >= 500) { s_upd_last = millis(); upd_refresh(); }
+    if (s_cur_sec == SEC_INV && millis() - s_upd_last >= 1000) { s_upd_last = millis(); bat_auto_refresh_text(); }
     if (millis() - s_last_net_refresh < 5000) return;
     s_last_net_refresh = millis();
 

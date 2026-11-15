@@ -268,6 +268,8 @@ SemaphoreHandle_t        g_mutex;
 // se mantenía durante dashboard_update() y podía bloquear/descartar lecturas
 // de solarmanTask).
 volatile uint32_t        g_batt_eta     = 0;
+volatile uint16_t        g_batt_cap_ah  = 0;
+volatile uint32_t        g_batt_cap_wh  = 0;
 uint32_t                 g_energy_seq   = 0;
 uint32_t                 g_daily_seq    = 0;
 static lv_obj_t*         g_tileview     = nullptr;

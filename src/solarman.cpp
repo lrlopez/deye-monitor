@@ -1,6 +1,7 @@
 #include "solarman.h"
 #include "solarman_proto.h"
 #include "config.h"
+#include "bat_capacity.h"
 #include <string.h>
 
 // CRC, construcción de frame y validación de respuesta: solarman_proto.h
@@ -154,6 +155,22 @@ bool SolarmanClient::fetchDailyStats(DailyStats& out) {
     return true;
 }
 
+// Capacidad configurada en el inversor (registro 204, Ah). La primera vez y luego cada ~10 lecturas diarias
+// (≈10 min). Si falla 3 veces seguidas (modelo sin ese registro) se deja de preguntar hasta el reinicio.
+void SolarmanClient::readBattCap(WiFiClient& client) {
+    if (_cap_fail >= 3) return;
+    if (_cap_ah != 0 && ++_cap_tick < 10) return;
+    _cap_tick = 0;
+    uint16_t v = 0;
+    if (exchange(client, REG_BATT_CAP_AH, 1, &v) && bat_cap_ah_valid(v)) {
+        if (v != _cap_ah) APP_LOGI("Solarman", "Capacidad de batería del inversor: %u Ah", (unsigned)v);
+        _cap_ah = v;
+        _cap_fail = 0;
+    } else {
+        _cap_fail++;
+    }
+}
+
 bool SolarmanClient::fetchAll(EnergyData& e, DailyStats& d, bool want_daily, bool& daily_ok) {
     daily_ok = false;
 
@@ -175,6 +192,7 @@ bool SolarmanClient::fetchAll(EnergyData& e, DailyStats& d, bool want_daily, boo
     if (want_daily) {
         uint16_t dregs[REG_DAILY_COUNT];
         daily_ok = exchange(client, REG_DAILY_BASE, REG_DAILY_COUNT, dregs);
+        if (daily_ok) readBattCap(client);       // mismo socket; su fallo no afecta a los datos diarios
         client.stop();
         if (!daily_ok) {
             // Puede que el logger cierre el socket tras responder: un reintento

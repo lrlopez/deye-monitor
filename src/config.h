@@ -81,6 +81,10 @@
 // DEYE-36: temperatura del radiador del inversor = (valor − 1000) × 0,1 °C. Misma salvedad:
 // sin verificar en hardware; fuera de −40…150 °C se ignora.
 #define IDX_D_TEMP_RAD   (91 - REG_DAILY_BASE)   // 21
+// Capacidad de la batería fijada en el inversor por el instalador (Ah). Verificado en un SUN-6K-SG05
+// real el 2026-11-15 (valor 628, la capacidad configurada en el menú del inversor). Se lee de vez en
+// cuando, no en cada ciclo: solo cambia si alguien reconfigura el inversor.
+#define REG_BATT_CAP_AH   204
 // ── Polling ───────────────────────────────────────────────────────────────
 #define POLL_INTERVAL_MS  5000
 #define POLL_DAILY_MS     60000UL

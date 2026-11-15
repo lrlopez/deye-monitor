@@ -17,6 +17,7 @@
 #include "battery_estimate.h"
 #include "period_totals.h"
 #include "mqtt_ha.h"
+#include "bat_capacity.h"
 #include <ArduinoJson.h>
 
 // Misma zona horaria que config.h (TIMEZONE)
@@ -1220,6 +1221,51 @@ void test_ring_find_exact_from_end() {
     TEST_ASSERT_EQUAL_INT(-1, ring_find_exact_from_end(r, eps, 35));
 }
 
+// ── Capacidad de la batería: manual o del inversor (registro 204) ───────────
+void test_bat_cap_uses_inverter_when_valid() {
+    BatCapacity c = bat_cap_effective(16000, true, 628, 512);   // 628 Ah × 51,2 V
+    TEST_ASSERT_TRUE(c.from_inverter);
+    TEST_ASSERT_EQUAL_UINT32(32153, c.wh);
+    c = bat_cap_effective(16000, true, 314, 480);               // 314 Ah × 48,0 V
+    TEST_ASSERT_EQUAL_UINT32(15072, c.wh);
+}
+
+void test_bat_cap_manual_when_not_wanted_or_unavailable() {
+    BatCapacity c = bat_cap_effective(16000, false, 628, 512);   // el usuario prefiere la manual
+    TEST_ASSERT_FALSE(c.from_inverter);
+    TEST_ASSERT_EQUAL_UINT32(16000, c.wh);
+    c = bat_cap_effective(16000, true, 0, 512);                  // aún sin leer
+    TEST_ASSERT_FALSE(c.from_inverter);
+    TEST_ASSERT_EQUAL_UINT32(16000, c.wh);
+}
+
+void test_bat_cap_ignores_implausible_values() {
+    TEST_ASSERT_FALSE(bat_cap_effective(16000, true, 5, 512).from_inverter);       // < 10 Ah
+    TEST_ASSERT_FALSE(bat_cap_effective(16000, true, 65535, 512).from_inverter);   // basura
+    TEST_ASSERT_FALSE(bat_cap_effective(16000, true, 628, 50).from_inverter);      // tensión nominal absurda
+    TEST_ASSERT_TRUE(bat_cap_ah_valid(10));
+    TEST_ASSERT_TRUE(bat_cap_ah_valid(3000));
+    TEST_ASSERT_FALSE(bat_cap_ah_valid(3001));
+    TEST_ASSERT_TRUE(bat_vnom_dv_valid(BAT_VNOM_DV_DEF));
+}
+
+void test_battery_voltage_validator() {
+    TEST_ASSERT_TRUE(valid_battery_voltage("51.2"));
+    TEST_ASSERT_TRUE(valid_battery_voltage("48"));
+    TEST_ASSERT_TRUE(valid_battery_voltage("10.0"));
+    TEST_ASSERT_TRUE(valid_battery_voltage("100"));
+    TEST_ASSERT_FALSE(valid_battery_voltage(""));
+    TEST_ASSERT_FALSE(valid_battery_voltage("9.9"));
+    TEST_ASSERT_FALSE(valid_battery_voltage("100.1"));
+    TEST_ASSERT_FALSE(valid_battery_voltage("51.25"));    // más de un decimal
+    TEST_ASSERT_FALSE(valid_battery_voltage("51.2.1"));
+    TEST_ASSERT_FALSE(valid_battery_voltage(".5"));
+    TEST_ASSERT_FALSE(valid_battery_voltage("5a"));
+    TEST_ASSERT_EQUAL_UINT16(512, valid_battery_voltage_dv("51.2"));
+    TEST_ASSERT_EQUAL_UINT16(480, valid_battery_voltage_dv("48"));
+    TEST_ASSERT_EQUAL_UINT16(0, valid_battery_voltage_dv("x"));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_crc_known_vector);
@@ -1301,5 +1347,9 @@ int main(int, char**) {
     RUN_TEST(test_fw_env_marker_split_across_chunks);
     RUN_TEST(test_fw_env_marker_missing_or_ignorable);
     RUN_TEST(test_fw_env_marker_resyncs_after_false_start);
+    RUN_TEST(test_bat_cap_uses_inverter_when_valid);
+    RUN_TEST(test_bat_cap_manual_when_not_wanted_or_unavailable);
+    RUN_TEST(test_bat_cap_ignores_implausible_values);
+    RUN_TEST(test_battery_voltage_validator);
     return UNITY_END();
 }

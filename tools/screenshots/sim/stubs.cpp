@@ -53,6 +53,8 @@ ChartConfig StorageManager::loadChartConfig() { ChartConfig c; c.autoscale = tru
 bool StorageManager::loadWizardDone() { return false; } void StorageManager::saveWizardDone(bool) {}
 uint8_t StorageManager::loadTimezone() { return 0; } void StorageManager::saveTimezone(uint8_t) {}
 volatile uint32_t g_batt_eta = (1u << 16) | 320;   // EMPTY, 5h20
+volatile uint16_t g_batt_cap_ah = 628;             // capacidad leída del inversor (reg. 204)
+volatile uint32_t g_batt_cap_wh = 32153;
 int g_scan_mode = 0;
 int logger_scan(char (*ips)[16], int max) { int n = g_scan_mode > max ? max : g_scan_mode; for (int i = 0; i < n; i++) snprintf(ips[i], 16, "192.168.1.%d", 50 + i * 17); return n; }
 bool logger_verify(const char*, uint32_t, uint8_t) { return true; }

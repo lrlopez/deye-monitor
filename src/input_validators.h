@@ -33,6 +33,25 @@ static inline bool valid_capacity(const char* s) {
     return v >= 1 && v <= 65535;
 }
 
+// Tensión nominal de la batería en voltios, con un decimal como máximo: 10,0..100,0 (p. ej. «51.2»).
+// Se pasa a décimas de voltio con valid_battery_voltage_dv().
+static inline bool valid_battery_voltage(const char* s) {
+    if (!s || !*s || strlen(s) > 5) return false;
+    int dots = 0, decimals = 0;
+    for (const char* p = s; *p; p++) {
+        if (*p == '.') { if (++dots > 1) return false; }
+        else if (*p < '0' || *p > '9') return false;
+        else if (dots) decimals++;
+    }
+    if (decimals > 1 || s[0] == '.') return false;
+    double v = atof(s);
+    return v >= 10.0 && v <= 100.0;
+}
+// «51.2» → 512; 0 si no es válida
+static inline uint16_t valid_battery_voltage_dv(const char* s) {
+    return valid_battery_voltage(s) ? (uint16_t)(atof(s) * 10.0 + 0.5) : 0;
+}
+
 // Contraseña WiFi: vacía (red abierta) o de 8 a 63 caracteres (WPA2)
 static inline bool valid_wifi_pass(const char* s) {
     if (!s) return false;

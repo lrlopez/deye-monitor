@@ -10,6 +10,7 @@
 #include "recorder.h"
 #include "alert_engine.h"
 #include "battery_estimate.h"
+#include "bat_capacity.h"
 #include "logger_discovery.h"
 #include "psram_cache.h"
 #include "safe_serial.h"
@@ -149,8 +150,16 @@ void solarmanTask(void* /*pv*/) {
                      (int)local_e.pv_power, (int)local_e.grid_power,
                      (int)local_e.batt_power, (int)local_e.batt_soc,
                      (int)local_e.load_power);
+            // Capacidad: la del inversor (reg. 204) si está activada y se ha leído; si no, la manual.
+            // Se relee de la caché de Storage (no de g_cfg, que solo se carga al arrancar) para que un
+            // cambio desde la web o la pantalla se aplique sin reiniciar.
+            g_batt_cap_ah = client.battCapAh();
+            AppConfig capcfg{}; Storage.loadConfig(capcfg);
+            const BatCapacity cap = bat_cap_effective(capcfg.bat_cap_w, capcfg.bat_cap_auto,
+                                                      g_batt_cap_ah, capcfg.bat_vnom_dv);
+            g_batt_cap_wh = cap.wh;
             g_batt_eta = battery_eta_pack(batt_est.update((int)local_e.batt_soc, (int)local_e.batt_power,
-                                                          (uint32_t)g_cfg.bat_cap_w));
+                                                          cap.wh));
             if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
                 g_energy = local_e;
                 g_energy_seq++;

@@ -84,7 +84,7 @@ ajustes que su equivalente en [Configuración](06-configuracion.md):
 | Bloque | Qué permite |
 |---|---|
 | **Red** | Ver la WiFi activa y cambiar el nombre mDNS. (La WiFi solo se cambia desde la pantalla, por seguridad.) |
-| **Inversor / Datalogger** | IP y número de serie del stick, y las potencias y capacidad de batería. |
+| **Inversor / Datalogger** | IP y número de serie del stick, las potencias, la capacidad de batería a mano y la opción de usar la que el inversor tiene configurada (con su tensión nominal; se muestra lo leído, p. ej. «628 Ah → 32153 Wh»). |
 | **Gráfica** | Autoescalado y máximo en kW. |
 | **Telegram** | Token, chat, umbrales de batería, tipos de aviso e informe diario. |
 | **MQTT / Home Assistant** | Broker, puerto, usuario, contraseña y prefijo (ver [MQTT](09-home-assistant-mqtt.md)). |

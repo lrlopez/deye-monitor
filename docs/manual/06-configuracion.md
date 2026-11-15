@@ -61,7 +61,11 @@ Reúne todo lo relativo a la conexión del equipo:
 | **Núm. Serie** | Número de serie del stick, en decimal (etiqueta del stick o app SolarmanPV). |
 | **Inv. máx W** | Potencia pico de tu inversor; determina el fondo de escala de los indicadores de solar. |
 | **Red máx W** | Potencia máxima de red contratada; fondo de escala del indicador de red. |
-| **Cap. bat. Wh** | Capacidad total de tu batería en Wh. Sirve para estimar la autonomía. |
+| **Cap. bat. Wh** | Capacidad total de tu batería en Wh, a mano. Sirve para estimar la autonomía. Solo se usa si no se está usando la del inversor (siguiente fila) o si el inversor no la informa. |
+| **Usar la del inversor** | Si está marcada (por defecto), el equipo **lee del inversor la capacidad en Ah que configuró el instalador** (registro 204) y la usa en lugar de la manual. El texto de la casilla muestra lo leído («628 Ah»); mientras no se haya leído, o si el valor no es verosímil, se usa la capacidad manual. Se lee al arrancar y después cada unos 10 minutos. |
+| **Tensión nom. V** | Tensión nominal de tu batería, para pasar los Ah del inversor a Wh (Wh = Ah × V). 51,2 V por defecto, que es lo habitual en las baterías de litio de 16 celdas; pon 48 si la tuya es de 48 V. Por ejemplo, 628 Ah a 51,2 V son unos 32.150 Wh. |
+
+Estas dos últimas filas están al final de la sección: desliza hacia arriba para verlas.
 
 **Búsqueda automática de la IP.** Escribe primero el número de serie y pulsa el botón de
 localización: el equipo busca el stick en tu red, **verifica** que el dispositivo encontrado responde

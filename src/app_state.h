@@ -17,6 +17,10 @@ extern DailyStats        g_daily;
 // Autonomía estimada de la batería (battery_estimate.h, DEYE-33), empaquetada con
 // battery_eta_pack(). La calcula solarmanTask tras cada lectura buena; 0 = sin estimación.
 extern volatile uint32_t g_batt_eta;
+// Capacidad de la batería: lo que el inversor tiene configurado (reg. 204, Ah; 0 = sin leer) y la efectiva
+// en Wh que se está usando (la del inversor o la manual, ver bat_capacity.h). La publica solarmanTask.
+extern volatile uint16_t g_batt_cap_ah;
+extern volatile uint32_t g_batt_cap_wh;
 extern uint32_t          g_energy_seq;
 extern uint32_t          g_daily_seq;
 extern volatile bool     g_wifi_connected;

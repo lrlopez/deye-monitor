@@ -15,12 +15,15 @@
 #include "fw_env_marker.h"
 #include "clock_mode.h"
 #include "battery_estimate.h"
+#include "bat_capacity.h"
 #include "mqtt_client.h"
 #include "mqtt_ha.h"
 #include "time_utils.h"
 
 extern uint32_t      g_uptime_start;   // main.cpp: millis() en el arranque
 extern volatile uint32_t g_batt_eta;   // main.cpp: autonomía estimada de la batería (DEYE-33)
+extern volatile uint16_t g_batt_cap_ah;   // main.cpp: capacidad configurada en el inversor (reg. 204, Ah; 0 = sin leer)
+extern volatile uint32_t g_batt_cap_wh;   // main.cpp: capacidad efectiva en uso (Wh)
 extern volatile bool g_ota_cancel;   // main.cpp: retira el overlay OTA si la actualización falla
 
 static WebServer          server(80);
@@ -1864,7 +1867,14 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
         char _b[12]; snprintf(_b, sizeof(_b), "%lu", (unsigned long)cfg.logger_serial);
         _s += _b;
         _s += "' maxlength='15'></div>";
-        char _n[480];
+        // Capacidad del inversor (reg. 204): lo leído y su conversión a Wh, o «aún sin leer»
+        char _cap[96];
+        if (g_batt_cap_ah > 0)
+            snprintf(_cap, sizeof(_cap), " (inversor: %u Ah &rarr; %lu Wh)", (unsigned)g_batt_cap_ah,
+                     (unsigned long)((uint32_t)g_batt_cap_ah * cfg.bat_vnom_dv / 10u));
+        else
+            snprintf(_cap, sizeof(_cap), " (a&uacute;n sin leer del inversor)");
+        char _n[1000];
         snprintf(_n, sizeof(_n),
             "<div class='row'><span class='lbl'>Inv. m&aacute;x. W</span>"
             "<input type='number' name='inv_max_w' min='1' max='65535' value='%u'></div>"
@@ -1872,8 +1882,14 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
             "<input type='number' name='grid_max_w' min='1' max='65535' value='%u'></div>"
             "<div class='row'><span class='lbl'>Cap. bat. Wh</span>"
             "<input type='number' name='bat_cap_w' min='1' max='65535' value='%u'></div>"
+            "<div class='row'><span class='lbl'>Cap. del inversor</span>"
+            "<label><input type='checkbox' name='bat_cap_auto' value='1'%s> Usar la capacidad configurada en el inversor%s</label></div>"
+            "<div class='row'><span class='lbl'>Tensi&oacute;n nominal V</span>"
+            "<input type='number' name='bat_vnom' min='10' max='100' step='0.1' value='%u.%u'></div>"
             "</div>",
-            (unsigned)cfg.inv_max_w, (unsigned)cfg.grid_max_w, (unsigned)cfg.bat_cap_w);
+            (unsigned)cfg.inv_max_w, (unsigned)cfg.grid_max_w, (unsigned)cfg.bat_cap_w,
+            cfg.bat_cap_auto ? " checked" : "", _cap,
+            (unsigned)(cfg.bat_vnom_dv / 10), (unsigned)(cfg.bat_vnom_dv % 10));
         _s += _n;
         server.sendContent(_s);
     }
@@ -2136,6 +2152,9 @@ static void handle_admin_post() {
     { int v = server.arg("inv_max_w").toInt();  if (v >= 1 && v <= 65535) cfg.inv_max_w  = (uint16_t)v; }
     { int v = server.arg("grid_max_w").toInt(); if (v >= 1 && v <= 65535) cfg.grid_max_w = (uint16_t)v; }
     { int v = server.arg("bat_cap_w").toInt();  if (v >= 1 && v <= 65535) cfg.bat_cap_w  = (uint16_t)v; }
+    cfg.bat_cap_auto = server.hasArg("bat_cap_auto");
+    { int dv = (int)(server.arg("bat_vnom").toFloat() * 10.0f + 0.5f);
+      if (bat_vnom_dv_valid((uint16_t)dv)) cfg.bat_vnom_dv = (uint16_t)dv; }
 
     // ── Gráfica ───────────────────────────────────────────────────────────
     ChartConfig ccfg{};
@@ -2221,6 +2240,8 @@ static void handle_config_export() {
     doc["inv_max_w"]           = cfg.inv_max_w;
     doc["grid_max_w"]          = cfg.grid_max_w;
     doc["bat_cap_w"]           = cfg.bat_cap_w;
+    doc["bat_cap_auto"]        = cfg.bat_cap_auto;
+    doc["bat_vnom_dv"]         = cfg.bat_vnom_dv;
     doc["chart_autoscale"]     = ccfg.autoscale;
     doc["chart_max_kw"]        = ccfg.max_kw;
     doc["tg_token"]            = tgcfg.token;
@@ -2290,6 +2311,10 @@ static void handle_config_import() {
     }
     if (doc["bat_cap_w"].is<int>()) {
         int v = doc["bat_cap_w"]; if (v >= 1 && v <= 65535) cfg.bat_cap_w = (uint16_t)v;
+    }
+    if (doc["bat_cap_auto"].is<bool>()) cfg.bat_cap_auto = doc["bat_cap_auto"].as<bool>();
+    if (doc["bat_vnom_dv"].is<int>()) {
+        int v = doc["bat_vnom_dv"]; if (bat_vnom_dv_valid((uint16_t)v)) cfg.bat_vnom_dv = (uint16_t)v;
     }
 
     // ── Gráfica ───────────────────────────────────────────────────────────
@@ -2735,7 +2760,8 @@ static void handle_status() {
         "\"psram_free_kb\":%lu,"
         "\"uptime_s\":%lu,\"heap_free_kb\":%lu,\"heap_min_kb\":%lu,\"heap_block_kb\":%lu,"
         "\"fs_total_kb\":%lu,\"fs_used_kb\":%lu,"
-        "\"wifi_rssi\":%d,\"ip\":\"%s\",\"data_model\":%d,\"fw_env\":\"" FW_ENV_NAME "\"}",
+        "\"wifi_rssi\":%d,\"ip\":\"%s\",\"data_model\":%d,\"fw_env\":\"" FW_ENV_NAME "\","
+        "\"bat_cap_ah\":%u,\"bat_cap_wh\":%lu}",
         (unsigned long)Store.getRawCount(),
         (unsigned long)Store.getRawCapacity(),
         (unsigned long)Store.getHourlyCount(),
@@ -2751,7 +2777,8 @@ static void handle_status() {
         (unsigned long)LittleFS.usedBytes() / 1024,
         (int)WiFi.RSSI(),
         WiFi.localIP().toString().c_str(),
-        fw_data_model());
+        fw_data_model(),
+        (unsigned)g_batt_cap_ah, (unsigned long)g_batt_cap_wh);
 
     server.send(200, "application/json", json);
 }
