@@ -6,6 +6,12 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+## [v4.5.2] - 2026-11-15
+
+### Corregido
+
+- **La primera consulta de actualizaciones tras el arranque fallaba a veces con «GitHub ha devuelto una respuesta no válida»** (la segunda iba bien; visto con la plataforma de la Sunton, Arduino 2.0.17). El cuerpo se recibía con `String`, que descarta en silencio lo que no consigue reservar y dejaba el JSON incompleto. Ahora se recibe en un búfer propio en PSRAM (`BodySink`) que avisa si falla la memoria, la consulta **reintenta sola una vez**, y el error indica el motivo y los bytes recibidos («… (IncompleteInput) (recibidos N de M B)»). Registro `[FwUpdate] Intento N: …` con los detalles.
+
 ## [v4.5.1] - 2026-11-15
 
 ### Corregido

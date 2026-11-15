@@ -105,6 +105,48 @@ static void fail(const char* fmt, ...) {
 }
 
 // ── Consulta ──────────────────────────────────────────────────────────────
+namespace {
+// Cuerpo de la respuesta de GitHub en PSRAM, terminado en NUL. A diferencia de String (que descarta en
+// silencio lo que no consigue reservar), anota el fallo de memoria y cuenta lo recibido.
+class BodySink : public Stream {
+public:
+    static constexpr size_t LIMIT = 400000;
+    BodySink() = default;
+    BodySink(const BodySink&) = delete;
+    BodySink& operator=(const BodySink&) = delete;
+    ~BodySink() { if (_b) heap_caps_free(_b); }
+
+    size_t write(const uint8_t* d, size_t n) override {
+        if (_failed || n == 0) return _failed ? 0 : n;
+        if (_len + n > LIMIT) { _failed = true; return 0; }
+        if (_len + n + 1 > _cap) {
+            size_t cap = _cap ? _cap : 32768;
+            while (cap < _len + n + 1) cap *= 2;
+            uint8_t* nb = (uint8_t*)heap_caps_realloc(_b, cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (!nb) { _failed = true; _nomem = true; return 0; }
+            _b = nb; _cap = cap;
+        }
+        memcpy(_b + _len, d, n);
+        _len += n;
+        _b[_len] = '\0';
+        return n;
+    }
+    size_t write(uint8_t c) override { return write(&c, 1); }
+    int available() override { return 0; }
+    int read() override { return -1; }
+    int peek() override { return -1; }
+
+    const char* c_str() const { return _b ? (const char*)_b : ""; }
+    size_t size() const { return _len; }
+    bool memoryFailed() const { return _nomem; }
+
+private:
+    uint8_t* _b = nullptr;
+    size_t   _len = 0, _cap = 0;
+    bool     _failed = false, _nomem = false;
+};
+}  // namespace
+
 static void do_check() {
     {
         Lock l;
@@ -135,47 +177,61 @@ static void do_check() {
     // Las últimas releases (no solo la última): se elige versión. Cada una pesa varios KB por la lista de
     // assets, así que el cuerpo va a PSRAM (String grande) y se filtra al interpretarlo.
     static const char kUrl[] = "https://api.github.com/repos/" FW_UPDATE_REPO "/releases?per_page=6";   // ~15 KB por release (≈90 KB)
-    String body;
-    int code = 0;
-    {
-        const String cas = select_cas(url_host(kUrl));   // solo las raíces de este servidor (cada una cuesta RAM)
-        WiFiClientSecure client;
-        client.setCACert(cas.c_str());
-        client.setTimeout(15);
-        APP_LOGI("FwUpdate", "Consultando GitHub (heap libre %u, mayor bloque %u)",
-                 (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
-        HTTPClient http;
-        http.setTimeout(15000);
-        http.setUserAgent("DeyeMonitor/" APP_VERSION);
-        if (!http.begin(client, kUrl)) {
-            fail("No se pudo iniciar la conexión"); return;
-        }
-        http.addHeader("Accept", "application/vnd.github+json");
-        code = http.GET();
-        if (code == 200) {
-            int sz = http.getSize();
-            if (sz > 400000) { http.end(); fail("Respuesta de GitHub demasiado grande"); return; }
-            body = http.getString();
-        } else if (code < 0) {
-            char tls[80] = {0};
-            client.lastError(tls, sizeof(tls));
-            http.end();
-            fail("Conexión con GitHub fallida: %s%s%s (heap libre %u KB)", HTTPClient::errorToString(code).c_str(),
-                 tls[0] ? " / " : "", tls, (unsigned)(ESP.getFreeHeap() / 1024));
-            return;
-        }
-        http.end();
-    }
-    if (code == 403 || code == 429) { fail("GitHub limita las consultas; reinténtalo más tarde"); return; }
-    if (code == 404)                { fail("No hay ninguna release publicada"); return; }
-    if (code != 200)                { fail("GitHub respondió HTTP %d", code); return; }
-
+    // Hasta 2 intentos: la primera consulta tras el arranque devolvía a veces un JSON incompleto («respuesta no
+    // válida») y la segunda iba bien. El cuerpo se recibe en un búfer propio (BodySink) que cuenta lo recibido y
+    // avisa si falla la memoria, en vez de dejar que String lo trunque en silencio.
     std::unique_ptr<FwReleaseList> list(new FwReleaseList());
-    if (!fw_parse_release_list(body.c_str(), FW_ENV_NAME, *list)) {
-        fail("%s", list->error[0] ? list->error : "Respuesta no válida");
-        return;
+    bool parsed = false;
+    for (int attempt = 1; !parsed; attempt++) {
+        BodySink body;
+        int code = 0, expected = 0, got = 0;
+        {
+            const String cas = select_cas(url_host(kUrl));   // solo las raíces de este servidor (cada una cuesta RAM)
+            WiFiClientSecure client;
+            client.setCACert(cas.c_str());
+            client.setTimeout(15);
+            APP_LOGI("FwUpdate", "Consultando GitHub, intento %d (heap libre %u, mayor bloque %u)", attempt,
+                     (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+            HTTPClient http;
+            http.setTimeout(15000);
+            http.setUserAgent("DeyeMonitor/" APP_VERSION);
+            if (!http.begin(client, kUrl)) {
+                fail("No se pudo iniciar la conexión"); return;
+            }
+            http.addHeader("Accept", "application/vnd.github+json");
+            code = http.GET();
+            if (code == 200) {
+                expected = http.getSize();            // -1 si va por trozos (chunked)
+                if (expected > (int)BodySink::LIMIT) { http.end(); fail("Respuesta de GitHub demasiado grande"); return; }
+                got = http.writeToStream(&body);
+            } else if (code < 0) {
+                char tls[80] = {0};
+                client.lastError(tls, sizeof(tls));
+                http.end();
+                fail("Conexión con GitHub fallida: %s%s%s (heap libre %u KB)", HTTPClient::errorToString(code).c_str(),
+                     tls[0] ? " / " : "", tls, (unsigned)(ESP.getFreeHeap() / 1024));
+                return;
+            }
+            http.end();
+        }
+        if (code == 403 || code == 429) { fail("GitHub limita las consultas; reinténtalo más tarde"); return; }
+        if (code == 404)                { fail("No hay ninguna release publicada"); return; }
+        if (code != 200)                { fail("GitHub respondió HTTP %d", code); return; }
+
+        parsed = fw_parse_release_list(body.c_str(), FW_ENV_NAME, *list);
+        if (!parsed) {
+            APP_LOGW("FwUpdate", "Intento %d: %s; recibidos %u B de %d, writeToStream=%d%s, heap libre %u, bloque %u",
+                     attempt, list->error, (unsigned)body.size(), expected, got,
+                     body.memoryFailed() ? ", SIN MEMORIA para el cuerpo" : "",
+                     (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+            if (attempt >= 2) {
+                fail("%s (recibidos %u de %d B%s)", list->error, (unsigned)body.size(), expected,
+                     body.memoryFailed() ? ", sin memoria" : "");
+                return;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
     }
-    body = String();                          // libera el cuerpo (cientos de KB de PSRAM) cuanto antes
 
     const int li = fw_list_latest(*list);
     const FwRelease rel = list->rel[li];

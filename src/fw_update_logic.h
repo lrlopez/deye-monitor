@@ -202,7 +202,11 @@ inline bool fw_parse_release_list(const char* json, const char* env_name, FwRele
     fw_release_filter(filter.add<JsonObject>());     // un solo elemento en el filtro = vale para todos los del array
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, json, DeserializationOption::Filter(filter));
-    if (err || !doc.is<JsonArray>()) { fw_copy(out.error, sizeof(out.error), "Respuesta de GitHub no válida"); return false; }
+    if (err || !doc.is<JsonArray>()) {
+        snprintf(out.error, sizeof(out.error), "Respuesta de GitHub no válida (%s)",
+                 err ? err.c_str() : "no es una lista");
+        return false;
+    }
 
     for (JsonObjectConst o : doc.as<JsonArrayConst>()) {
         FwRelease r;
