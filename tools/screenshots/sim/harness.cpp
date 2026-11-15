@@ -4,6 +4,7 @@
 #include "WiFi.h"
 #include "config.h"
 #include "ui_constants.h"
+#include "ui_dialog.h"
 #include "solarman.h"
 #include "dashboard.h"
 

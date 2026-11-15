@@ -201,6 +201,26 @@ static void build_scene(const char* name, lv_obj_t* scr) {
         lv_obj_t* ip = find_ta(scr, "192.168.1.50"); if (ip) { lv_textarea_set_text(ip, "192.168.1.30"); lv_textarea_add_text(ip, "0"); }
         run(300);
     }
+    else if (!strcmp(name, "msgbox_long")) {            // botones con textos largos (borrado de datos, paso final)
+        config_screen_init(scr); click_label(scr, LV_SYMBOL_DOWNLOAD "  Actualizaciones"); run(200);
+        lv_obj_t* mbox = lv_msgbox_create(nullptr);
+        lv_msgbox_add_title(mbox, LV_SYMBOL_WARNING " CONFIRMACI\xC3\x93N FINAL");
+        lv_msgbox_add_text(mbox, "El historial NO se podr\xC3\xA1 recuperar. \xC2\xBF" "Borrarlo definitivamente?");
+        lv_msgbox_add_footer_button(mbox, "No, cancelar");
+        lv_msgbox_add_footer_button(mbox, "S\xC3\xAD, borrar definitivamente");
+        ui_msgbox_scale(mbox);
+        run(300);
+    }
+    else if (!strcmp(name, "msgbox") || !strcmp(name, "msgbox_old")) {   // cuadro de confirmación (modal)
+        config_screen_init(scr); click_label(scr, LV_SYMBOL_DOWNLOAD "  Actualizaciones"); run(200);
+        lv_obj_t* mbox = lv_msgbox_create(nullptr);
+        lv_msgbox_add_title(mbox, "Actualizar firmware");
+        lv_msgbox_add_text(mbox, "\xC2\xBFInstalar v4.5.2? El equipo se reiniciar\xC3\xA1 al terminar.");
+        lv_msgbox_add_footer_button(mbox, "Cancelar");
+        lv_msgbox_add_footer_button(mbox, "Instalar");
+        if (!strcmp(name, "msgbox")) ui_msgbox_scale(mbox);
+        run(300);
+    }
     // Las pantallas que no son el dashboard llevan el botón «inicio» (como en main.cpp)
     static const char* const with_home[] = { "chart", "stats", "profile", "config", "cfg" };
     for (const char* p : with_home)

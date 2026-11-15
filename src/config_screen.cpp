@@ -11,6 +11,7 @@
 #include "tz_presets.h"
 #include "clock_mode.h"
 #include "ui_toast.h"
+#include "ui_dialog.h"
 #include "fw_update.h"
 
 // Posición absoluta del campo SSID en pantalla (para anclar el dropdown)
@@ -499,6 +500,7 @@ static void restart_btn_cb(lv_event_t* /*e*/) {
     lv_msgbox_add_text(mbox, "Se perderán los cambios sin guardar. ¿Continuar?");
     lv_obj_t* btn_no  = lv_msgbox_add_footer_button(mbox, "Cancelar");
     lv_obj_t* btn_yes = lv_msgbox_add_footer_button(mbox, "Reiniciar");
+    ui_msgbox_scale(mbox);
     lv_obj_add_event_cb(btn_no,  restart_confirm_no_cb,  LV_EVENT_CLICKED, mbox);
     lv_obj_add_event_cb(btn_yes, restart_confirm_yes_cb, LV_EVENT_CLICKED, mbox);
 }
@@ -541,6 +543,7 @@ static void data_wipe_step2() {
     lv_obj_t* btn_no  = lv_msgbox_add_footer_button(mbox, "No, cancelar");
     lv_obj_t* btn_yes = lv_msgbox_add_footer_button(mbox, "Sí, borrar definitivamente");
     lv_obj_set_style_bg_color(btn_yes, lv_color_hex(0x7D2020), 0);
+    ui_msgbox_scale(mbox);
     lv_obj_add_event_cb(btn_no,  data_wipe_confirm_no_cb, LV_EVENT_CLICKED, mbox);
     lv_obj_add_event_cb(btn_yes, data_wipe_final_yes_cb,  LV_EVENT_CLICKED, mbox);
 }
@@ -561,6 +564,7 @@ static void data_wipe_btn_cb(lv_event_t* /*e*/) {
         "se reiniciará. Esta acción no se puede deshacer. ¿Continuar?");
     lv_obj_t* btn_no  = lv_msgbox_add_footer_button(mbox, "Cancelar");
     lv_obj_t* btn_yes = lv_msgbox_add_footer_button(mbox, "Borrar todo");
+    ui_msgbox_scale(mbox);
     lv_obj_add_event_cb(btn_no,  data_wipe_confirm_no_cb,  LV_EVENT_CLICKED, mbox);
     lv_obj_add_event_cb(btn_yes, data_wipe_confirm_yes_cb, LV_EVENT_CLICKED, mbox);
 }
@@ -816,6 +820,7 @@ static void upd_install_cb(lv_event_t*) {
     lv_msgbox_add_text(mbox, msg);
     lv_obj_t* btn_no  = lv_msgbox_add_footer_button(mbox, "Cancelar");
     lv_obj_t* btn_yes = lv_msgbox_add_footer_button(mbox, "Instalar");
+    ui_msgbox_scale(mbox);
     lv_obj_add_event_cb(btn_no,  upd_confirm_no_cb,  LV_EVENT_CLICKED, mbox);
     lv_obj_add_event_cb(btn_yes, upd_confirm_yes_cb, LV_EVENT_CLICKED, mbox);
 }

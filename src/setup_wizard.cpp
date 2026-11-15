@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include "ui_constants.h"
 #include "ui_toast.h"
+#include "ui_dialog.h"
 #include "storage.h"
 #include "config.h"
 #include "input_validators.h"
@@ -342,6 +343,7 @@ static void skip_cb(lv_event_t*) {
     lv_msgbox_add_text(mbox, "Podr\xC3\xA1s configurar todo m\xC3\xA1s tarde desde la pantalla Configuraci\xC3\xB3n. \xC2\xBFOmitir?");
     lv_obj_t* no  = lv_msgbox_add_footer_button(mbox, "Seguir");
     lv_obj_t* yes = lv_msgbox_add_footer_button(mbox, "Omitir");
+    ui_msgbox_scale(mbox);
     lv_obj_add_event_cb(no,  skip_confirm_no_cb,  LV_EVENT_CLICKED, mbox);
     lv_obj_add_event_cb(yes, skip_confirm_yes_cb, LV_EVENT_CLICKED, mbox);
 }
