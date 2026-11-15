@@ -6,8 +6,13 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+### Corregido
+
+- **La exportación CSV de la web (`/api/export`) ya no se come la RAM interna** (DEYE-80). Enviaba cada fila con tres escrituras TCP pequeñas y, con 175 días, el mínimo de RAM interna libre caía de 149 KB a 32 KB (y el mayor bloque contiguo, de 139 a ~77 KB), con riesgo de que fallara el TLS de la consulta de firmware o del bot. Ahora agrupa las filas en bloques de ~1,2 KB: el mismo rango cuesta ~10 KB. Medido por USB en una Guition original.
+
 ### Añadido
 
+- **Diagnóstico de RAM interna:** puntos de control `[MEM]` en cada paso del arranque, registro `[Heap]` cada 10 s los 5 primeros minutos (y después cada 10 min o en cada nuevo mínimo) y `[Web]` con la ruta, el tiempo y la memoria consumida por cada petición que baja el mínimo ≥ 4 KB o el mayor bloque ≥ 8 KB.
 - **La subida manual y la descarga de GitHub rechazan el `.bin` de otra placa.** Cada firmware lleva dentro el nombre de su entorno (`DEYE_FW_ENV:…`) y la imagen se comprueba antes de activarla; sobre todo evita instalar la JC1060P470 original en una rev. 3 o al revés, que el chip no distingue. Los `.bin` anteriores a esta versión no llevan la marca y se aceptan con un aviso en el log. Probado en nativo y contra los binarios reales de ambas JC1060P470.
 - **Mayor bloque libre de RAM interna** en la tarjeta «Sistema» de `/update` y en `/api/status` (`heap_block_kb`), y registro `[Heap]` cada 10 min y en cada nuevo mínimo, para localizar la fragmentación que impide el TLS.
 - El error «Memoria libre insuficiente para TLS» indica ahora bloque, memoria libre y mínimo exigido.

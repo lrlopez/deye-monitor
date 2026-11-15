@@ -155,7 +155,11 @@ void webserver_set_data(SemaphoreHandle_t mutex,
 // ═════════════════════════════════════════════════════════════════════════
 // Ruta GET /   →  Dashboard con 4 indicadores de arco SVG (estilo pantalla)
 // ═════════════════════════════════════════════════════════════════════════
+static const char* s_req_tag = "?";   // ruta de la petición en curso, para el diagnóstico de RAM (DEYE-80)
+#define REQ_TAG() (s_req_tag = __func__)
+
 static void handle_root() {
+    REQ_TAG();
     AppConfig cfg{}; Storage.loadConfig(cfg);
 
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
@@ -707,6 +711,7 @@ setInterval(clock,1000);
 // Ruta GET /update  →  Formulario de subida OTA
 // ═════════════════════════════════════════════════════════════════════════
 static void handle_update_get() {
+    REQ_TAG();
     s_ota_authed = false;   // invalidar cualquier sesión OTA anterior
     if (!check_auth()) return;
     // DEYE-40: literal en flash enviado con send_P (antes se copiaba a un String)
@@ -909,6 +914,7 @@ ghPoll();
 }
 
 static void handle_chart() {
+    REQ_TAG();
     // Página servida en chunks para no agotar el heap del ESP32
     server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.sendHeader("Content-Type", "text/html; charset=utf-8");
@@ -2557,6 +2563,7 @@ static void handle_restart() {
 // Ruta GET /api/data  →  JSON para integraciones externas
 // ═════════════════════════════════════════════════════════════════════════
 static void handle_api_data() {
+    REQ_TAG();
     EnergyData e{};
     if (s_mutex && xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
         if (s_energy) e = *s_energy;
@@ -2637,6 +2644,7 @@ static String epoch_to_date(uint32_t ep) {
 
 // ── GET /api/status ───────────────────────────────────────────────────────
 static void handle_status() {
+    REQ_TAG();
     char json[768];
     snprintf(json, sizeof(json),
         "{\"version\":\"" APP_VERSION "\","
@@ -2668,6 +2676,7 @@ static void handle_status() {
 
 // ── GET /api/latest_date ──────────────────────────────────────────────────
 static void handle_latest_date() {
+    REQ_TAG();
     uint32_t ep = Store.getLastRawDayEpoch();
     char json[48];
     if (ep == 0) {
@@ -2687,6 +2696,7 @@ static void handle_latest_date() {
 // la pestaña está abierta (ver WebAlerts en web_alerts.h) — no requiere
 // autenticación, mismo nivel de exposición que /api/data.
 static void handle_alerts() {
+    REQ_TAG();
     uint32_t since_id = 0;
     if (server.hasArg("since_id")) since_id = (uint32_t)server.arg("since_id").toInt();
 
@@ -2712,6 +2722,7 @@ static void handle_alerts() {
 
 // ── GET /api/history ──────────────────────────────────────────────────────
 static void handle_history() {
+    REQ_TAG();
     String date_s  = server.arg("date");
     String from_s  = server.arg("from");
     String to_s    = server.arg("to");
@@ -2883,7 +2894,24 @@ static void handle_history() {
 // ═════════════════════════════════════════════════════════════════════════
 void webserver_task(void* /*pv*/) {
     for (;;) {
+        // Diagnóstico de RAM interna (DEYE-80): una petición que baja el mínimo histórico o el mayor
+        // bloque libre queda registrada con su ruta. Solo se mide el bloque (recorre el montón) si la
+        // vuelta ha trabajado de verdad (> 3 ms); el resto del tiempo handleClient() no hace nada.
+        const uint32_t min0 = ESP.getMinFreeHeap(), free0 = ESP.getFreeHeap();
+        const uint32_t t0   = micros();
+        s_req_tag = "?";
         server.handleClient();
+        if (micros() - t0 > 3000) {
+            const uint32_t min1 = ESP.getMinFreeHeap(), free1 = ESP.getFreeHeap();
+            static uint32_t s_block = 0;
+            const uint32_t blk = ESP.getMaxAllocHeap();
+            if (min1 + 4096 <= min0 || (s_block && blk + 8192 <= s_block))
+                APP_LOGI("Web", "%s: %u ms, libre %u→%u B, bloque %u→%u B, mínimo %u→%u B",
+                         s_req_tag,
+                         (unsigned)((micros() - t0) / 1000), (unsigned)free0, (unsigned)free1,
+                         (unsigned)s_block, (unsigned)blk, (unsigned)min0, (unsigned)min1);
+            s_block = blk;
+        }
         vTaskDelay(pdMS_TO_TICKS(2));   // cede CPU; 2 ms de latencia máxima
     }
 }
@@ -2894,6 +2922,7 @@ void webserver_task(void* /*pv*/) {
 // ── GET /api/export?from=YYYYMMDD&to=YYYYMMDD ─────────────────────────────
 // Descarga un CSV con los totales diarios del rango solicitado (máx 366 días)
 static void handle_export_csv() {
+    REQ_TAG();
     String from_s = server.arg("from");
     String to_s   = server.arg("to");
 
@@ -2936,6 +2965,11 @@ static void handle_export_csv() {
         "fecha,pv_kwh,export_kwh,import_kwh,"
         "load_kwh,bchg_kwh,bdis_kwh,soc_inicio,soc_fin\r\n");
 
+    // Las filas se agrupan en bloques de ~1,2 KB. Enviar cada fila con sendContent() son tres escrituras
+    // TCP pequeñas (cabecera del chunk, fila, CRLF) y cada una ocupa memoria interna de lwIP hasta que
+    // el navegador la confirma: 175 días hundían el mínimo de RAM interna de 149 KB a 32 KB (DEYE-80).
+    String block;
+    block.reserve(1400);
     // Día a día por medianoche local (no d += 86400: el domingo de cambio de hora dura 23/25 h)
     for (uint32_t d = from_ep; d <= to_ep; d = next_local_midnight(d)) {
         DailyRecord dr{};
@@ -2948,8 +2982,10 @@ static void handle_export_csv() {
                  ds.pv_kwh, ds.export_kwh, ds.import_kwh,
                  ds.load_kwh, ds.batt_charge_kwh, ds.batt_discharge_kwh,
                  dr.soc_start, dr.soc_end);
-        server.sendContent(row);
+        block += row;
+        if (block.length() >= 1200) { server.sendContent(block); block = ""; }
     }
+    if (block.length()) server.sendContent(block);
     server.sendContent("");
 }
 
@@ -2980,11 +3016,13 @@ static void handle_icon() {
 // petición; el propio framework avisa: «Use send_P for long arrays»). send_P
 // escribe directamente desde la flash al socket, sin copia.
 static void handle_chartjs() {
+    REQ_TAG();
     server.sendHeader("Cache-Control", "public, max-age=86400");
     server.send_P(200, "application/javascript", CHARTJS_UMD_MIN_JS);
 }
 
 static void handle_chartjs_annotation() {
+    REQ_TAG();
     server.sendHeader("Cache-Control", "public, max-age=86400");
     server.send_P(200, "application/javascript", CHARTJS_ANNOTATION_MIN_JS);
 }
