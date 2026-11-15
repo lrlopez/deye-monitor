@@ -6,6 +6,8 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+## [v4.4.2] - 2026-11-15
+
 ### Corregido
 
 - **La exportación CSV de la web (`/api/export`) ya no se come la RAM interna** (DEYE-80). Enviaba cada fila con tres escrituras TCP pequeñas y, con 175 días, el mínimo de RAM interna libre caía de 149 KB a 32 KB (y el mayor bloque contiguo, de 139 a ~77 KB), con riesgo de que fallara el TLS de la consulta de firmware o del bot. Ahora agrupa las filas en bloques de ~1,2 KB: el mismo rango cuesta ~10 KB. Medido por USB en una Guition original.
