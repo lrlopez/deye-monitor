@@ -799,6 +799,118 @@ void test_fw_env_marker_resyncs_after_false_start() {
     TEST_ASSERT_EQUAL(FwEnvCheck::MATCH, scan_in_chunks("sunton_4827s043", buf, n, 5));
 }
 
+// ── Versión del modelo de datos ───────────────────────────────────────────
+static size_t make_model_image(uint8_t* buf, const char* model_digits) {
+    size_t n = 0;
+    for (; n < 60; n++) buf[n] = (uint8_t)(n * 11);
+    if (model_digits) {
+        memcpy(buf + n, FW_MODEL_MARK_PREFIX, FW_MODEL_MARK_PREFIX_LEN); n += FW_MODEL_MARK_PREFIX_LEN;
+        memcpy(buf + n, model_digits, strlen(model_digits) + 1);          n += strlen(model_digits) + 1;
+    }
+    for (int i = 0; i < 60; i++, n++) buf[n] = (uint8_t)(255 - i);
+    return n;
+}
+static int scan_model(const uint8_t* img, size_t n, size_t chunk) {
+    FwModelScanner s;
+    for (size_t i = 0; i < n; i += chunk) s.feed(img + i, (n - i < chunk) ? n - i : chunk);
+    return s.effective();
+}
+
+void test_fw_model_marker_found_and_split() {
+    uint8_t img[256];
+    size_t n = make_model_image(img, "7");
+    for (size_t chunk = 1; chunk <= 30; chunk++) TEST_ASSERT_EQUAL(7, scan_model(img, n, chunk));
+    n = make_model_image(img, "12");
+    TEST_ASSERT_EQUAL(12, scan_model(img, n, n));
+    FwModelScanner s; s.feed(img, n);
+    TEST_ASSERT_EQUAL(12, s.found());
+}
+
+void test_fw_model_marker_missing_counts_as_baseline() {
+    uint8_t img[256];
+    size_t n = make_model_image(img, nullptr);            // firmware ≤ 4.4.2: sin marca
+    TEST_ASSERT_EQUAL(FW_MODEL_BASELINE, scan_model(img, n, n));
+    FwModelScanner s; s.feed(img, n);
+    TEST_ASSERT_EQUAL(0, s.found());
+    // Prefijo sin valor (el literal del propio escáner) o con basura: no cuenta
+    n = make_model_image(img, "");
+    TEST_ASSERT_EQUAL(FW_MODEL_BASELINE, scan_model(img, n, n));
+    n = make_model_image(img, "x9");
+    TEST_ASSERT_EQUAL(FW_MODEL_BASELINE, scan_model(img, n, n));
+    // La marca de placa no se confunde con la de modelo
+    n = make_image(img, "sunton_4827s043");
+    TEST_ASSERT_EQUAL(FW_MODEL_BASELINE, scan_model(img, n, n));
+}
+
+void test_fw_model_allows_rule() {
+    TEST_ASSERT_TRUE(fw_model_allows(2, 2));     // mismo modelo: sí
+    TEST_ASSERT_TRUE(fw_model_allows(3, 2));     // superior: sí (migrará)
+    TEST_ASSERT_FALSE(fw_model_allows(1, 2));    // inferior: bajada de versión rechazada
+    TEST_ASSERT_TRUE(fw_model_allows(FW_MODEL_BASELINE, 1));   // sin marca sobre modelo 1: sí
+    TEST_ASSERT_FALSE(fw_model_allows(FW_MODEL_BASELINE, 2));  // sin marca sobre modelo 2: no
+}
+
+static const char RELEASES_JSON[] = R"([
+ {"tag_name":"v4.4.1","html_url":"https://x/v4.4.1","draft":false,"prerelease":false,"body":"ignorada","assets":[
+   {"name":"deye_monitor_sunton_4827s043_v4.4.1.bin","size":1000,"browser_download_url":"https://x/a441.bin"}]},
+ {"tag_name":"v4.5.0-beta","html_url":"https://x/v4.5.0-beta","draft":false,"prerelease":true,"assets":[
+   {"name":"deye_monitor_sunton_4827s043_v4.5.0-beta.bin","size":1100,"browser_download_url":"https://x/a450b.bin"}]},
+ {"tag_name":"v4.4.2","html_url":"https://x/v4.4.2","draft":false,"prerelease":false,"assets":[
+   {"name":"deye_monitor_guition_jc4880p443c_v4.4.2.bin","size":5,"browser_download_url":"https://x/g.bin"},
+   {"name":"deye_monitor_sunton_4827s043_v4.4.2.bin","size":1042,"digest":"sha256:d698af512717a7925932e4333bc8d3bcda25a7d593b560936d9eac37d024ad9f",
+    "browser_download_url":"https://x/a442.bin"}]},
+ {"tag_name":"v9.9.9","draft":true,"assets":[
+   {"name":"deye_monitor_sunton_4827s043_v9.9.9.bin","size":1,"browser_download_url":"https://x/z.bin"}]},
+ {"tag_name":"v4.3.0","html_url":"https://x/v4.3.0","assets":[]},
+ {"tag_name":"v4.2.0","html_url":"https://x/v4.2.0","assets":[
+   {"name":"deye_monitor_sunton_4827s043_v4.2.0.bin","size":900,"browser_download_url":"https://x/a420.bin"}]}
+])";
+
+void test_fw_parse_release_list() {
+    FwReleaseList l;
+    TEST_ASSERT_TRUE(fw_parse_release_list(RELEASES_JSON, "sunton_4827s043", l));
+    // Sin el borrador ni la que no trae binario de esta placa; de la más nueva a la más antigua
+    TEST_ASSERT_EQUAL(4, l.n);
+    TEST_ASSERT_EQUAL_STRING("v4.5.0-beta", l.rel[0].tag);
+    TEST_ASSERT_TRUE(l.rel[0].prerelease);
+    TEST_ASSERT_EQUAL_STRING("v4.4.2", l.rel[1].tag);
+    TEST_ASSERT_EQUAL_STRING("v4.4.1", l.rel[2].tag);
+    TEST_ASSERT_EQUAL_STRING("v4.2.0", l.rel[3].tag);
+    TEST_ASSERT_EQUAL_UINT32(1042, l.rel[1].asset_size);
+    TEST_ASSERT_TRUE(l.rel[1].has_digest);
+    TEST_ASSERT_EQUAL_STRING("https://x/a442.bin", l.rel[1].asset_url);   // el asset de ESTA placa
+    // «Última» = la estable más nueva (la beta no se ofrece como actualización)
+    TEST_ASSERT_EQUAL(1, fw_list_latest(l));
+    TEST_ASSERT_EQUAL(2, fw_list_find(l, "v4.4.1"));
+    TEST_ASSERT_EQUAL(-1, fw_list_find(l, "v9.9.9"));
+    TEST_ASSERT_EQUAL(-1, fw_list_find(l, nullptr));
+}
+
+void test_fw_parse_release_list_errors_and_limit() {
+    FwReleaseList l;
+    TEST_ASSERT_FALSE(fw_parse_release_list(RELEASES_JSON, "placa_inexistente", l));
+    TEST_ASSERT_TRUE(strlen(l.error) > 0);
+    TEST_ASSERT_FALSE(fw_parse_release_list("no es json", "sunton_4827s043", l));
+    TEST_ASSERT_FALSE(fw_parse_release_list("{}", "sunton_4827s043", l));          // no es un array
+    TEST_ASSERT_FALSE(fw_parse_release_list("[]", "sunton_4827s043", l));
+    // Más releases que FW_MAX_RELEASES: se quedan las más nuevas, aunque lleguen desordenadas
+    char js[2048]; size_t p = 0;
+    p += snprintf(js + p, sizeof js - p, "[");
+    for (int i = 0; i < 9; i++) {
+        int minor = (i * 5) % 9;                          // orden revuelto
+        p += snprintf(js + p, sizeof js - p,
+            "%s{\"tag_name\":\"v1.%d.0\",\"assets\":[{\"name\":\"deye_monitor_sunton_4827s043_v1.%d.0.bin\","
+            "\"size\":10,\"browser_download_url\":\"https://x/%d.bin\"}]}", i ? "," : "", minor, minor, minor);
+    }
+    snprintf(js + p, sizeof js - p, "]");
+    TEST_ASSERT_TRUE(fw_parse_release_list(js, "sunton_4827s043", l));
+    TEST_ASSERT_EQUAL(FW_MAX_RELEASES, l.n);
+    TEST_ASSERT_EQUAL_STRING("v1.8.0", l.rel[0].tag);
+    TEST_ASSERT_EQUAL_STRING("v1.3.0", l.rel[FW_MAX_RELEASES - 1].tag);
+    for (int i = 1; i < l.n; i++)
+        TEST_ASSERT_TRUE(fw_compare(fw_parse_version(l.rel[i - 1].tag), fw_parse_version(l.rel[i].tag)) > 0);
+}
+
 void test_fw_asset_matches() {
     TEST_ASSERT_TRUE(fw_asset_matches("deye_monitor_sunton_4827s043_v3.6.0.bin", "sunton_4827s043"));
     TEST_ASSERT_FALSE(fw_asset_matches("deye_monitor_sunton_4827s043_v3.6.0.bin", "guition_jc1060p470"));
@@ -1130,6 +1242,11 @@ int main(int, char**) {
     RUN_TEST(test_daily_report_due);
     RUN_TEST(test_battery_eta);
     RUN_TEST(test_battery_eta_format_and_pack);
+    RUN_TEST(test_fw_model_marker_found_and_split);
+    RUN_TEST(test_fw_model_marker_missing_counts_as_baseline);
+    RUN_TEST(test_fw_model_allows_rule);
+    RUN_TEST(test_fw_parse_release_list);
+    RUN_TEST(test_fw_parse_release_list_errors_and_limit);
     RUN_TEST(test_fw_asset_matches);
     RUN_TEST(test_fw_parse_release_picks_this_board);
     RUN_TEST(test_fw_parse_release_errors);

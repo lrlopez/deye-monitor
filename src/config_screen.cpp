@@ -11,6 +11,7 @@
 #include "tz_presets.h"
 #include "clock_mode.h"
 #include "ui_toast.h"
+#include "fw_update.h"
 
 // Posición absoluta del campo SSID en pantalla (para anclar el dropdown)
 // sec_wifi está en y=28, campo SSID en y=18 dentro de la sección
@@ -130,16 +131,18 @@ static const FieldRule* first_invalid_rule() {
 // muestra un MENÚ de rejilla y, al elegir una entrada, solo esa sección. Las
 // secciones se crean una vez y se muestran/ocultan: todos los widgets siguen
 // existiendo, así que Guardar sigue leyendo todos los campos de una vez.
-enum { SEC_WIFI = 0, SEC_INV, SEC_CHART, SEC_NET, SEC_TG, SEC_PANT, SEC_ADMIN, SEC_DATA, SEC_N };
+// «WiFi y red» reúne lo que antes eran dos secciones (WiFi y Red); «Actualizaciones» da información del
+// sistema y permite instalar una versión desde GitHub.
+enum { SEC_WIFI = 0, SEC_INV, SEC_CHART, SEC_TG, SEC_PANT, SEC_ADMIN, SEC_UPD, SEC_DATA, SEC_N };
 static lv_obj_t*  s_sec[SEC_N]      = {};     // la tarjeta de cada sección
 static lv_obj_t*  s_menu_btn[SEC_N] = {};     // su botón del menú
 static lv_obj_t*  s_menu_sum[SEC_N] = {};     // línea de resumen del botón
 static const char* SEC_TITLE[SEC_N] = {
-    "WiFi", "Inversor", "Gr\xC3\xA1\x66ica", "Red", "Telegram", "Pantalla", "Acceso web", "Datos"
+    "WiFi y red", "Inversor", "Gr\xC3\xA1\x66ica", "Telegram", "Pantalla", "Acceso web", "Actualizaciones", "Datos"
 };
 static const char* SEC_ICON[SEC_N] = {
-    LV_SYMBOL_WIFI, LV_SYMBOL_EDIT, LV_SYMBOL_CHART, LV_SYMBOL_GPS,
-    LV_SYMBOL_BELL, LV_SYMBOL_EYE_OPEN, LV_SYMBOL_WARNING, LV_SYMBOL_TRASH
+    LV_SYMBOL_WIFI, LV_SYMBOL_EDIT, LV_SYMBOL_CHART, LV_SYMBOL_BELL,
+    LV_SYMBOL_EYE_OPEN, LV_SYMBOL_WARNING, LV_SYMBOL_DOWNLOAD, LV_SYMBOL_TRASH
 };
 static int        s_cur_sec = -1;             // -1 = menú
 static lv_obj_t*  s_title_lbl   = nullptr;    // título superior; en una subpágina hace de "volver"
@@ -668,6 +671,141 @@ static void save_btn_cb(lv_event_t* /*e*/) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
+// Sección «Actualizaciones»: información del sistema y firmware desde GitHub
+// ═════════════════════════════════════════════════════════════════════════
+// La consulta y la descarga corren en tareas propias (fw_update.cpp); aquí solo se lanzan y se pinta
+// su estado cada medio segundo mientras la sección está abierta. Sin contraseña: quien tiene la
+// pantalla delante ya puede cambiarlas todas (la clave web solo se edita aquí), pero hay confirmación.
+static lv_obj_t* s_upd_ver = nullptr;
+static lv_obj_t* s_upd_env = nullptr;
+static lv_obj_t* s_upd_model = nullptr;
+static lv_obj_t* s_upd_up = nullptr;
+static lv_obj_t* s_upd_mem = nullptr;
+static lv_obj_t* s_upd_fs = nullptr;
+static lv_obj_t* s_upd_status = nullptr;
+static lv_obj_t* s_upd_dd = nullptr;
+static lv_obj_t* s_upd_btn_check = nullptr;
+static lv_obj_t* s_upd_btn_inst = nullptr;
+static lv_obj_t* s_upd_inst_lbl = nullptr;
+static uint32_t  s_upd_last = 0;
+static String    s_upd_opts;                             // opciones del desplegable ya cargadas
+static FwReleaseInfo s_upd_rel[FW_MAX_RELEASES];
+static int       s_upd_nrel = 0;
+static char      s_upd_pending[24] = {0};                // versión a instalar, a la espera de confirmar
+
+static void upd_set_btn_enabled(lv_obj_t* b, bool en) {
+    if (en) lv_obj_remove_state(b, LV_STATE_DISABLED); else lv_obj_add_state(b, LV_STATE_DISABLED);
+}
+
+// Texto del botón «Instalar» según la versión elegida en el desplegable
+static void upd_update_install_label() {
+    const int sel = (int)lv_dropdown_get_selected(s_upd_dd);
+    if (sel < 0 || sel >= s_upd_nrel) return;
+    const FwReleaseInfo& r = s_upd_rel[sel];
+    char b[48];
+    snprintf(b, sizeof(b), "%s %s", r.installed ? LV_SYMBOL_LOOP " Reinstalar" :
+                                    r.cmp < 0   ? LV_SYMBOL_DOWNLOAD " Volver a" : LV_SYMBOL_DOWNLOAD " Instalar", r.tag);
+    lv_label_set_text(s_upd_inst_lbl, b);
+}
+
+static void upd_refresh() {
+    FwStatus st; fw_update_status(st);
+    char b[64];
+
+    // ── Información del sistema ───────────────────────────────────────────
+    lv_label_set_text(s_upd_ver, st.current);
+    lv_label_set_text(s_upd_env, st.env[0] ? st.env : "desconocida");
+    snprintf(b, sizeof(b), "%d", st.data_model);
+    lv_label_set_text(s_upd_model, b);
+    const uint32_t up = millis() / 1000;
+    snprintf(b, sizeof(b), "%u d %u h %u min", (unsigned)(up / 86400), (unsigned)(up % 86400 / 3600), (unsigned)(up % 3600 / 60));
+    lv_label_set_text(s_upd_up, b);
+    snprintf(b, sizeof(b), "%u KB (bloque %u KB)", (unsigned)(ESP.getFreeHeap() / 1024), (unsigned)(ESP.getMaxAllocHeap() / 1024));
+    lv_label_set_text(s_upd_mem, b);
+    snprintf(b, sizeof(b), "%u / %u MB", (unsigned)(LittleFS.usedBytes() / 1048576UL), (unsigned)(LittleFS.totalBytes() / 1048576UL));
+    lv_label_set_text(s_upd_fs, b);
+
+    // ── Estado de la consulta / instalación ───────────────────────────────
+    const bool busy = st.state == FwState::CHECKING || st.state == FwState::DOWNLOADING || st.state == FwState::INSTALLED;
+    char t[128]; lv_color_t col = C_MUTED;
+    switch (st.state) {
+    case FwState::CHECKING:    snprintf(t, sizeof(t), "Consultando GitHub..."); col = C_WARN; break;
+    case FwState::UP_TO_DATE:  snprintf(t, sizeof(t), "Al d\xC3\xAD\x61. \xC3\x9Altima: %s", st.latest); col = C_OK; break;
+    case FwState::AVAILABLE:   snprintf(t, sizeof(t), "Hay una versi\xC3\xB3n nueva: %s", st.latest); col = C_OK; break;
+    case FwState::DOWNLOADING: snprintf(t, sizeof(t), "Instalando %s: %u%%", st.target,
+                                        st.size ? (unsigned)((uint64_t)st.done * 100 / st.size) : 0u); col = C_WARN; break;
+    case FwState::INSTALLED:   snprintf(t, sizeof(t), "Instalado. Reiniciando..."); col = C_OK; break;
+    case FwState::ERROR:       snprintf(t, sizeof(t), LV_SYMBOL_WARNING " %s", st.error); col = C_ERR; break;
+    default:                   snprintf(t, sizeof(t), "Pulsa \xC2\xAB" "Buscar\xC2\xBB para consultar GitHub."); break;
+    }
+    lv_label_set_text(s_upd_status, t);
+    lv_obj_set_style_text_color(s_upd_status, col, 0);
+    upd_set_btn_enabled(s_upd_btn_check, !busy);
+
+    // ── Lista de versiones (tras una consulta correcta) ───────────────────
+    s_upd_nrel = busy ? 0 : fw_update_releases(s_upd_rel, FW_MAX_RELEASES);
+    if (s_upd_nrel == 0) {
+        lv_obj_add_flag(s_upd_dd, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_upd_btn_inst, LV_OBJ_FLAG_HIDDEN);
+        s_upd_opts = "";
+        return;
+    }
+    String opts;
+    int latest_i = 0;
+    for (int i = 0; i < s_upd_nrel; i++) {
+        const FwReleaseInfo& r = s_upd_rel[i];
+        if (i) opts += "\n";
+        opts += r.tag;
+        if (r.installed)      opts += "  (instalada)";
+        else if (r.cmp < 0)   opts += "  (anterior)";
+        if (r.prerelease)     opts += "  [pre]";
+        if (!strcmp(r.tag, st.latest)) latest_i = i;
+    }
+    if (opts != s_upd_opts) {                      // solo si cambió: recrear las opciones cierra el desplegable abierto
+        s_upd_opts = opts;
+        lv_dropdown_set_options(s_upd_dd, opts.c_str());
+        lv_dropdown_set_selected(s_upd_dd, latest_i);
+    }
+    lv_obj_remove_flag(s_upd_dd, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(s_upd_btn_inst, LV_OBJ_FLAG_HIDDEN);
+    upd_update_install_label();
+}
+
+static void upd_check_cb(lv_event_t*) {
+    if (!fw_update_check_async()) ui_toast_error("Ya hay una operaci\xC3\xB3n en curso");
+    upd_refresh();
+}
+
+static void upd_dd_cb(lv_event_t*) { upd_update_install_label(); }
+
+static void upd_confirm_no_cb(lv_event_t* e) { lv_msgbox_close((lv_obj_t*)lv_event_get_user_data(e)); }
+static void upd_confirm_yes_cb(lv_event_t* e) {
+    lv_msgbox_close((lv_obj_t*)lv_event_get_user_data(e));
+    if (!fw_update_install_async(s_upd_pending)) ui_toast_error("No se pudo iniciar la instalaci\xC3\xB3n");
+    upd_refresh();
+}
+
+static void upd_install_cb(lv_event_t*) {
+    const int sel = (int)lv_dropdown_get_selected(s_upd_dd);
+    if (sel < 0 || sel >= s_upd_nrel) return;
+    const FwReleaseInfo& r = s_upd_rel[sel];
+    snprintf(s_upd_pending, sizeof(s_upd_pending), "%s", r.tag);
+    char msg[220];
+    int n = snprintf(msg, sizeof(msg), "%s %s? El equipo se reiniciar\xC3\xA1 al terminar.",
+                     r.installed ? "\xC2\xBFReinstalar" : "\xC2\xBFInstalar", r.tag);
+    if (r.cmp < 0)
+        snprintf(msg + n, sizeof(msg) - n, " Es una versi\xC3\xB3n anterior: se rechazar\xC3\xA1 si su modelo de datos es "
+                 "m\xC3\xA1s antiguo que el actual (%d).", fw_data_model());
+    lv_obj_t* mbox = lv_msgbox_create(nullptr);   // NULL = modal en layer_top
+    lv_msgbox_add_title(mbox, "Actualizar firmware");
+    lv_msgbox_add_text(mbox, msg);
+    lv_obj_t* btn_no  = lv_msgbox_add_footer_button(mbox, "Cancelar");
+    lv_obj_t* btn_yes = lv_msgbox_add_footer_button(mbox, "Instalar");
+    lv_obj_add_event_cb(btn_no,  upd_confirm_no_cb,  LV_EVENT_CLICKED, mbox);
+    lv_obj_add_event_cb(btn_yes, upd_confirm_yes_cb, LV_EVENT_CLICKED, mbox);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
 // Menú y navegación entre subpáginas (DEYE-57)
 // ═════════════════════════════════════════════════════════════════════════
 #define SEC_TOP        SY(30)             // y de la sección abierta (= la del bloque WiFi, que ancla el desplegable de SSID)
@@ -711,13 +849,17 @@ static void menu_update_summaries() {
     }
 
     const char* ssid = lv_textarea_get_text(ta_ssid);
-    menu_set_summary(SEC_WIFI, ssid[0] ? ssid : "Sin configurar", ssid[0] ? C_MUTED : C_WARN);
+    if (!ssid[0])                           menu_set_summary(SEC_WIFI, "Sin configurar", C_WARN);
+    else if (WiFi.status() == WL_CONNECTED) {
+        snprintf(b, sizeof(b), "%s - %s", ssid, WiFi.localIP().toString().c_str());
+        menu_set_summary(SEC_WIFI, b, C_MUTED);
+    } else                                  menu_set_summary(SEC_WIFI, "Sin conexi\xC3\xB3n", C_WARN);
     menu_set_summary(SEC_INV, lv_textarea_get_text(ta_logger_ip), C_MUTED);
     if (lv_obj_has_state(cb_autoscale, LV_STATE_CHECKED)) snprintf(b, sizeof(b), "Autoescalado");
     else snprintf(b, sizeof(b), "M\xC3\xA1x %d kW", (int)lv_slider_get_value(slider_kw_global));
     menu_set_summary(SEC_CHART, b, C_MUTED);
-    if (WiFi.status() == WL_CONNECTED) menu_set_summary(SEC_NET, WiFi.localIP().toString().c_str(), C_MUTED);
-    else                               menu_set_summary(SEC_NET, "Sin conexi\xC3\xB3n", C_WARN);
+    snprintf(b, sizeof(b), "Versi\xC3\xB3n %s", APP_VERSION);
+    menu_set_summary(SEC_UPD, b, C_MUTED);
     const bool tg = lv_textarea_get_text(s_ta_tg_token)[0] != '\0';
     menu_set_summary(SEC_TG, tg ? "Activo" : "Sin configurar", tg ? C_OK : C_MUTED);
     snprintf(b, sizeof(b), "Brillo %d%%", (int)lv_slider_get_value(s_slider_bl_op));
@@ -761,8 +903,10 @@ static void show_section(int idx) {
     snprintf(t, sizeof(t), LV_SYMBOL_LEFT "  %s", SEC_TITLE[idx]);
     lv_label_set_text(s_title_lbl, t);
     lv_obj_set_style_text_color(s_title_lbl, C_ACCENT, 0);
+    lv_obj_update_layout(s_sec[idx]);   // las coordenadas de una sección oculta no se calculan hasta mostrarla
     layout_actions(SEC_TOP + lv_obj_get_height(s_sec[idx]));
     lv_obj_scroll_to_y(s_cfg_parent, 0, LV_ANIM_OFF);
+    if (idx == SEC_UPD) { s_upd_last = millis(); upd_refresh(); }
 }
 
 static void menu_btn_cb(lv_event_t* e) {
@@ -827,15 +971,17 @@ void config_screen_init(lv_obj_t* parent) {
     ChartConfig ccfg = Storage.loadChartConfig();
 
     // Posiciones Y calculadas en cascada
+    // «WiFi y red»: SSID y clave (como el antiguo bloque WiFi) y debajo, desplazado NET_OFF, lo que era
+    // «Estado red» (IP, señal, mDNS y zona horaria)
+    const int NET_OFF      = CFG_FIELD_H*2 + SY(8);                  // bajo la fila de la clave (y = 62 + campo)
     const int SEC_WIFI_Y   = SY(30);
-    const int SEC_WIFI_H   = CFG_FIELD_H*2 + CFG_SEC_PAD*2 + SY(20);
+    const int SEC_WIFI_BASE_H = CFG_FIELD_H*2 + CFG_SEC_PAD*2 + SY(20);   // altura del antiguo bloque WiFi
+    const int SEC_WIFI_H   = NET_OFF + SY(106) + CFG_FIELD_H + CFG_SEC_PAD;   // +106: hasta la fila «Zona horaria» (DEYE-74)
     const int SEC_INV_Y    = SEC_WIFI_Y  + SEC_WIFI_H  + SY(4);
-    const int SEC_INV_H    = SEC_WIFI_H + SY(44) * 3;
+    const int SEC_INV_H    = SEC_WIFI_BASE_H + SY(44) * 3;
     const int SEC_CHART_Y  = SEC_INV_Y  + SEC_INV_H   + SY(4);
     const int SEC_CHART_H  = CFG_FIELD_H + SS(16) + CFG_SEC_PAD*2 + SY(30);
-    const int SEC_NET_Y    = SEC_CHART_Y + SEC_CHART_H + SY(4);
-    const int SEC_NET_H    = SY(106) + CFG_FIELD_H + CFG_SEC_PAD;   // +44: fila «Zona horaria» (DEYE-74)
-    const int SEC_TG_Y     = SEC_NET_Y   + SEC_NET_H   + SY(4);
+    const int SEC_TG_Y     = SEC_CHART_Y + SEC_CHART_H + SY(4);
     const int SEC_TG_H     = CFG_FIELD_H*2 + SS(16) + CFG_SEC_PAD*2 + SY(76) + SY(20) + SY(30);   // +30: «Informe diario»
 
 
@@ -854,7 +1000,7 @@ void config_screen_init(lv_obj_t* parent) {
                         LV_EVENT_CLICKED, nullptr);
 
     // ── Sección WiFi ──────────────────────────────────────────────────────
-    lv_obj_t* sec_wifi = make_section(parent, LV_SYMBOL_WIFI "RED WiFi", SEC_WIFI_Y, SEC_WIFI_H);
+    lv_obj_t* sec_wifi = make_section(parent, LV_SYMBOL_WIFI " WiFi Y RED", SEC_WIFI_Y, SEC_WIFI_H);
     s_sec[SEC_WIFI] = sec_wifi;
 
     make_row_label(sec_wifi, SY(18), "SSID");
@@ -999,14 +1145,13 @@ void config_screen_init(lv_obj_t* parent) {
         lv_label_set_text(lbl, buf);
     }, LV_EVENT_VALUE_CHANGED, CFG_LBL_kw_val);
 
-    // ── Sección Estado red ────────────────────────────────────────────────────
-    lv_obj_t* sec_net = make_section(parent, LV_SYMBOL_GPS " ESTADO RED", SEC_NET_Y, SEC_NET_H);
-    s_sec[SEC_NET] = sec_net;
-    lbl_ip   = make_info_row(sec_net, SY(18), "IP ESP32");
-    lbl_rssi = make_info_row(sec_net, SY(38), "Se\xC3\xB1\x61l WiFi");
+    // ── «WiFi y red»: estado de la conexión, mDNS y zona horaria (debajo de SSID y clave) ──────────
+    lv_obj_t* sec_net = sec_wifi;
+    lbl_ip   = make_info_row(sec_net, NET_OFF + SY(18), "IP ESP32");
+    lbl_rssi = make_info_row(sec_net, NET_OFF + SY(38), "Se\xC3\xB1\x61l WiFi");
 
-    make_row_label(sec_net, SY(62), "mDNS");
-    s_ta_mdns = make_field(sec_net, CFG_LBL_W, SY(62),
+    make_row_label(sec_net, NET_OFF + SY(62), "mDNS");
+    s_ta_mdns = make_field(sec_net, CFG_LBL_W, NET_OFF + SY(62),
                            CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), false, MDNS_HOSTNAME);
     lv_textarea_set_text(s_ta_mdns, cfg.mdns_hostname);
     lv_textarea_set_max_length(s_ta_mdns, 31);
@@ -1017,7 +1162,7 @@ void config_screen_init(lv_obj_t* parent) {
 
     // Zona horaria (DEYE-74): un cambio reinicia, porque los epochs de medianoche del
     // histórico y de la caché se calculan con la zona vigente al arrancar
-    make_row_label(sec_net, SY(106), "Zona hor.");
+    make_row_label(sec_net, NET_OFF + SY(106), "Zona hor.");
     s_dd_tz = lv_dropdown_create(sec_net);
     {
         String opts;
@@ -1025,7 +1170,7 @@ void config_screen_init(lv_obj_t* parent) {
         lv_dropdown_set_options(s_dd_tz, opts.c_str());
     }
     lv_dropdown_set_selected(s_dd_tz, Storage.loadTimezone());
-    lv_obj_set_pos(s_dd_tz, CFG_LBL_W, SY(106));
+    lv_obj_set_pos(s_dd_tz, CFG_LBL_W, NET_OFF + SY(106));
     lv_obj_set_size(s_dd_tz, CFG_FIELD_W + CFG_SCAN_BTN_W + SX(4), CFG_FIELD_H);
     lv_obj_set_style_bg_color(s_dd_tz, lv_color_hex(0x21262D), 0);
     lv_obj_set_style_text_color(s_dd_tz, C_WHITE, 0);
@@ -1341,6 +1486,80 @@ void config_screen_init(lv_obj_t* parent) {
         lv_obj_center(wipe_lbl);
     }
 
+    // ── Sección Actualizaciones: información del sistema + firmware desde GitHub ─────────────
+    {
+        // Disposición (sin scroll en las placas grandes): [Buscar | estado] / 6 filas de información /
+        // [versión a instalar | Instalar]
+        const int ROW = SY(18), IW = CFG_SECTION_W - CFG_SEC_PAD*2;
+        const int BW  = IW * 38 / 100;                           // ancho de los botones
+        const int Y_TOP  = SY(18);
+        const int Y_INFO = Y_TOP + CFG_FIELD_H + SY(8);
+        const int Y_DD   = Y_INFO + 6*ROW + SY(8);
+        const int SEC_UPD_H = Y_DD + CFG_FIELD_H + CFG_SEC_PAD*2;
+        lv_obj_t* sec_upd = make_section(parent, LV_SYMBOL_DOWNLOAD " ACTUALIZACIONES", SEC_BL_Y, SEC_UPD_H);
+        s_sec[SEC_UPD] = sec_upd;
+
+        s_upd_ver   = make_info_row(sec_upd, Y_INFO + 0*ROW, "Versi\xC3\xB3n");
+        s_upd_env   = make_info_row(sec_upd, Y_INFO + 1*ROW, "Placa");
+        s_upd_model = make_info_row(sec_upd, Y_INFO + 2*ROW, "Modelo datos");
+        s_upd_up    = make_info_row(sec_upd, Y_INFO + 3*ROW, "En marcha");
+        s_upd_mem   = make_info_row(sec_upd, Y_INFO + 4*ROW, "RAM libre");
+        s_upd_fs    = make_info_row(sec_upd, Y_INFO + 5*ROW, "Almacenam.");
+        lv_obj_t* vals[] = { s_upd_ver, s_upd_env, s_upd_model, s_upd_up, s_upd_mem, s_upd_fs };
+        for (lv_obj_t* v : vals) {
+            lv_obj_set_width(v, IW - CFG_LBL_W);
+            lv_label_set_long_mode(v, LV_LABEL_LONG_CLIP);
+        }
+
+        // Estado de la consulta/instalación, a la derecha del botón Buscar (hasta 2 líneas)
+        s_upd_status = lv_label_create(sec_upd);
+        lv_obj_set_pos(s_upd_status, BW + SX(10), Y_TOP);
+        lv_obj_set_size(s_upd_status, IW - BW - SX(10), CFG_FIELD_H);
+        lv_label_set_long_mode(s_upd_status, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_font(s_upd_status, &FONT_SMALL, 0);
+        lv_obj_set_style_text_color(s_upd_status, C_MUTED, 0);
+        lv_label_set_text(s_upd_status, "");
+
+        // Versión a instalar (aparece tras una consulta correcta); se abre hacia arriba para no salirse de la pantalla
+        s_upd_dd = lv_dropdown_create(sec_upd);
+        lv_dropdown_set_options(s_upd_dd, " ");
+        lv_dropdown_set_dir(s_upd_dd, LV_DIR_TOP);
+        lv_obj_set_pos(s_upd_dd, 0, Y_DD);
+        lv_obj_set_size(s_upd_dd, IW - BW - SX(8), CFG_FIELD_H);
+        lv_obj_set_style_bg_color(s_upd_dd, lv_color_hex(0x21262D), 0);
+        lv_obj_set_style_text_color(s_upd_dd, C_WHITE, 0);
+        lv_obj_set_style_text_font(s_upd_dd, &FONT_SMALL, 0);
+        lv_obj_set_style_border_color(s_upd_dd, C_ACCENT, 0);
+        lv_obj_set_style_border_width(s_upd_dd, 1, 0);
+        lv_obj_set_style_pad_ver(s_upd_dd, 4, 0);
+        lv_obj_t* upd_list = lv_dropdown_get_list(s_upd_dd);
+        lv_obj_set_style_bg_color(upd_list, C_LIST, 0);
+        lv_obj_set_style_text_color(upd_list, C_WHITE, 0);
+        lv_obj_set_style_text_font(upd_list, &FONT_SMALL, 0);
+        lv_obj_set_style_border_color(upd_list, C_ACCENT, 0);
+        lv_obj_add_event_cb(s_upd_dd, upd_dd_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+        lv_obj_add_flag(s_upd_dd, LV_OBJ_FLAG_HIDDEN);
+
+        auto mk_btn = [&](int x, int y, lv_color_t bg, const char* txt, lv_event_cb_t cb, lv_obj_t** lbl_out) {
+            lv_obj_t* b = lv_btn_create(sec_upd);
+            lv_obj_set_pos(b, x, y);
+            lv_obj_set_size(b, BW, CFG_FIELD_H);
+            lv_obj_set_style_bg_color(b, bg, 0);
+            lv_obj_set_style_bg_opa(b, LV_OPA_50, LV_STATE_DISABLED);
+            lv_obj_set_style_radius(b, 6, 0);
+            lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, nullptr);
+            lv_obj_t* l = lv_label_create(b);
+            lv_label_set_text(l, txt);
+            lv_obj_set_style_text_font(l, &FONT_SMALL, 0);
+            lv_obj_center(l);
+            if (lbl_out) *lbl_out = l;
+            return b;
+        };
+        s_upd_btn_check = mk_btn(0, Y_TOP, C_BTN, LV_SYMBOL_REFRESH " Buscar", upd_check_cb, nullptr);
+        s_upd_btn_inst  = mk_btn(IW - BW, Y_DD, lv_color_hex(0x2D7D46), LV_SYMBOL_DOWNLOAD " Instalar", upd_install_cb, &s_upd_inst_lbl);
+        lv_obj_add_flag(s_upd_btn_inst, LV_OBJ_FLAG_HIDDEN);
+    }
+
     // ── Botones acción + status ────────────────────────────────────────────────
     // (su posición la fija layout_actions() según se esté en el menú o en una subpágina)
     lv_obj_t* btn_rst = lv_btn_create(parent);
@@ -1390,6 +1609,8 @@ void config_screen_init(lv_obj_t* parent) {
 // Refresco periódico de red
 // ═════════════════════════════════════════════════════════════════════════
 void config_screen_tick() {
+    // «Actualizaciones» abierta: estado de la consulta/instalación al instante (cada 0,5 s)
+    if (s_cur_sec == SEC_UPD && millis() - s_upd_last >= 500) { s_upd_last = millis(); upd_refresh(); }
     if (millis() - s_last_net_refresh < 5000) return;
     s_last_net_refresh = millis();
 

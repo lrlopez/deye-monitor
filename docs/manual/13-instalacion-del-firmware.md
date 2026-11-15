@@ -109,11 +109,12 @@ está bloqueada).
 
 ### Desde GitHub (recomendado)
 
-1. En el bloque **Actualizar desde GitHub**, pulsa **Buscar actualización**. El equipo consulta la
-   última *release* publicada y compara con la versión instalada (que se muestra junto al nombre de
-   tu placa).
-2. Si hay una versión nueva, aparece el botón **Instalar**, con un enlace a las notas de la versión.
-   Pulsa **Instalar** y **confirma** en el segundo paso.
+1. En el bloque **Actualizar desde GitHub**, pulsa **Buscar actualización**. El equipo consulta las
+   últimas *releases* publicadas y compara con la versión instalada (que se muestra junto al nombre
+   de tu placa y al **modelo de datos**).
+2. Aparece un **selector de versión** con las últimas publicadas (por defecto, la última estable).
+   Puedes elegir otra, también una **anterior** (el botón pasa a «Volver a vX.Y.Z»). Pulsa el botón
+   y **confirma** en el segundo paso. Hay un enlace a las notas de la versión.
 3. El equipo **descarga** el fichero de **tu placa**, comprueba su integridad y, solo si todo es
    correcto, lo instala y **se reinicia**. Mientras tanto, la pantalla muestra el avance y se congela
    el resto de la interfaz. Durante la instalación la pantalla **puede parpadear**; es normal y no
@@ -122,6 +123,16 @@ está bloqueada).
 La descarga se verifica antes de instalar: conexión cifrada con certificado comprobado, tamaño,
 cabecera del fichero y **huella SHA-256** publicada por GitHub. Si cualquier comprobación falla, **no
 se instala nada** y el equipo sigue funcionando con la versión actual.
+
+!!! warning "Volver a una versión anterior: el modelo de datos"
+    Cada firmware lleva la **versión de su modelo de datos** (el formato de la configuración y el
+    historial). Se acepta una versión con el **mismo modelo o superior** (migrará lo guardado) y se
+    **rechaza una con modelo inferior**, porque no entendería lo que el equipo ya tiene guardado. Se
+    comprueba en la descarga (se corta en cuanto se ve la marca) y también en la subida manual, siempre
+    antes de activar la imagen: si se rechaza, no se instala nada. Las versiones hasta la 4.4.2 no
+    llevan la marca y cuentan como modelo 1 (por eso la protección solo empieza a actuar desde la
+    primera versión que la incluye: una 4.4.2 ya instalada no puede aplicarla). Lo mismo puede hacerse **desde la pantalla táctil**
+    (Configuración → Actualizaciones, ver [Configuración](06-configuracion.md#actualizaciones)).
 
 !!! note "Si falla la descarga"
     Si GitHub cambiara de autoridad certificadora, la descarga automática podría fallar «cerrada» (por

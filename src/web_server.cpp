@@ -756,15 +756,25 @@ static void handle_update_get() {
   #gh-install{background:#238636}
   #gh-install:hover{background:#2ea043}
   .sep{color:#6e7681;font-size:.8rem}
+  #gh-sel{background:#0d1117;color:#eaeaea;border:1px solid #30363d;border-radius:6px;padding:8px;
+          font-size:.95rem;width:100%;margin-top:4px}
+  #gh-note{color:#6e7681;font-size:.8rem;line-height:1.35;margin-top:6px}
+  #gh-note.warn{color:#f5c518}
 </style></head><body>
 <h1>&#8593; Actualización de Firmware</h1>
 <div class="card" id="gh">
   <h2>&#8681; Actualizar desde GitHub</h2>
   <div class="row"><span>Versión instalada</span><b id="gh-cur">&ndash;</b></div>
   <div class="row"><span>Placa</span><b id="gh-env">&ndash;</b></div>
+  <div class="row"><span>Modelo de datos</span><b id="gh-model">&ndash;</b></div>
   <div class="row" id="gh-lat-row" style="display:none"><span>Última versión</span><b id="gh-lat">&ndash;</b></div>
-  <div id="gh-msg">Pulsa «Buscar» para consultar la última release publicada.</div>
+  <div id="gh-msg">Pulsa «Buscar» para consultar las últimas versiones publicadas.</div>
   <div id="gh-prog"><div id="gh-bar"></div></div>
+  <div id="gh-pick" style="display:none">
+    <label for="gh-sel" class="sep">Versión a instalar</label>
+    <select id="gh-sel" onchange="ghPicked();"></select>
+    <div id="gh-note"></div>
+  </div>
   <div class="btns">
     <button type="button" id="gh-check" onclick="ghCheck();">Buscar actualización</button>
     <button type="button" id="gh-install" style="display:none" onclick="ghInstall();">Instalar</button>
@@ -774,6 +784,7 @@ static void handle_update_get() {
 <div class="card" id="sys">
   <h2>&#9881; Sistema</h2>
   <div class="row"><span>Tiempo en marcha</span><b id="sy-up">&ndash;</b></div>
+  <div class="row"><span>Modelo de datos</span><b id="sy-model">&ndash;</b></div>
   <div class="row"><span>Memoria libre (m&iacute;n.)</span><b id="sy-heap">&ndash;</b></div>
   <div class="row"><span>Mayor bloque libre</span><b id="sy-block">&ndash;</b></div>
   <div class="row"><span>PSRAM libre</span><b id="sy-psram">&ndash;</b></div>
@@ -796,6 +807,7 @@ function sysLoad(){
   fetch('/api/status').then(r=>r.json()).then(j=>{
     const $=id=>document.getElementById(id);
     $('sy-up').textContent=sysFmtUp(j.uptime_s);
+    $('sy-model').textContent=j.data_model;
     $('sy-heap').textContent=j.heap_free_kb+' KB ('+j.heap_min_kb+' KB)';
     $('sy-block').textContent=j.heap_block_kb+' KB';
     $('sy-psram').textContent=Math.round(j.psram_free_kb/1024*10)/10+' MB';
@@ -842,28 +854,57 @@ async function ghFetch(path,method){
   if(!r.ok) throw new Error((await r.text())||('HTTP '+r.status));
   return r.json();
 }
+let ghSig='';
+function ghSelTag(){ return $('gh-sel').value; }
+function ghSelRel(){ const t=ghSelTag(); return ((ghLast&&ghLast.releases)||[]).find(r=>r.tag===t); }
+function ghFill(s){
+  const rs=s.releases||[], sig=JSON.stringify(rs);
+  if(sig===ghSig) return;                       // sin cambios: se respeta la elección en curso
+  ghSig=sig;
+  const sel=$('gh-sel'), keep=sel.value;
+  sel.innerHTML='';
+  rs.forEach(r=>{
+    const o=document.createElement('option'); o.value=r.tag;
+    o.textContent=r.tag+(r.installed?' · instalada':r.cmp<0?' · anterior':' · más nueva')+(r.pre?' · pre-release':'');
+    sel.appendChild(o);
+  });
+  sel.value=rs.some(r=>r.tag===keep)?keep:(s.latest||(rs[0]&&rs[0].tag)||'');
+}
+function ghPicked(){ ghArmed=false; if(ghLast) ghRender(ghLast); }
 function ghRender(s){
   ghLast=s;
   $('gh-cur').textContent=s.current;
   $('gh-env').textContent=s.env||'desconocida';
+  $('gh-model').textContent=s.data_model;
   $('gh-lat-row').style.display=s.latest?'flex':'none';
   $('gh-lat').textContent=s.latest||'';
   const n=$('gh-notes'); n.style.display=s.notes_url?'inline':'none'; if(s.notes_url) n.href=s.notes_url;
   const msg=$('gh-msg'), chk=$('gh-check'), ins=$('gh-install'), pr=$('gh-prog');
   pr.style.display='none'; ins.style.display='none'; chk.disabled=false;
+  // Selector de versión: cuando hay lista y no se está consultando ni instalando
+  const rs=s.releases||[], idle=(s.state==='uptodate'||s.state==='available'||s.state==='error');
+  $('gh-pick').style.display=(rs.length&&idle)?'block':'none';
+  if(rs.length&&idle){
+    ghFill(s);
+    const r=ghSelRel(), note=$('gh-note');
+    if(r){
+      ins.style.display='inline-block';
+      const what=r.installed?'Reinstalar '+r.tag:(r.cmp<0?'Volver a '+r.tag:'Instalar '+r.tag);
+      ins.textContent=ghArmed?'Confirmar: '+what.toLowerCase()+' y reiniciar':what;
+      note.className=r.cmp<0?'warn':'';
+      note.textContent=Math.round(r.size/1024)+' KB'+(r.has_digest?' · verificada con SHA-256':'')+
+        (r.cmp<0?'. Versión anterior: solo se instala si su modelo de datos no es inferior al de este equipo ('+s.data_model+').':'.');
+    }
+  }
   switch(s.state){
   case 'checking':
     msg.textContent='Consultando GitHub…'; chk.disabled=true; break;
   case 'uptodate':
-    msg.textContent='Ya tienes la última versión ('+s.current+').'; break;
+    msg.textContent='Ya tienes la última versión ('+s.current+'). Puedes elegir otra abajo.'; break;
   case 'available':
-    msg.textContent='Hay una versión nueva: '+s.latest+' ('+Math.round(s.size/1024)+' KB'+
-      (s.has_digest?', verificada con SHA-256':'')+').';
-    ins.style.display='inline-block';
-    ins.textContent=ghArmed?'Confirmar: instalar '+s.latest+' y reiniciar':'Instalar '+s.latest;
-    break;
+    msg.textContent='Hay una versión nueva: '+s.latest+'.'; break;
   case 'downloading':
-    msg.textContent='Descargando e instalando… no apagues el dispositivo.';
+    msg.textContent='Descargando e instalando '+(s.target||'')+'… no apagues el dispositivo.';
     chk.disabled=true; pr.style.display='block';
     $('gh-bar').style.width=(s.size?Math.round(s.done/s.size*100):0)+'%'; break;
   case 'installed':
@@ -871,9 +912,9 @@ function ghRender(s){
     chk.disabled=true; pr.style.display='block'; $('gh-bar').style.width='100%';
     ghWaitReboot(); return;
   case 'error':
-    msg.textContent='Error: '+s.error; break;
+    ghBusy=false; msg.textContent='Error: '+s.error; break;
   default:
-    msg.textContent='Pulsa «Buscar» para consultar la última release publicada.';
+    msg.textContent='Pulsa «Buscar» para consultar las últimas versiones publicadas.';
   }
 }
 async function ghPoll(){
@@ -900,7 +941,7 @@ async function ghInstall(){
     return;
   }
   ghArmed=false; ghBusy=true;
-  try{ ghRender(await ghFetch('/api/fw/install','POST')); ghTimer=setTimeout(ghPoll,700); }
+  try{ ghRender(await ghFetch('/api/fw/install?tag='+encodeURIComponent(ghSelTag()),'POST')); ghTimer=setTimeout(ghPoll,700); }
   catch(e){ ghBusy=false; $('gh-msg').textContent='Error: '+e.message; }
 }
 function ghWaitReboot(){
@@ -1478,6 +1519,20 @@ static void send_fw_status() {
     d["done"]       = st.done;
     d["has_digest"] = st.has_digest;
     d["error"]      = st.error;
+    d["data_model"] = st.data_model;
+    d["target"]     = st.target;
+    FwReleaseInfo ri[FW_MAX_RELEASES];
+    const int nr = fw_update_releases(ri, FW_MAX_RELEASES);
+    JsonArray ra = d["releases"].to<JsonArray>();
+    for (int i = 0; i < nr; i++) {
+        JsonObject o = ra.add<JsonObject>();
+        o["tag"]        = ri[i].tag;
+        o["pre"]        = ri[i].prerelease;
+        o["installed"]  = ri[i].installed;
+        o["cmp"]        = (int)ri[i].cmp;
+        o["size"]       = ri[i].size;
+        o["has_digest"] = ri[i].has_digest;
+    }
     String out;
     serializeJson(d, out);
     server.sendHeader("Cache-Control", "no-store");
@@ -1502,9 +1557,11 @@ static void handle_fw_check() {
 static void handle_fw_install() {
     if (!check_auth()) return;
     if (!check_same_origin()) return;
-    if (!fw_update_install_async()) {
+    // ?tag=vX.Y.Z elige la versión (una de las que lista /api/fw/status); sin él, la última estable
+    const String tag = server.arg("tag");
+    if (!fw_update_install_async(tag.c_str())) {
         server.send(409, "text/plain",
-                    "No hay una versión disponible para instalar o hay otra operación en curso");
+                    "No hay una versión disponible para instalar, la etiqueta no es de la lista o hay otra operación en curso");
         return;
     }
     send_fw_status();
@@ -1524,6 +1581,8 @@ static void handle_update_post() {
 }
 
 static FwEnvScanner s_ota_env("");     // comprobación de placa de la subida en curso
+static FwModelScanner s_ota_model;     // y de su modelo de datos (no se baja de modelo)
+static bool s_ota_model_bad = false;   // la subida en curso es de un modelo inferior (ya se ha dejado de escribir)
 
 static void handle_upload() {
     HTTPUpload& upload = server.upload();
@@ -1564,6 +1623,8 @@ static void handle_upload() {
         uint32_t t0 = millis();
         while (!g_ota_active && (millis() - t0 < 1500)) delay(10);
         s_ota_env = FwEnvScanner(fw_env_marker() + FW_ENV_MARK_PREFIX_LEN);
+        s_ota_model = FwModelScanner();
+        s_ota_model_bad = false;
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
             DBGSERIAL.print("[OTA] Error al iniciar: ");
             Update.printError(DBGSERIAL);
@@ -1572,11 +1633,15 @@ static void handle_upload() {
 
     } else if (upload.status == UPLOAD_FILE_WRITE) {
         if (!s_ota_authed) return;
+        if (s_ota_model_bad) return;           // ya rechazada: se sigue recibiendo, pero no se escribe más
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
             DBGSERIAL.print("[OTA] Error escribiendo: ");
             Update.printError(DBGSERIAL);
         }
         s_ota_env.feed(upload.buf, upload.currentSize);
+        s_ota_model.feed(upload.buf, upload.currentSize);
+        if (s_ota_model.found() > 0 && !fw_model_allows(s_ota_model.found(), fw_data_model()))
+            s_ota_model_bad = true;
 
     } else if (upload.status == UPLOAD_FILE_END) {
         if (!s_ota_authed) return;
@@ -1594,6 +1659,17 @@ static void handle_upload() {
         }
         if (s_ota_env.result() == FwEnvCheck::NOT_FOUND)
             DBGSERIAL.println("[OTA] Aviso: el binario no trae marca de placa (firmware anterior a 4.4.2)");
+        // Modelo de datos: no se baja de modelo (la imagen sin marca cuenta como el de referencia)
+        if (s_ota_model_bad || !fw_model_allows(s_ota_model.effective(), fw_data_model())) {
+            DBGSERIAL.printf("[OTA] Rechazado: modelo de datos %d < %d instalado\n",
+                             s_ota_model.effective(), fw_data_model());
+            Update.abort();
+            g_ota_cancel = true;
+            server.send(409, "text/plain",
+                        String("Esa versión usa un modelo de datos más antiguo (") + s_ota_model.effective() +
+                        ") que el instalado (" + fw_data_model() + "): no se puede volver atrás. No se ha instalado nada.");
+            return;
+        }
         if (Update.end(true)) {
             DBGSERIAL.printf("[OTA] Completado: %u bytes. Reiniciando.\n",
                           upload.totalSize);
@@ -1762,7 +1838,7 @@ function fmtH(v){v=+v;return(v<10?'0':'')+v+'h';}
 
     // ── Red ───────────────────────────────────────────────────────────────
     {
-        String _s = "<div class='card'><h2>&#128267; Red</h2>"
+        String _s = "<div class='card'><h2>&#128267; WiFi y red</h2>"
                     "<p class='info'>WiFi: <strong style='color:var(--white)'>";
         _s += html_escape(cfg.wifi_ssid);
         _s += "</strong> &mdash; Configurable desde la pantalla t&aacute;ctil.</p>"
@@ -2659,7 +2735,7 @@ static void handle_status() {
         "\"psram_free_kb\":%lu,"
         "\"uptime_s\":%lu,\"heap_free_kb\":%lu,\"heap_min_kb\":%lu,\"heap_block_kb\":%lu,"
         "\"fs_total_kb\":%lu,\"fs_used_kb\":%lu,"
-        "\"wifi_rssi\":%d,\"ip\":\"%s\"}",
+        "\"wifi_rssi\":%d,\"ip\":\"%s\",\"data_model\":%d,\"fw_env\":\"" FW_ENV_NAME "\"}",
         (unsigned long)Store.getRawCount(),
         (unsigned long)Store.getRawCapacity(),
         (unsigned long)Store.getHourlyCount(),
@@ -2674,7 +2750,8 @@ static void handle_status() {
         (unsigned long)LittleFS.totalBytes() / 1024,
         (unsigned long)LittleFS.usedBytes() / 1024,
         (int)WiFi.RSSI(),
-        WiFi.localIP().toString().c_str());
+        WiFi.localIP().toString().c_str(),
+        fw_data_model());
 
     server.send(200, "application/json", json);
 }

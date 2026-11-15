@@ -63,3 +63,31 @@ BacklightConfig StorageManager::loadBacklightConfig() { BacklightConfig b{}; b.o
 String StorageManager::loadAdminPassword() { return ""; }
 void StorageManager::saveConfig(const AppConfig&) {} void StorageManager::saveChartConfig(const ChartConfig&) {}
 void StorageManager::saveTelegramConfig(const TelegramConfig&) {} void StorageManager::saveAdminPassword(const char*) {}
+
+// ── Actualización de firmware (fw_update.cpp): estado simulado para las capturas ──────────────
+#include "fw_update.h"
+int g_fw_mock = 0;   // 0 sin consultar · 1 lista tras la consulta · 2 instalando · 3 error de modelo de datos
+int  fw_data_model() { return 2; }
+bool fw_update_check_async() { g_fw_mock = 1; return true; }
+bool fw_update_install_async(const char*) { g_fw_mock = 2; return true; }
+void fw_update_status(FwStatus& o) {
+    memset(&o, 0, sizeof o);
+    strcpy(o.env, "guition_jc4880p443c"); strcpy(o.current, "4.4.2"); o.data_model = 2;
+    o.state = FwState::IDLE;
+    if (g_fw_mock == 1) { o.state = FwState::AVAILABLE; strcpy(o.latest, "v4.5.0"); o.n_releases = 4; }
+    if (g_fw_mock == 2) { o.state = FwState::DOWNLOADING; strcpy(o.target, "v4.5.0"); o.size = 2274368; o.done = 1380000; }
+    if (g_fw_mock == 3) { o.state = FwState::ERROR; strcpy(o.latest, "v4.5.0"); o.n_releases = 4;
+                          strcpy(o.error, "Modelo de datos 1 < 2 instalado: no se puede bajar a esa versi\xC3\xB3n"); }
+}
+int fw_update_releases(FwReleaseInfo* out, int max) {
+    if (g_fw_mock == 0 || g_fw_mock == 2) return 0;
+    static const struct { const char* tag; bool pre; int8_t cmp; } R[] = {
+        { "v4.5.0", false, 1 }, { "v4.4.2", false, 0 }, { "v4.4.1", false, -1 }, { "v4.4.0", false, -1 } };
+    int n = 0;
+    for (; n < 4 && n < max; n++) {
+        memset(&out[n], 0, sizeof out[n]); strcpy(out[n].tag, R[n].tag);
+        out[n].prerelease = R[n].pre; out[n].cmp = R[n].cmp; out[n].installed = R[n].cmp == 0;
+        out[n].size = 2274368; out[n].has_digest = true;
+    }
+    return n;
+}

@@ -76,3 +76,54 @@ private:
         }
     }
 };
+
+// ── Versión del modelo de datos ───────────────────────────────────────────
+// Cada binario lleva también «DEYE_DATA_MODEL:<n>\0» (DATA_MODEL_VERSION de config.h). Regla de
+// bajada de versión: se acepta una imagen cuyo modelo sea IGUAL O SUPERIOR al del firmware en
+// marcha (el nuevo migrará lo que haga falta); una con modelo INFERIOR se rechaza, porque no sabría
+// leer lo que ya hay guardado. Sin marca (≤ 4.4.2) = modelo FW_MODEL_BASELINE.
+// Como la de placa, la marca se busca byte a byte mientras se escribe la imagen, antes de Update.end().
+
+#define FW_MODEL_MARK_PREFIX "DEYE_DATA_MODEL:"
+#define FW_MODEL_MARK_PREFIX_LEN (sizeof(FW_MODEL_MARK_PREFIX) - 1)
+#define FW_MODEL_BASELINE 1
+
+class FwModelScanner {
+public:
+    void feed(const uint8_t* b, size_t n) {
+        for (size_t i = 0; i < n; i++) step(b[i]);
+    }
+    // Modelo declarado por la imagen (el mayor si hubiera varias marcas), o 0 si no trae marca
+    int found() const { return _model; }
+    // Modelo efectivo: lo declarado o, sin marca, el de referencia
+    int effective() const { return _model > 0 ? _model : FW_MODEL_BASELINE; }
+
+private:
+    size_t _pos = 0;
+    bool   _in_val = false;
+    int    _len = 0;
+    long   _acc = 0;
+    int    _model = 0;
+
+    void step(uint8_t c) {
+        if (_in_val) {
+            if (c == 0) {
+                _in_val = false;
+                if (_len > 0 && _acc > _model) _model = (int)_acc;
+                return;
+            }
+            if (c >= '0' && c <= '9' && _len < 6) { _acc = _acc * 10 + (c - '0'); _len++; return; }
+            _in_val = false; _pos = 0; return;        // no es un número: no es una marca válida
+        }
+        if ((char)c == FW_MODEL_MARK_PREFIX[_pos]) {
+            if (++_pos == FW_MODEL_MARK_PREFIX_LEN) { _in_val = true; _len = 0; _acc = 0; _pos = 0; }
+        } else {
+            _pos = ((char)c == FW_MODEL_MARK_PREFIX[0]) ? 1 : 0;
+        }
+    }
+};
+
+// true si una imagen con modelo `image_model` puede instalarse sobre un firmware con `running_model`
+inline bool fw_model_allows(int image_model, int running_model) {
+    return image_model >= running_model;
+}

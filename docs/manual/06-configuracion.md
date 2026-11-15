@@ -5,8 +5,9 @@ configurar todo sin ordenador.
 
 ## El menú
 
-La pantalla se presenta como un **menú de ocho entradas**, cada una con un resumen de su estado
-actual («MiRed», «Autoescalado», «Sin clave: web bloqueada»…). Toca una para abrir solo esa sección;
+La pantalla se presenta como un **menú de ocho entradas** (WiFi y red, Inversor, Gráfica, Telegram,
+Pantalla, Acceso web, Actualizaciones y Datos), cada una con un resumen de su estado actual
+(«MiRed - 192.168.1.77», «Autoescalado», «Sin clave: web bloqueada», «Versión 4.4.2»…). Toca una para abrir solo esa sección;
 el **título de la parte superior** («‹ Inversor») vuelve al menú.
 
 ![Menú de configuración](img/config-menu.png)
@@ -32,13 +33,23 @@ lleva a la sección con el error.
 
 ![Aviso de un campo no válido](img/config-validacion.png)
 
-## WiFi
+## WiFi y red
 
-![Sección WiFi](img/config-wifi.png)
+![Sección WiFi y red](img/config-wifi.png)
+
+Reúne todo lo relativo a la conexión del equipo:
 
 - **SSID** y **Contraseña** de tu red. El botón de **búsqueda** escanea las redes cercanas y te las
   lista por intensidad de señal; tocar una rellena el nombre.
 - La contraseña, vacía (red abierta) o de 8 a 63 caracteres.
+- **IP** del equipo e **intensidad de la señal WiFi** (solo lectura, se refrescan solas).
+- **mDNS**: el nombre con el que se accede desde la red (`inversor` → `http://inversor.local`).
+  Solo letras, números y guiones (máximo 31, sin guion al principio ni al final).
+- **Zona horaria**: un desplegable con las zonas más habituales (España y Europa central, Canarias,
+  Portugal y Reino Unido, Europa oriental, UTC, México, Colombia y Perú, Argentina y Uruguay, Chile y
+  Estados Unidos este, centro y Pacífico), cada una con sus reglas de cambio de hora de verano. Es
+  importante que sea la correcta: de ella depende en qué momento empieza y termina cada día en el
+  historial. **Un cambio de zona reinicia el equipo.**
 
 ## Inversor
 
@@ -65,20 +76,6 @@ comunicación durante un rato, y actualiza la IP guardada.
 - **Autoescalado**: la escala vertical de la [gráfica](04-grafica.md) se adapta a los valores del
   día.
 - **Máximo (kW)**: con el autoescalado desactivado, fija el máximo del eje.
-
-## Red
-
-![Sección Red](img/config-red.png)
-
-Muestra la **IP** del equipo y la **intensidad de la señal WiFi**, y permite ajustar:
-
-- **mDNS**: el nombre con el que se accede desde la red (`inversor` → `http://inversor.local`).
-  Solo letras, números y guiones (máximo 31, sin guion al principio ni al final).
-- **Zona horaria**: un desplegable con las zonas más habituales (España y Europa central, Canarias,
-  Portugal y Reino Unido, Europa oriental, UTC, México, Colombia y Perú, Argentina y Uruguay, Chile y
-  Estados Unidos este, centro y Pacífico), cada una con sus reglas de cambio de hora de verano. Es
-  importante que sea la correcta: de ella depende en qué momento empieza y termina cada día en el
-  historial. **Un cambio de zona reinicia el equipo.**
 
 ## Telegram
 
@@ -118,6 +115,39 @@ donde se puede cambiar: deliberadamente no se puede hacer desde la web, para que
 tu red pueda bloquearte el acceso. Mientras no haya clave, la administración web y las
 actualizaciones desde el navegador están **bloqueadas** (el resumen de la sección lo recuerda en
 amarillo).
+
+## Actualizaciones
+
+![Sección Actualizaciones](img/config-actualizaciones.png)
+
+Información del sistema y actualización del firmware **desde la propia pantalla**, sin ordenador:
+
+- **Versión** instalada, **Placa** (de qué modelo es este equipo), **Modelo datos** (ver más abajo),
+  tiempo **En marcha**, **RAM libre** (y el mayor bloque contiguo, que es lo que necesita la conexión
+  cifrada con GitHub) y **Almacenam.** usado del historial.
+- **Buscar** consulta GitHub. A su derecha se ve el estado («Consultando…», «Hay una versión nueva:
+  v4.5.0», «Al día»…).
+- Tras una consulta correcta aparece un **desplegable con las últimas versiones publicadas**, no solo
+  la más nueva: puedes elegir cualquiera (cada una indica si es la **instalada** o una **anterior**). El
+  botón **Instalar** cambia según la elegida («Instalar v4.5.0», «Volver a v4.4.1», «Reinstalar
+  v4.4.2») y pide **confirmación** antes de empezar.
+
+![Elegir la versión a instalar](img/config-actualizaciones-version.png)
+
+Durante la instalación la pantalla muestra el avance y se congela el resto de la interfaz; al
+terminar, el equipo **se reinicia solo**. Si algo falla (sin WiFi, sin memoria, versión
+incompatible…), no se instala nada y el motivo aparece en esta misma sección.
+
+**Modelo de datos.** Cada versión del firmware lleva un número que indica el formato en que guarda sus
+datos (configuración, historial, copias de seguridad). Se puede **instalar una versión con el mismo
+modelo o con uno superior** (la nueva se encarga de migrar lo guardado), pero **no una con un modelo
+inferior** al instalado: no sabría leer lo que ya hay en el equipo. Por eso volver a una versión
+anterior solo funciona mientras no haya cambiado el modelo de datos; si lo ha hecho, el equipo lo
+rechaza antes de instalar nada. Esta protección vale también para la subida manual del fichero.
+
+!!! note "Sin contraseña"
+    En la pantalla no se pide la clave de administración: quien tiene el equipo delante ya puede
+    cambiar cualquier ajuste (la clave web solo se define aquí). La web, en cambio, sí la exige.
 
 ## Datos
 

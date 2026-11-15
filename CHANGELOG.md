@@ -6,6 +6,23 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Unreleased]
 
+## [v4.5.0] - 2026-11-15
+
+### Añadido
+
+- **Selección de versión del firmware** (pantalla y web). La consulta a GitHub pasa de `releases/latest` a las 6 últimas releases (≈90 KB de JSON, a PSRAM; se conservan las que tengan binario para la placa) y se puede **elegir cualquiera**, también una anterior o la misma (reinstalar). La web (`/update`) ofrece un selector («v4.5.0 · más nueva», «· instalada», «· anterior», «· pre-release») y `POST /api/fw/install?tag=vX.Y.Z`; `/api/fw/status` devuelve `releases[]`, `data_model` y `target`. La «última» sigue siendo la estable más nueva: las pre-releases no se ofrecen como actualización.
+- **Versión del modelo de datos** (`DATA_MODEL_VERSION` en `config.h`, ahora 1) para evitar bajar a una versión incompatible. Cada binario lleva `DEYE_DATA_MODEL:<n>`; se instala una imagen con modelo **igual o superior** al del firmware en marcha (la nueva migrará) y se **rechaza** una con modelo inferior. Se comprueba mientras se escribe la imagen (en la descarga de GitHub se corta en cuanto aparece la marca) y también en la subida manual (409), siempre antes de `Update.end()`. Sin marca (≤ 4.4.2) = modelo 1. **Hay que subir `DATA_MODEL_VERSION` (y escribir la migración) cada vez que un cambio impida a un firmware anterior leer lo que escribe el nuevo.** `/api/status` incluye `data_model` y `fw_env`.
+- **Configuración en pantalla: sección «Actualizaciones»** con información del sistema (versión, placa, modelo de datos, tiempo en marcha, RAM libre y mayor bloque, almacenamiento), botón **Buscar**, desplegable de versiones y botón **Instalar** con confirmación (sin contraseña: la clave web solo se define en la propia pantalla).
+
+### Cambiado
+
+- **Configuración en pantalla: «WiFi» y «Red» se fusionan en «WiFi y red»** (SSID, clave, IP, señal, mDNS y zona horaria en una sola sección). El menú pasa a ser WiFi y red · Inversor · Gráfica · Telegram · Pantalla · Acceso web · Actualizaciones · Datos. En la web de administración la tarjeta «Red» pasa a llamarse «WiFi y red».
+- Manual y capturas actualizados (`config-wifi`, `config-menu`, `config-actualizaciones*`, `web-actualizacion*`); `config-red.png` desaparece.
+
+### Corregido
+
+- Al abrir una sección de Configuración, el simulador de capturas colocaba mal los botones Guardar/Reiniciar porque se medía la altura de una sección aún oculta; ahora se recalcula el diseño antes de medir (`lv_obj_update_layout`).
+
 ## [v4.4.2] - 2026-11-15
 
 ### Corregido

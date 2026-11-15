@@ -91,7 +91,8 @@ inline DailyStats daily_record_to_stats(const DailyRecord& r) {
 
 
 struct FakeFile { operator bool() const { return false; } void close() {} };
-struct FakeFS { FakeFile open(const char*, const char*) { return {}; } };
+struct FakeFS { FakeFile open(const char*, const char*) { return {}; }
+                size_t totalBytes() { return 8u << 20; } size_t usedBytes() { return 4000u << 10; } };
 extern FakeFS LittleFS;
 typedef FakeFile File;
 struct FakeStore { void flush() {} DailyRecord getCurrentDaily() { DailyRecord r{}; return r; } };

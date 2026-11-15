@@ -6,7 +6,9 @@ from urllib.parse import urlparse, parse_qs
 
 ROOT = os.path.dirname(os.path.abspath(__file__)) + "/site"
 NOW = datetime.now()
-FW = {"state": os.environ.get("FW_STATE", "idle"), "latest": "v3.7.0" if os.environ.get("FW_STATE") == "available" else ""}
+FW = {"state": os.environ.get("FW_STATE", "idle"), "latest": "v4.5.0" if os.environ.get("FW_STATE") == "available" else ""}
+# Releases de ejemplo (de la más nueva a la más antigua); «cmp» frente a la versión instalada (4.4.2)
+RELEASES = [("v4.5.0", 1), ("v4.4.2", 0), ("v4.4.1", -1), ("v4.4.0", -1)]
 
 def records():
     midnight = datetime(NOW.year, NOW.month, NOW.day).timestamp()
@@ -40,8 +42,8 @@ class H(BaseHTTPRequestHandler):
                 "daily": {"pv_kwh": 9.8, "export_kwh": 3.0, "import_kwh": 2.1, "load_kwh": 8.4, "batt_charge_kwh": 1.9,
                 "batt_discharge_kwh": 2.2, "valid": True}}))
         elif u.path == "/api/status":
-            self.send(200, json.dumps({"version": "3.7.0", "uptime_s": 273000, "heap_free_kb": 142, "heap_min_kb": 96, "heap_block_kb": 72,
-                "psram_free_kb": 6240, "fs_total_kb": 8192, "fs_used_kb": 3921, "wifi_rssi": -57, "ip": "192.168.1.77"}))
+            self.send(200, json.dumps({"version": "4.4.2", "uptime_s": 273000, "heap_free_kb": 142, "heap_min_kb": 96, "heap_block_kb": 72,
+                "psram_free_kb": 6240, "fs_total_kb": 8192, "fs_used_kb": 3921, "wifi_rssi": -57, "ip": "192.168.1.77", "data_model": 2, "fw_env": "guition_jc4880p443c"}))
         elif u.path == "/api/alerts":
             self.send(200, json.dumps({"alerts": [], "last_id": 0}))
         elif u.path == "/api/latest_date":
@@ -51,14 +53,17 @@ class H(BaseHTTPRequestHandler):
             self.send(200, json.dumps({"date": NOW.strftime("%Y-%m-%d"), "granularity": "5min", "from_ts": 0, "new_records": len(r),
                 "daily": {"pv": 9.8, "exp": 3.0, "imp": 2.1, "load": 8.4, "bchg": 1.9, "bdis": 2.2}, "records": r}))
         elif u.path == "/api/fw/status":
-            self.send(200, json.dumps({"state": FW["state"], "env": "guition_jc4880p443c", "current": "3.6.0", "latest": FW["latest"],
-                "notes_url": "", "asset": "deye_monitor_guition_jc4880p443c_v3.7.0.bin" if FW["latest"] else "",
-                "size": 1869584 if FW["latest"] else 0, "done": 0, "has_digest": True, "error": ""}))
+            rel = [{"tag": t, "pre": False, "installed": c == 0, "cmp": c, "size": 2274368, "has_digest": True}
+                   for t, c in RELEASES] if FW["latest"] else []
+            self.send(200, json.dumps({"state": FW["state"], "env": "guition_jc4880p443c", "current": "4.4.2", "latest": FW["latest"],
+                "notes_url": "", "asset": "deye_monitor_guition_jc4880p443c_v4.5.0.bin" if FW["latest"] else "",
+                "size": 2274368 if FW["latest"] else 0, "done": 0, "has_digest": True, "error": "",
+                "data_model": 2, "target": "", "releases": rel}))
         else:
             self.send(404, "no")
     def do_POST(self):
         if self.path == "/api/fw/check":
-            FW.update(state="available", latest="v3.7.0")
+            FW.update(state="available", latest="v4.5.0")
             self.do_GET()
         else:
             self.send(404, "no")

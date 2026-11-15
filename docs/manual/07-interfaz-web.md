@@ -120,6 +120,9 @@ y aquí encontrarás además un bloque **Sistema** con información de estado:
 
 ![Página de actualización con el bloque Sistema](img/web-actualizacion.png)
 
-El bloque **Sistema** muestra el tiempo que lleva encendido el equipo, la memoria libre (y su mínimo
-histórico), la PSRAM libre, el almacenamiento usado, la señal WiFi y la IP. Se refresca cada diez
+En el bloque de GitHub puedes **elegir la versión** que quieres instalar entre las últimas publicadas
+(también una anterior, siempre que su *modelo de datos* no sea inferior al instalado).
+
+El bloque **Sistema** muestra el tiempo que lleva encendido el equipo, el **modelo de datos** del
+firmware, la memoria libre (y su mínimo histórico), el mayor bloque libre, la PSRAM libre, el almacenamiento usado, la señal WiFi y la IP. Se refresca cada diez
 segundos y es lo primero que conviene consultar si el equipo se comporta de forma rara.

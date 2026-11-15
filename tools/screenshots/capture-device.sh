@@ -37,6 +37,7 @@ shot stats pantalla-estadisticas;       shot chart pantalla-grafica
 shot chart_week pantalla-grafica-semana; shot chart_hidden pantalla-grafica-leyenda
 shot profile pantalla-perfil
 shot config_menu config-menu;           shot config_inv_bad config-validacion
-i=0; for n in wifi inversor grafica red telegram pantalla acceso-web datos; do shot cfgs$i config-$n; i=$((i+1)); done
+i=0; for n in wifi inversor grafica telegram pantalla acceso-web actualizaciones datos; do shot cfgs$i config-$n; i=$((i+1)); done
+shot upd_pick config-actualizaciones-version
 for n in 0 1 2 3 4 5 7 9 10; do shot wiz$n asistente-$n; done
 echo "Hecho: $IMG"

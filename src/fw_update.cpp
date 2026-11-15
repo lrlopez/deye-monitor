@@ -30,6 +30,13 @@ volatile bool g_fw_tls_busy = false;
 static const char kFwEnvMarker[] __attribute__((used)) = FW_ENV_MARK_PREFIX FW_ENV_NAME;
 const char* fw_env_marker() { return kFwEnvMarker; }
 
+// Marca del modelo de datos («DEYE_DATA_MODEL:<n>»): la buscan las imágenes recibidas para impedir bajar de modelo.
+#define FW_STR2(x) #x
+#define FW_STR(x)  FW_STR2(x)
+static const char kFwModelMarker[] __attribute__((used)) = FW_MODEL_MARK_PREFIX FW_STR(DATA_MODEL_VERSION);
+const char* fw_model_marker() { return kFwModelMarker; }
+int fw_data_model() { return DATA_MODEL_VERSION; }
+
 static const uint32_t MIN_FREE_HEAP = 50000;  // bloque contiguo mínimo para un handshake TLS
 static const uint32_t TIME_VALID_EPOCH = 1700000000UL;
 
@@ -41,7 +48,8 @@ namespace {
 struct Shared {
     SemaphoreHandle_t mtx;
     FwStatus   st;
-    FwRelease  rel;            // resultado de la última consulta
+    FwReleaseList list;        // resultado de la última consulta (de la más nueva a la más antigua)
+    FwRelease  rel;            // la que se va a instalar (elegida en fw_update_install_async)
     bool       rel_ok = false;
     volatile bool busy = false;
     Shared() : mtx(xSemaphoreCreateMutex()) {
@@ -49,6 +57,7 @@ struct Shared {
         st.state = FwState::IDLE;
         fw_copy(st.env, sizeof(st.env), FW_ENV_NAME);
         fw_copy(st.current, sizeof(st.current), APP_VERSION);
+        st.data_model = DATA_MODEL_VERSION;
     }
 };
 Shared& S() { static Shared s; return s; }       // inicialización thread-safe (C++11)
@@ -103,7 +112,9 @@ static void do_check() {
         st.state = FwState::CHECKING;
         st.error[0] = '\0'; st.latest[0] = '\0'; st.notes_url[0] = '\0'; st.asset[0] = '\0';
         st.size = 0; st.done = 0; st.has_digest = false;
+        st.target[0] = '\0'; st.n_releases = 0;
         S().rel_ok = false;
+        S().list = FwReleaseList();
     }
 
     if (!FW_ENV_NAME[0])                 { fail("Este firmware no sabe qué binario le corresponde"); return; }
@@ -121,7 +132,9 @@ static void do_check() {
              (unsigned)ESP.getMaxAllocHeap(), (unsigned)ESP.getFreeHeap(), (unsigned)MIN_FREE_HEAP); return;
     }
 
-    static const char kUrl[] = "https://api.github.com/repos/" FW_UPDATE_REPO "/releases/latest";
+    // Las últimas releases (no solo la última): se elige versión. Cada una pesa varios KB por la lista de
+    // assets, así que el cuerpo va a PSRAM (String grande) y se filtra al interpretarlo.
+    static const char kUrl[] = "https://api.github.com/repos/" FW_UPDATE_REPO "/releases?per_page=6";   // ~15 KB por release (≈90 KB)
     String body;
     int code = 0;
     {
@@ -141,7 +154,7 @@ static void do_check() {
         code = http.GET();
         if (code == 200) {
             int sz = http.getSize();
-            if (sz > 60000) { http.end(); fail("Respuesta de GitHub demasiado grande"); return; }
+            if (sz > 400000) { http.end(); fail("Respuesta de GitHub demasiado grande"); return; }
             body = http.getString();
         } else if (code < 0) {
             char tls[80] = {0};
@@ -157,19 +170,24 @@ static void do_check() {
     if (code == 404)                { fail("No hay ninguna release publicada"); return; }
     if (code != 200)                { fail("GitHub respondió HTTP %d", code); return; }
 
-    FwRelease rel;
-    if (!fw_parse_release(body.c_str(), FW_ENV_NAME, rel)) {
-        fail("%s", rel.error[0] ? rel.error : "Respuesta no válida");
+    std::unique_ptr<FwReleaseList> list(new FwReleaseList());
+    if (!fw_parse_release_list(body.c_str(), FW_ENV_NAME, *list)) {
+        fail("%s", list->error[0] ? list->error : "Respuesta no válida");
         return;
     }
+    body = String();                          // libera el cuerpo (cientos de KB de PSRAM) cuanto antes
 
+    const int li = fw_list_latest(*list);
+    const FwRelease rel = list->rel[li];
     const bool newer = fw_is_newer(APP_VERSION, rel.tag);
-    APP_LOGI("FwUpdate", "Última release %s (instalada %s) -> %s", rel.tag, APP_VERSION,
+    APP_LOGI("FwUpdate", "%d releases; última %s (instalada %s) -> %s", list->n, rel.tag, APP_VERSION,
              newer ? "hay actualización" : "al día");
     Lock l;
+    S().list = *list;
     S().rel = rel;
     S().rel_ok = true;
     FwStatus& st = S().st;
+    st.n_releases = list->n;
     fw_copy(st.latest, sizeof(st.latest), rel.tag);
     fw_copy(st.notes_url, sizeof(st.notes_url), rel.html_url);
     fw_copy(st.asset, sizeof(st.asset), rel.asset_name);
@@ -200,6 +218,14 @@ public:
         }
         mbedtls_sha256_update(&_ctx, b, n);
         _env.feed(b, n);
+        _model.feed(b, n);
+        if (_model.found() > 0 && !fw_model_allows(_model.found(), DATA_MODEL_VERSION)) {
+            // Se corta en cuanto aparece la marca: no hace falta descargar el resto de una imagen que no se instalará
+            snprintf(_msg, sizeof(_msg), "Modelo de datos %d < %d instalado: no se puede bajar a esa versión",
+                     _model.found(), DATA_MODEL_VERSION);
+            _failed = true; _why = _msg;
+            return 0;
+        }
         _written += n;
         S().st.done = _written;          // escritura de 32 bits: no necesita el mutex
         if (_written - _logged >= 262144) {
@@ -222,10 +248,13 @@ public:
     uint32_t    written() const { return _written; }
     void finish(uint8_t out[32]) { mbedtls_sha256_finish(&_ctx, out); }
     const FwEnvScanner& env() const { return _env; }
+    const FwModelScanner& model() const { return _model; }
 
 private:
     mbedtls_sha256_context _ctx;
     FwEnvScanner _env;
+    FwModelScanner _model;
+    char        _msg[96] = {0};
     uint32_t    _written = 0;
     uint32_t    _logged  = 0;
     bool        _failed  = false;
@@ -275,7 +304,11 @@ static void do_install() {
         S().st.error[0] = '\0';
         S().st.done = 0;
         S().st.size = rel.asset_size;
+        fw_copy(S().st.target, sizeof(S().st.target), rel.tag);
     }
+    // El modelo se lee de la propia marca: así el enlazador no puede descartarla por no estar referenciada
+    APP_LOGI("FwUpdate", "Instalando %s (instalada %s, modelo de datos %s)", rel.tag, APP_VERSION,
+             fw_model_marker() + FW_MODEL_MARK_PREFIX_LEN);
 
     if (WiFi.status() != WL_CONNECTED)         { fail("Sin conexión WiFi"); return; }
     if (ESP.getMaxAllocHeap() < MIN_FREE_HEAP) {
@@ -371,6 +404,17 @@ static void do_install() {
     if (sink.env().result() == FwEnvCheck::NOT_FOUND)
         APP_LOGW("FwUpdate", "El binario no trae marca de placa (firmware anterior a 4.4.2)");
 
+    // Modelo de datos: igual o superior al instalado (sin marca = modelo de referencia). Si fuera inferior
+    // ya habría cortado la descarga en write(); esto cubre la imagen SIN marca sobre un modelo más nuevo.
+    APP_LOGI("FwUpdate", "Modelo de datos de la imagen: %d%s (instalado %d)", sink.model().effective(),
+             sink.model().found() ? "" : " (sin marca)", DATA_MODEL_VERSION);
+    if (!fw_model_allows(sink.model().effective(), DATA_MODEL_VERSION)) {
+        abort_install(true);
+        fail("Modelo de datos %d < %d instalado: no se puede bajar a esa versión",
+             sink.model().effective(), DATA_MODEL_VERSION);
+        return;
+    }
+
     // Verificar el hash ANTES de activar la imagen
     uint8_t digest[32];
     sink.finish(digest);
@@ -412,10 +456,36 @@ static bool spawn(TaskFunction_t fn, const char* name) {
 
 bool fw_update_check_async() { return spawn(check_task, "fw_check"); }
 
-bool fw_update_install_async() {
+bool fw_update_install_async(const char* tag) {
     {
         Lock l;
-        if (!S().rel_ok || S().st.state != FwState::AVAILABLE) return false;
+        // Tras un error de instalación (p. ej. modelo de datos incompatible) la lista sigue vigente: se puede elegir otra
+        const FwState s = S().st.state;
+        if (!S().rel_ok || (s != FwState::AVAILABLE && s != FwState::UP_TO_DATE && s != FwState::ERROR)) return false;
+        if (S().busy) return false;
+        const int i = (tag && *tag) ? fw_list_find(S().list, tag) : fw_list_latest(S().list);
+        if (i < 0) return false;
+        S().rel = S().list.rel[i];
+        fw_copy(S().st.target, sizeof(S().st.target), S().rel.tag);
     }
     return spawn(install_task, "fw_install");
+}
+
+int fw_update_releases(FwReleaseInfo* out, int max) {
+    Lock l;
+    const FwVersion cur = fw_parse_version(APP_VERSION);
+    int n = 0;
+    for (; n < S().list.n && n < max; n++) {
+        const FwRelease& r = S().list.rel[n];
+        FwReleaseInfo& o = out[n];
+        memset(&o, 0, sizeof(o));
+        fw_copy(o.tag, sizeof(o.tag), r.tag);
+        o.prerelease = r.prerelease;
+        o.size = r.asset_size;
+        o.has_digest = r.has_digest;
+        const int c = (cur.valid) ? fw_compare(fw_parse_version(r.tag), cur) : 1;
+        o.cmp = (int8_t)c;
+        o.installed = (cur.valid && c == 0);
+    }
+    return n;
 }

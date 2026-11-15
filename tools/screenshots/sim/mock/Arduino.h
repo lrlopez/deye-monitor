@@ -16,7 +16,8 @@ class String : public std::string { public:
   String& operator+=(char c) { push_back(c); return *this; } String& operator+=(const char* s) { append(s); return *this; }
 };
 static inline void delay(uint32_t) {}
-struct EspMock { void restart() {} } ;
+struct EspMock { void restart() {} uint32_t getFreeHeap() { return 148000; } uint32_t getMaxAllocHeap() { return 110000; }
+                 uint32_t getMinFreeHeap() { return 96000; } } ;
 extern EspMock ESP;
 #define LV_FONT_UNUSED
 extern uint32_t g_now_ms;

@@ -31,6 +31,7 @@ static lv_obj_t* find_ph(lv_obj_t* o, const char* txt) {
 }
 #include "setup_wizard.h"
 lv_obj_t* find_dropdown(lv_obj_t* o) {
+    if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return nullptr;   // las secciones de Configuración ocultas no cuentan
     if (lv_obj_check_type(o, &lv_dropdown_class)) return o;
     uint32_t n = lv_obj_get_child_count(o);
     for (uint32_t i = 0; i < n; i++) { lv_obj_t* r = find_dropdown(lv_obj_get_child(o, i)); if (r) return r; }
@@ -154,8 +155,8 @@ static void build_scene(const char* name, lv_obj_t* scr) {
     else if (!strcmp(name, "cfg_inv_scan")) {          // Configuración → Inversor con el botón de búsqueda
         config_screen_init(scr); click_label(scr, LV_SYMBOL_EDIT "  Inversor"); run(300);
     }
-    else if (!strcmp(name, "cfg_net") || !strcmp(name, "cfg_net_open")) {   // sección Red con la zona horaria
-        config_screen_init(scr); click_label(scr, LV_SYMBOL_GPS "  Red"); run(300);
+    else if (!strcmp(name, "cfg_net") || !strcmp(name, "cfg_net_open")) {   // «WiFi y red» con la zona horaria
+        config_screen_init(scr); click_label(scr, LV_SYMBOL_WIFI "  WiFi y red"); run(300);
         if (!strcmp(name, "cfg_net_open")) {
             lv_obj_t* dd = lv_obj_get_child(lv_obj_get_child(scr, 0), 0);   // se localiza abajo
             extern lv_obj_t* find_dropdown(lv_obj_t*); dd = find_dropdown(scr);
@@ -163,9 +164,9 @@ static void build_scene(const char* name, lv_obj_t* scr) {
         }
     }
     else if (!strncmp(name, "cfgs", 4)) {               // cfgs0..cfgs7 = secciones de Configuración
-        static const char* ic[] = { LV_SYMBOL_WIFI, LV_SYMBOL_EDIT, LV_SYMBOL_CHART, LV_SYMBOL_GPS,
-                                    LV_SYMBOL_BELL, LV_SYMBOL_EYE_OPEN, LV_SYMBOL_WARNING, LV_SYMBOL_TRASH };
-        static const char* ti[] = { "WiFi", "Inversor", "Gr\xC3\xA1\x66ica", "Red", "Telegram", "Pantalla", "Acceso web", "Datos" };
+        static const char* ic[] = { LV_SYMBOL_WIFI, LV_SYMBOL_EDIT, LV_SYMBOL_CHART, LV_SYMBOL_BELL,
+                                    LV_SYMBOL_EYE_OPEN, LV_SYMBOL_WARNING, LV_SYMBOL_DOWNLOAD, LV_SYMBOL_TRASH };
+        static const char* ti[] = { "WiFi y red", "Inversor", "Gr\xC3\xA1\x66ica", "Telegram", "Pantalla", "Acceso web", "Actualizaciones", "Datos" };
         config_screen_init(scr);
         const int n = atoi(name + 4);
         if (n >= 0) {
@@ -173,6 +174,19 @@ static void build_scene(const char* name, lv_obj_t* scr) {
             click_label(scr, lbl);
         }
         run(300);
+        g_now_ms += 6000; config_screen_tick(); run(100);   // IP y señal WiFi del refresco periódico
+    }
+    else if (!strncmp(name, "upd_", 4)) {               // «Actualizaciones»: upd_idle / upd_list / upd_busy / upd_error / upd_pick
+        extern int g_fw_mock;
+        config_screen_init(scr); click_label(scr, LV_SYMBOL_DOWNLOAD "  Actualizaciones"); run(300);
+        if (strcmp(name, "upd_idle")) {
+            g_fw_mock = !strcmp(name, "upd_busy") ? 2 : !strcmp(name, "upd_error") ? 3 : 1;
+            g_now_ms += 600; config_screen_tick(); run(300);
+            if (!strcmp(name, "upd_pick")) {                  // desplegable abierto con la lista de versiones
+                extern lv_obj_t* find_dropdown(lv_obj_t*); lv_obj_t* dd = find_dropdown(scr);
+                if (dd) { lv_dropdown_open(dd); run(300); }
+            }
+        }
     }
     else if (!strcmp(name, "profile")) {                // pantalla Perfil de energía
         extern bool g_rich_days; g_rich_days = true;
