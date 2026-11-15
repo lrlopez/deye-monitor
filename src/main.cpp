@@ -388,7 +388,9 @@ void setup() {
     // ─────────────────────────────────────────────────────────────────────
     
     // ── Splash screen ─────────────────────────────────────────────────────
+    print_mem_stats("antes del splash");
     splash_init();
+    print_mem_stats("splash creado");
 
         // ── LittleFS ──────────────────────────────────────────────────────────
     splash_update(SplashStep::LITTLEFS, SplashState::RUNNING);
@@ -452,6 +454,7 @@ void setup() {
                  (unsigned)(LittleFS.totalBytes() - LittleFS.usedBytes()) / 1024);
         splash_update(SplashStep::LITTLEFS, SplashState::OK, detail);
     }
+    print_mem_stats("LittleFS montado");
 
     // ── Aplicar copia de seguridad de datos pendiente (si la hay) ──────────
     // Los ficheros ".new" los deja /api/data/import (web_server.cpp) tras
@@ -510,6 +513,7 @@ void setup() {
                  (unsigned long)Store.getDailyCount());
         splash_update(SplashStep::DATASTORE, SplashState::OK, detail);
     }
+    print_mem_stats("DataStore listo");
 
     // ── PSRAM Cache ───────────────────────────────────────────────────────
     splash_update(SplashStep::PSRAM_CACHE, SplashState::RUNNING);
@@ -523,6 +527,7 @@ void setup() {
                  (unsigned long)ESP.getFreePsram() / 1024);
         splash_update(SplashStep::PSRAM_CACHE, SplashState::OK, detail);
     }
+    print_mem_stats("caché PSRAM lista");
 
     // ── Cargar config desde NVS ───────────────────────────────────────────
     Storage.loadConfig(g_cfg);
@@ -538,6 +543,7 @@ void setup() {
 #endif
     WiFi.begin(g_cfg.wifi_ssid, g_cfg.wifi_pass);
     // NO esperamos aquí — la tarea Solarman gestiona la conexión
+    print_mem_stats("WiFi iniciado");
 
     // ── NTP — la TZ ya está configurada arriba; el sync ocurre al conectar WiFi ─
     splash_update(SplashStep::NTP, SplashState::RUNNING);
@@ -608,6 +614,7 @@ void setup() {
         energy_profile_set_active(tile == g_tile_energy);
     }, LV_EVENT_VALUE_CHANGED, nullptr);
 
+    print_mem_stats("pantallas construidas");
     // ── Servidor web ──────────────────────────────────────────────────────
     // Lo arrancamos sin WiFi — empezará a responder cuando haya conexión
     splash_update(SplashStep::WEBSERVER, SplashState::RUNNING);
@@ -623,6 +630,7 @@ void setup() {
     webserver_set_data(g_mutex, &g_energy, &g_daily);
     webserver_begin();
     splash_update(SplashStep::WEBSERVER, SplashState::OK);
+    print_mem_stats("servidor web listo");
 
     // ── Telegram — solo si está configurado ───────────────────────────────
     splash_update(SplashStep::TELEGRAM, SplashState::RUNNING);
@@ -635,6 +643,7 @@ void setup() {
                       "No configurado");
     }
 
+    print_mem_stats("Telegram listo");
     // ── Tarea Solarman ────────────────────────────────────────────────────
     screen_banner_init();
     WebAlerts_init();
@@ -642,6 +651,7 @@ void setup() {
                              8192, nullptr, 1, nullptr, 0);
     mqtt_start();   // DEYE-30: vigila la configuración MQTT (no hace nada hasta que se active en /admin)
 
+    print_mem_stats("tareas lanzadas");
     // ── Transición al tileview ────────────────────────────────────────────
     // Breve pausa para que el usuario vea el estado final
     delay(800);

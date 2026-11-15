@@ -34,10 +34,11 @@ inline void psram_free(void* ptr) {
 }
 
 inline void print_mem_stats(const char* label) {
-    DBGSERIAL.printf("[MEM] %s — SRAM libre: %lu KB (bloque máx: %lu KB) | "
+    DBGSERIAL.printf("[MEM] %s — SRAM libre: %lu B (bloque máx: %lu B, mín. histórico: %lu B) | "
                   "PSRAM libre: %lu KB\n",
                   label,
-                  (unsigned long)ESP.getFreeHeap()     / 1024,
-                  (unsigned long)ESP.getMaxAllocHeap() / 1024,
+                  (unsigned long)ESP.getFreeHeap(),
+                  (unsigned long)ESP.getMaxAllocHeap(),
+                  (unsigned long)ESP.getMinFreeHeap(),
                   (unsigned long)ESP.getFreePsram()    / 1024);
 }

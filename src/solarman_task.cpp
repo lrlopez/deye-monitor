@@ -28,7 +28,8 @@ static void heap_watch() {
     const uint32_t  now  = millis();
     const uint32_t  minf = ESP.getMinFreeHeap();
     const bool new_low   = minf + 8192 <= logged_min;
-    if (!new_low && now - last_log_ms < 600000UL && last_log_ms != 0) return;
+    const uint32_t  period = (now < 300000UL) ? 10000UL : 600000UL;   // más detalle en los primeros 5 min
+    if (!new_low && now - last_log_ms < period && last_log_ms != 0) return;
     last_log_ms = now;
     if (new_low) logged_min = minf;
     APP_LOGI("Heap", "RAM interna: libre %u B, mayor bloque %u B, mínimo %u B%s",
